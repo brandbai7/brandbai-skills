@@ -17,7 +17,7 @@ Read this reference before producing an XLSX, defining a download contract, or p
 
 1. `使用说明`: creator, selection scope, counts, status, source, timestamps, and boundaries.
 2. `作品清单`: work ID, type, creator, title, publish time, interactions, selection reason, real URL, media folder, and download state.
-3. `素材明细`: one row per downloaded video/image/cover/audio file, including size and relative path.
+3. `素材明细`: one row per video/image/cover/audio asset record, including status, size, and relative path. Keep `not_available` records, but count only `downloaded` and `skipped_existing` rows with a filename as actual media files in the summary.
 
 Put title and human-readable content before audit fields. Keep IDs as text and link each media row back to its work.
 
@@ -46,15 +46,16 @@ The ordinary `评论明细` sheet prioritizes reading while retaining traceabili
 8. `作品链接`
 9. `作品ID`
 10. `评论ID`
-11. `根评论ID`
-12. `父评论ID`
-13. `层级`
-14. `IP属地`
-15. `是否置顶`
-16. `是否作者回复`
-17. `证据状态`
-18. `证据ID`
-19. `采集时间`
+11. `ID来源`
+12. `根评论ID`
+13. `父评论ID`
+14. `层级`
+15. `IP属地`
+16. `是否置顶`
+17. `是否作者回复`
+18. `证据状态`
+19. `证据ID`
+20. `采集时间`
 
 The raw `comments.csv` remains the canonical machine-readable table. Do not remove or rename its source fields when packaging the ordinary workbook.
 
@@ -62,10 +63,11 @@ The raw `comments.csv` remains the canonical machine-readable table. Do not remo
 
 - Store aweme, comment, root, parent, evidence, and semantic sample IDs as text. Verify the exported XLSX XML/cell values preserve every digit; never accept scientific-notation precision loss.
 - Store known counts as integers. Unknown counts are blank, not `-`; confirmed zero is numeric `0`.
-- Store known timestamps as actual spreadsheet date-time values and display `yyyy-mm-dd hh:mm:ss`; leave unknown timestamps blank.
+- Store known absolute timestamps as actual spreadsheet date-time values and display `yyyy-mm-dd hh:mm:ss`. If the page exposes only a relative time such as `1年前`, preserve that visible text; leave truly unknown timestamps blank.
 - Preserve the original visible comment text. Do not overwrite source text with classifications or cleaned prose.
 - Use `reply_level=0` for top-level comments and `1` for replies. Keep `viewer_comment`, `viewer_reply`, and `creator_reply` distinct.
 - Set `ID来源=platform` for platform IDs and `dom_fallback` for generated fallback IDs.
+- Keep per-work and overall platform-ID/fallback-ID counts in the quality output. A fallback ID supports stable local deduplication and traceability but is weaker than a platform ID.
 - Default commenter identity to a stable pseudonym. Raw identity requires explicit authorization and legitimate need.
 - Add clickable hyperlinks for work URLs and relative media paths while preserving their visible values.
 - Freeze the header row, enable filters, wrap long text, and use readable fixed widths. On the wide comment table, freeze the title and comment columns as well. Do not make visual styling obscure audit fields.

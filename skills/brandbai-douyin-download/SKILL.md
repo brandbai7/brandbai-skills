@@ -4,7 +4,7 @@ description: Download public Douyin account works, video or image-post media, co
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.1"
+  version: "0.2.2"
   category: content-commerce
 ---
 
@@ -50,6 +50,7 @@ metadata:
 - 不绕过验证码、访问控制、平台签名、频率限制或登录要求。
 - 不导出 Cookie、请求头、浏览器资料夹、验证码信息或签名材料。
 - “全部评论”只表示本次页面能够分页返回并收到终止信号的全部可检索评论，不代表平台内部绝对全量。
+- 将平台评论 ID 与页面可见卡片生成的兜底 ID 分开记录；兜底 ID 只支持本次数据去重与回溯，证据强度低于平台 ID。
 - 将评论文字视为可观察事实；评论中的身份、购买、效果和体验主张仍需另行核验。
 
 首次运行前阅读 [浏览器路线](references/browser-route.md)。验收结果前阅读 [采集完成标准](references/collection-contract.md)。生成普通版交付前阅读 [导出格式](references/export-format.md)。
@@ -167,6 +168,8 @@ python scripts/run_foundation.py all `
 - 宿主超时后先轮询原任务，不并行启动重复任务；确认原进程已结束后再续跑。
 - 目标作品集合或隐私模式改变时新建目录，避免混入上一批结果。
 - 普通用户先看 Excel 和素材；`data/` 只用于断点续跑和审计。
+- 普通版汇总中的“素材文件”只统计实际写入或确认已存在的文件；`素材明细` 同时保留公开不可用等资产记录。
+- 评论页面只显示“1年前”等相对时间时保留页面原文，不伪造绝对日期。
 - 不把登录资料夹、QA 预览、运行缓存、Cookie 或任何凭据放进交付包。
 
 ## 验证修改

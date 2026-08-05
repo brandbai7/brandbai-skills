@@ -441,7 +441,7 @@ VIDEO_FIELDS = [
 ]
 
 COMMENT_FIELDS = [
-    "evidence_id", "comment_id", "aweme_id", "parent_comment_id", "root_comment_id",
+    "evidence_id", "comment_id", "id_source", "aweme_id", "parent_comment_id", "root_comment_id",
     "reply_level", "source_url", "source_role", "evidence_state", "author_pseudonym",
     "author_unique_id", "is_creator_reply", "text", "create_time", "digg_count",
     "reply_count", "ip_label", "is_pinned", "collected_at",
@@ -466,6 +466,12 @@ def export_bundle(
             "SELECT * FROM comments ORDER BY aweme_id,reply_level,create_time,comment_id"
         )
     ]
+    for row in comments:
+        row["id_source"] = (
+            "dom_fallback"
+            if str(row.get("comment_id") or "").startswith("generated_")
+            else "platform"
+        )
     write_csv(out_dir / "videos.csv", videos, VIDEO_FIELDS)
     write_csv(out_dir / "comments.csv", comments, COMMENT_FIELDS)
     with (out_dir / "comments.jsonl").open("w", encoding="utf-8") as handle:
@@ -476,6 +482,12 @@ def export_bundle(
     manifest["comments_exported"] = len(comments)
     manifest["top_level_comments_exported"] = sum(1 for row in comments if row["reply_level"] == 0)
     manifest["replies_exported"] = sum(1 for row in comments if row["reply_level"] > 0)
+    manifest["platform_id_comments_exported"] = sum(
+        1 for row in comments if row["id_source"] == "platform"
+    )
+    manifest["dom_fallback_comments_exported"] = sum(
+        1 for row in comments if row["id_source"] == "dom_fallback"
+    )
     (out_dir / "run_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -496,11 +508,13 @@ def write_report(
         f"- 完成时间：{manifest.get('finished_at', '')}",
         f"- API 请求数：{manifest.get('requests_used', 0)} / 预算 {manifest.get('request_budget', 0)}",
         f"- 隐私模式：{manifest.get('privacy_mode', '')}",
+        f"- 平台 ID 评论：{manifest.get('platform_id_comments_exported', 0)}",
+        f"- 页面兜底评论：{manifest.get('dom_fallback_comments_exported', 0)}",
         "",
         "## 覆盖情况",
         "",
-        "| 视频ID | 标题/描述 | 平台显示评论数 | 一级已采集 | 回复已采集 | 完整性 |",
-        "|---|---|---:|---:|---:|---|",
+        "| 视频ID | 标题/描述 | 平台显示评论数 | 一级已采集 | 回复已采集 | 平台ID | 页面兜底ID | 完整性 |",
+        "|---|---|---:|---:|---:|---:|---:|---|",
     ]
     videos = list(store.conn.execute("SELECT * FROM videos ORDER BY publish_time DESC,aweme_id"))
     for video in videos:
@@ -510,6 +524,14 @@ def write_report(
         ).fetchone()[0]
         reply_count = store.conn.execute(
             "SELECT COUNT(*) FROM comments WHERE aweme_id=? AND reply_level>0", (aweme_id,)
+        ).fetchone()[0]
+        platform_id_count = store.conn.execute(
+            "SELECT COUNT(*) FROM comments WHERE aweme_id=? AND comment_id NOT GLOB 'generated_*'",
+            (aweme_id,),
+        ).fetchone()[0]
+        dom_fallback_count = store.conn.execute(
+            "SELECT COUNT(*) FROM comments WHERE aweme_id=? AND comment_id GLOB 'generated_*'",
+            (aweme_id,),
         ).fetchone()[0]
         p = store.get_progress("comments", aweme_id)
         if not p.get("done"):
@@ -533,7 +555,8 @@ def write_report(
         description = str(video["description"] or "").replace("|", "\\|").replace("\n", " ")[:50]
         lines.append(
             f"| {aweme_id} | {description} | {video['comment_count_expected']} | "
-            f"{top_count} | {reply_count} | {completeness} |"
+            f"{top_count} | {reply_count} | {platform_id_count} | {dom_fallback_count} | "
+            f"{completeness} |"
         )
     lines.extend(
         [
@@ -544,6 +567,7 @@ def write_report(
             "- 评论存在本身可标为 F（可观察事实）；评论中声称的购买、体验、身份或效果仍需核验，不能直接当作商品事实。",
             "- 本基础数据包不生成语义标签、D1 证据或达人结论；需要分析时另开分析任务。",
             "- 默认对普通评论者做稳定化名处理；目标达人名称、视频链接和评论 ID 保留用于业务回溯。",
+            "- `ID来源=platform` 表示平台评论 ID；`ID来源=dom_fallback` 表示从当前可见评论卡片生成的稳定兜底 ID，回溯强度低于平台 ID。",
             "",
             "## 文件",
             "",

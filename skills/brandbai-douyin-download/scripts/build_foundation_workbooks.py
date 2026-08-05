@@ -88,6 +88,23 @@ def as_datetime(value: Any) -> datetime | None:
     return parsed
 
 
+def as_datetime_or_visible_text(value: Any) -> datetime | str | None:
+    """Keep page-visible relative times when they cannot be parsed as absolute dates."""
+    parsed = as_datetime(value)
+    if parsed is not None:
+        return parsed
+    text = str(value or "").strip()
+    return text or None
+
+
+def id_source(row: dict[str, Any]) -> str:
+    explicit = str(row.get("id_source") or "").strip()
+    if explicit in {"platform", "dom_fallback"}:
+        return explicit
+    comment_id = str(row.get("comment_id") or "")
+    return "dom_fallback" if comment_id.startswith("generated_") else "platform"
+
+
 def yes_no(value: Any) -> str:
     return "是" if value is True or str(value).strip().lower() in {"1", "true", "yes"} else "否"
 
@@ -284,7 +301,7 @@ def workbook_properties(book: Workbook, title: str) -> None:
 
 def build_works_book(
     works: list[dict[str, Any]], works_manifest: dict[str, Any], output_path: Path
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     creator = str(works[0].get("author") or "未知达人") if works else "未知达人"
     book = Workbook()
     intro = book.active
@@ -319,7 +336,8 @@ def build_works_book(
 
     asset_headers = ["作品ID", "标题", "资产类型", "序号", "文件名", "状态", "字节数", "大小(MB)", "本地相对路径"]
     asset_list.append(asset_headers)
-    asset_count = 0
+    asset_record_count = 0
+    media_file_count = 0
     for work in works:
         downloads = work.get("downloads") if isinstance(work.get("downloads"), dict) else {}
         entries: list[tuple[str, int, dict[str, Any]]] = []
@@ -339,13 +357,15 @@ def build_works_book(
                 str(work.get("aweme_id") or ""), work.get("title") or "", kind, index, file_name,
                 asset_status(item), byte_count, round(byte_count / 1024 / 1024, 2), relative,
             ])
-            asset_count += 1
+            asset_record_count += 1
+            if file_name and str(item.get("status") or "") in {"downloaded", "skipped_existing"}:
+                media_file_count += 1
     style_data_sheet(
-        asset_list, 9, asset_count, widths=[22, 52, 12, 8, 18, 12, 14, 12, 54],
+        asset_list, 9, asset_record_count, widths=[22, 52, 12, 8, 18, 12, 14, 12, 54],
         wrap_columns=[2, 9], integer_columns=[7], decimal_columns=[8], text_columns=[1],
         table_name="AssetsTable", table_style="TableStyleMedium4",
     )
-    style_hyperlink_column(asset_list, asset_count, 9, relative_local_path=True)
+    style_hyperlink_column(asset_list, asset_record_count, 9, relative_local_path=True)
 
     intro.sheet_view.showGridLines = False
     style_title(intro, f"BrandBAI 抖音作品采集｜{creator}")
@@ -358,7 +378,7 @@ def build_works_book(
             sum(1 for row in works if row.get("selection_reason") == "最近"),
             sum(1 for row in works if row.get("download_status") == "完成"),
             sum(1 for row in works if row.get("type") == "视频"),
-            sum(1 for row in works if row.get("type") == "图文"), asset_count,
+            sum(1 for row in works if row.get("type") == "图文"), media_file_count,
         ],
     )
     style_notes(intro, 13, [
@@ -377,7 +397,7 @@ def build_works_book(
     set_dimensions(intro, [22, 28, 18, 18, 18, 18])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     book.save(output_path)
-    return len(works), asset_count
+    return len(works), asset_record_count, media_file_count
 
 
 def build_comments_book(
@@ -406,7 +426,7 @@ def build_comments_book(
 
     detail_headers = [
         "作品标题", "评论内容", "评论人", "评论时间", "点赞数", "回复数", "评论角色", "作品链接", "作品ID",
-        "评论ID", "根评论ID", "父评论ID", "层级", "IP属地", "是否置顶", "是否作者回复", "证据状态", "证据ID", "采集时间",
+        "评论ID", "ID来源", "根评论ID", "父评论ID", "层级", "IP属地", "是否置顶", "是否作者回复", "证据状态", "证据ID", "采集时间",
     ]
     comment_list.append(detail_headers)
     detail_rows: list[list[Any]] = []
@@ -414,10 +434,10 @@ def build_comments_book(
         work = work_by_id.get(str(comment.get("aweme_id") or ""), {})
         row = [
             work.get("title") or "", comment.get("text") or "", comment.get("author_pseudonym") or "",
-            as_datetime(comment.get("create_time")), as_number(comment.get("digg_count"), 0),
+            as_datetime_or_visible_text(comment.get("create_time")), as_number(comment.get("digg_count"), 0),
             as_number(comment.get("reply_count"), 0), source_role(comment.get("source_role")),
             comment.get("source_url") or work.get("source_url") or "", str(comment.get("aweme_id") or ""),
-            str(comment.get("comment_id") or ""), str(comment.get("root_comment_id") or ""),
+            str(comment.get("comment_id") or ""), id_source(comment), str(comment.get("root_comment_id") or ""),
             str(comment.get("parent_comment_id") or ""), as_number(comment.get("reply_level"), 0),
             comment.get("ip_label") or "", yes_no(comment.get("is_pinned")),
             yes_no(comment.get("is_creator_reply")), comment.get("evidence_state") or "",
@@ -426,9 +446,9 @@ def build_comments_book(
         comment_list.append(row)
         detail_rows.append(row)
     style_data_sheet(
-        comment_list, 19, len(detail_rows), widths=[48, 58, 18, 20, 11, 11, 12, 42, 22, 22, 22, 22, 8, 12, 10, 12, 10, 30, 20],
-        wrap_columns=[1, 2, 8], date_columns=[4, 19], integer_columns=[5, 6, 13],
-        text_columns=[9, 10, 11, 12, 18], row_height=34, table_name="CommentsTable",
+        comment_list, 20, len(detail_rows), widths=[48, 58, 18, 20, 11, 11, 12, 42, 22, 22, 14, 22, 22, 8, 12, 10, 12, 10, 30, 20],
+        wrap_columns=[1, 2, 8], date_columns=[4, 20], integer_columns=[5, 6, 14],
+        text_columns=[9, 10, 11, 12, 13, 19], row_height=34, table_name="CommentsTable",
         freeze_panes="C2",
     )
     style_hyperlink_column(comment_list, len(detail_rows), 8)
@@ -465,16 +485,22 @@ def build_comments_book(
     )
     datatool.sheet_properties.tabColor = TEAL
 
-    quality.append(["作品ID", "标题", "一级分页", "一级评论", "回复", "是否请求回复", "整体状态", "重试", "崩溃", "备注"])
+    quality.append([
+        "作品ID", "标题", "一级分页", "一级评论", "回复", "平台ID评论", "页面兜底评论",
+        "是否请求回复", "整体状态", "重试", "崩溃", "备注",
+    ])
     quality_rows: list[list[Any]] = []
     for work in works:
         rows = comments_by_work.get(str(work.get("aweme_id") or ""), [])
         top = sum(1 for row in rows if int(as_number(row.get("reply_level"), 0) or 0) == 0)
         replies = len(rows) - top
+        platform_ids = sum(1 for item in rows if id_source(item) == "platform")
+        dom_fallback_ids = len(rows) - platform_ids
         row = [
             str(work.get("aweme_id") or ""), work.get("title") or "",
             "已终止" if completion == "完整" else "未完全验证", top, replies,
-            "是" if include_replies else "否", display_status(comments_manifest.get("status")),
+            platform_ids, dom_fallback_ids, "是" if include_replies else "否",
+            display_status(comments_manifest.get("status")),
             int(as_number(comments_manifest.get("worker_page_retries"), 0) or 0),
             int(as_number(comments_manifest.get("worker_page_crashes"), 0) or 0),
             "按回复完成状态判断" if include_replies else "只验收一级评论",
@@ -482,8 +508,8 @@ def build_comments_book(
         quality.append(row)
         quality_rows.append(row)
     style_data_sheet(
-        quality, 10, len(quality_rows), widths=[22, 52, 14, 12, 12, 14, 28, 10, 10, 24],
-        wrap_columns=[2, 7, 10], integer_columns=[4, 5, 8, 9], text_columns=[1],
+        quality, 12, len(quality_rows), widths=[22, 52, 14, 12, 12, 13, 14, 14, 28, 10, 10, 24],
+        wrap_columns=[2, 9, 12], integer_columns=[4, 5, 6, 7, 10, 11], text_columns=[1],
     )
     if quality_rows:
         quality.conditional_formatting.add(
@@ -498,8 +524,9 @@ def build_comments_book(
     dictionary_rows = [
         ["字段", "类型", "含义", "空值口径"],
         ["作品ID/评论ID/证据ID", "文本", "平台或证据追踪标识", "未知时留空，不转科学计数法"],
+        ["ID来源", "分类", "platform 为平台 ID，dom_fallback 为页面可见卡片生成的兜底 ID", "未知时按评论ID规则推断"],
         ["评论内容", "文本", "本次页面可见的原始评论文字", "空文本保留"],
-        ["评论时间/采集时间", "日期时间", "平台时间与本次采集时间", "未知时留空"],
+        ["评论时间/采集时间", "日期时间或可见文本", "平台时间与本次采集时间", "相对时间保留页面原文；未知时留空"],
         ["点赞数/回复数", "整数", "页面返回的互动数量", "确认无互动为 0，未知时留空"],
         ["层级", "整数", "0 为一级评论，1 为回复", "未知时留空"],
         ["评论角色", "分类", "用户评论、用户回复或作者回复", "未知时留空"],
@@ -514,13 +541,14 @@ def build_comments_book(
 
     top_level = sum(1 for row in comments if int(as_number(row.get("reply_level"), 0) or 0) == 0)
     replies = len(comments) - top_level
+    dom_fallback_total = sum(1 for row in comments if id_source(row) == "dom_fallback")
     intro.sheet_view.showGridLines = False
     style_title(intro, f"BrandBAI 抖音评论采集｜{creator}")
     style_summary(
         intro, 3,
-        ["入选作品", "一级评论", "二级回复", "完成作品", "任务状态", "页面重试", "页面崩溃"],
+        ["入选作品", "一级评论", "二级回复", "页面兜底评论", "完成作品", "任务状态", "页面重试", "页面崩溃"],
         [
-            len(video_rows), top_level, replies,
+            len(video_rows), top_level, replies, dom_fallback_total,
             sum(1 for row in video_rows if row[8] == "完整"), display_status(comments_manifest.get("status")),
             int(as_number(comments_manifest.get("worker_page_retries"), 0) or 0),
             int(as_number(comments_manifest.get("worker_page_crashes"), 0) or 0),
@@ -530,6 +558,7 @@ def build_comments_book(
         "“全部评论”指采集时点普通登录页面能够分页返回、且本次收到终止信号的全部可检索评论，不代表平台内部绝对全量。",
         "本次请求二级回复；整体完整性同时受回复楼层完成状态约束。" if include_replies else "本次只采一级评论，二级回复没有展开，也不计入一级评论数量。",
         "普通评论者默认使用稳定化名；作品、评论和证据 ID 保留用于去重与回溯。",
+        "ID来源=platform 表示平台评论 ID；ID来源=dom_fallback 表示页面可见卡片生成的稳定兜底 ID，回溯强度较低。",
         "评论文字的存在可作为可观察事实；评论中的购买、效果、身份或体验主张仍需另行核验。",
         "DataTool兼容表是导出时点的静态查看快照；如需修改数据，请以评论明细和 data 原始文件为准并重新生成。",
         "本文件不包含语义分析、达人画像、商品匹配或商业结论。",
@@ -560,7 +589,7 @@ def workbook_qa(paths: list[Path]) -> dict[str, Any]:
             id_columns = {
                 cell.column
                 for cell in sheet[1]
-                if isinstance(cell.value, str) and "ID" in cell.value.upper()
+                if isinstance(cell.value, str) and cell.value.strip().upper().endswith("ID")
             }
             for row in sheet.iter_rows():
                 for cell in row:
@@ -664,7 +693,9 @@ def main(argv: list[str] | None = None) -> int:
 
     works_output = output_dir / "01_作品清单.xlsx"
     comments_output = output_dir / "02_评论明细.xlsx"
-    works_count, asset_count = build_works_book(works, works_manifest, works_output)
+    works_count, asset_record_count, media_file_count = build_works_book(
+        works, works_manifest, works_output
+    )
     top_level, replies = build_comments_book(works, comments, comments_manifest, comments_output)
     creator = str(works[0].get("author") or "未知达人") if works else "未知达人"
     build_explanation(
@@ -677,7 +708,8 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({
         "creator": creator,
         "works": works_count,
-        "assets": asset_count,
+        "assets": media_file_count,
+        "assetRecords": asset_record_count,
         "comments": len(comments),
         "topLevel": top_level,
         "replies": replies,

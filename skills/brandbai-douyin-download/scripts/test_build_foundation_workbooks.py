@@ -93,6 +93,25 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                     "evidence_id": "DY-C-7551794579813502262001",
                     "collected_at": "2026-08-01T12:00:00+08:00",
                 })
+                writer.writerow({
+                    "aweme_id": "7551794579813502262",
+                    "comment_id": "generated_fallback001",
+                    "root_comment_id": "generated_fallback001",
+                    "reply_level": "0",
+                    "text": "这条评论用于验证相对时间和兜底 ID。",
+                    "author_pseudonym": "用户_002",
+                    "create_time": "1年前",
+                    "digg_count": "1",
+                    "reply_count": "0",
+                    "source_role": "viewer_comment",
+                    "source_url": "https://www.douyin.com/video/7551794579813502262",
+                    "ip_label": "广东",
+                    "is_pinned": "0",
+                    "is_creator_reply": "0",
+                    "evidence_state": "F",
+                    "evidence_id": "DY-C-generated_fallback001",
+                    "collected_at": "2026-08-01T12:00:00+08:00",
+                })
             comments_manifest_path.write_text(json.dumps({
                 "include_replies": False,
                 "status": "complete_source_visible",
@@ -118,6 +137,7 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             self.assertTrue(works_book["作品清单"]["A2"].quotePrefix)
             self.assertEqual(works_book["作品清单"]["E2"].value.hour, 10)
             self.assertEqual(works_book["使用说明"]["B6"].value, 0)
+            self.assertEqual(works_book["使用说明"]["B11"].value, 2)
             self.assertEqual(works_book["使用说明"]["B21"].value, "完成")
             self.assertIn("WorksTable", works_book["作品清单"].tables)
             self.assertEqual(
@@ -135,16 +155,24 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             self.assertEqual(comments_book["评论明细"]["J2"].value, "7551794579813502262001")
             self.assertEqual(comments_book["评论明细"]["J2"].number_format, "@")
             self.assertTrue(comments_book["评论明细"]["J2"].quotePrefix)
+            self.assertEqual(comments_book["评论明细"]["K2"].value, "platform")
+            self.assertEqual(comments_book["评论明细"]["K3"].value, "dom_fallback")
             self.assertEqual(comments_book["评论明细"]["D2"].value.hour, 11)
+            self.assertEqual(comments_book["评论明细"]["D3"].value, "1年前")
+            self.assertEqual(comments_book["DataTool兼容"]["C3"].value, "1年前")
             self.assertEqual(comments_book["DataTool兼容"]["A2"].value, "这条评论用于验证普通版导出。")
             self.assertIn("DataToolView", comments_book["DataTool兼容"].tables)
             self.assertEqual(comments_book["评论明细"].freeze_panes, "C2")
             self.assertIsNotNone(comments_book["评论明细"]["H2"].hyperlink)
             self.assertIsNotNone(comments_book["视频清单"]["E2"].hyperlink)
-            self.assertIn("静态查看快照", comments_book["导出说明"]["A17"].value)
-            self.assertEqual(comments_book["导出说明"]["B8"].value, "一级评论完整")
-            self.assertEqual(comments_book["采集质量"]["G2"].value, "一级评论完整")
+            self.assertIn("静态查看快照", comments_book["导出说明"]["A18"].value)
+            self.assertEqual(comments_book["导出说明"]["B7"].value, 1)
+            self.assertEqual(comments_book["导出说明"]["B9"].value, "一级评论完整")
+            self.assertEqual(comments_book["采集质量"]["F2"].value, 1)
+            self.assertEqual(comments_book["采集质量"]["G2"].value, 1)
+            self.assertEqual(comments_book["采集质量"]["I2"].value, "一级评论完整")
             self.assertIn("CommentsTable", comments_book["评论明细"].tables)
+            self.assertEqual(comments_book["评论明细"].tables["CommentsTable"].ref, "A1:T3")
             comments_book.close()
 
             qa = json.loads((qa_dir / "workbook_qa.json").read_text(encoding="utf-8"))

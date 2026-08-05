@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import csv
 import json
 import shutil
 import subprocess
@@ -30,7 +31,7 @@ from browser_collect_comments import (  # noqa: E402
     wait_for_comment_surface,
     work_seed,
 )
-from collector_core import CommentStore  # noqa: E402
+from collector_core import CommentStore, export_bundle  # noqa: E402
 
 
 @contextmanager
@@ -376,6 +377,69 @@ class BrowserCollectorTests(unittest.TestCase):
             ).fetchone()
             self.assertEqual(video["source_url"], note_url)
             self.assertEqual(comment["source_url"], note_url)
+            store.close()
+
+    def test_export_discloses_platform_and_dom_fallback_id_sources(self):
+        with workspace_temp() as temp:
+            out_dir = temp / "out"
+            out_dir.mkdir()
+            store = CommentStore(temp / "comments.sqlite3", "hash")
+            aweme_id = "7000000000000000001"
+            store.upsert_video({
+                "aweme_id": aweme_id,
+                "description": "合成测试作品",
+                "statistics": {"comment_count": 2},
+            })
+            store.upsert_comment(
+                {
+                    "cid": "platform-c1",
+                    "text": "平台 ID 评论",
+                    "user": {"sec_uid": "platform-user"},
+                },
+                aweme_id,
+            )
+            generated_id = store.upsert_comment(
+                {
+                    "text": "页面兜底评论",
+                    "create_time": "1年前",
+                    "user": {"nickname": "页面用户"},
+                },
+                aweme_id,
+            )
+            self.assertTrue(generated_id.startswith("generated_"))
+            store.set_progress("comments", aweme_id, 0, True, {"done_reason": "exhausted"})
+            manifest = {
+                "status": "complete_source_visible",
+                "provider": PROVIDER,
+                "privacy_mode": "hash",
+                "requests_used": 1,
+                "request_budget": 10,
+            }
+            export_bundle(store, out_dir, manifest, include_replies=False)
+
+            with (out_dir / "comments.csv").open(encoding="utf-8-sig", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(
+                {row["id_source"] for row in rows},
+                {"platform", "dom_fallback"},
+            )
+            jsonl_rows = [
+                json.loads(line)
+                for line in (out_dir / "comments.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                {row["id_source"] for row in jsonl_rows},
+                {"platform", "dom_fallback"},
+            )
+            exported_manifest = json.loads(
+                (out_dir / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(exported_manifest["platform_id_comments_exported"], 1)
+            self.assertEqual(exported_manifest["dom_fallback_comments_exported"], 1)
+            report = (out_dir / "collection_report.md").read_text(encoding="utf-8")
+            self.assertIn("平台 ID 评论：1", report)
+            self.assertIn("页面兜底评论：1", report)
+            self.assertIn("| 1 | 1 | 一级评论分页完成；未采二级回复 |", report)
             store.close()
 
     def test_reconcile_removes_dom_row_when_platform_row_arrived_first(self):
