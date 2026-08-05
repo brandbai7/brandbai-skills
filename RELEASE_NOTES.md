@@ -1,6 +1,6 @@
-# BrandBAI Douyin Download 0.2.3
+# BrandBAI Douyin Download 0.2.4
 
-这是第三轮 WorkBuddy 真实页面验收后的浏览器会话与审计修正版。
+这是 v0.2.3 单浏览器真实页面验收后的会话收尾与评论口径修正版。
 
 ## 能力
 
@@ -10,22 +10,20 @@
 - 生成 `01_作品清单.xlsx`、`02_评论明细.xlsx`、作品素材和采集说明；
 - 保留断点续跑、去重、隐私模式和采集完整性状态。
 
-## 本次改进
+## 本次修复
 
-- `all` 模式改为作品与评论阶段共用一个可见的持久 Chrome 上下文，不再在两阶段之间关闭并重新启动浏览器；
-- 评论阶段继续复用同一个工作标签页，只有页面崩溃或导航中断时才重建；
-- Dry Run 明确回显 `privacy_mode`、单一浏览器会话计划和运行轨迹位置；
-- `download_manifest.json` 与 `run_manifest.json` 增加浏览器上下文模式及启动归属字段；
-- `all` 默认保存 `data/browser_session_trace.jsonl`，评论阶段默认保存 `browser_runtime_trace.jsonl`，用于核对阶段顺序、退出状态和采集事件；
-- 运行轨迹不包含 Cookie、请求头、验证码、浏览器资料夹或签名材料；界面样本与截图仍只在显式诊断模式下保存。
+- 评论阶段正常完成时不再提前关闭最后一个工作标签页；由 `all` 统一入口只关闭一次浏览器上下文，避免会话轨迹出现重复关闭产生的 `TargetClosedError`；
+- 崩溃恢复仍会关闭并替换异常工作标签页，不改变断点、重试和后续作品继续处理逻辑；
+- `collection_report.md` 新增“一级声明回复数”，将平台显示评论数、一级已采集、回复数字段和实际回复采集量分开报告；
+- 普通版 Excel、`04_采集说明.md`、Skill 与导出规范同步说明：页面评论总数可能包含一级评论和回复，一级评论的回复数字段不等于已采集回复。
 
 ## 验收口径
 
-- 单次 `all` 正式运行应只调用一次 `launch_persistent_context`；
-- 作品与评论 manifest 都应标记 `browser_context_mode=shared_all_context`；
-- `browser_session_trace.jsonl` 应依次出现会话开始、作品阶段、评论阶段和会话结束；
+- 单次 `all` 正式运行只调用一次 `launch_persistent_context`；
+- 作品与评论 manifest 均标记 `browser_context_mode=shared_all_context`；
+- `browser_session_trace.jsonl` 依次出现会话开始、作品阶段、评论阶段和会话结束；正常结束时 `close_error_type` 为空；
 - 一级评论只有收到明确分页终止信号时才能标记 `complete_source_visible`；
-- 二级回复没有开启时，`replies=0` 只表示未采集，不表示作品没有回复。
+- 二级回复未开启时，`replies=0` 只表示未采集，不表示作品没有回复。
 
 ## 安装包
 
