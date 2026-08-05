@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI 抖音批量下载"
+  short_description: "批量下载抖音作品、视频图文和评论，生成可续跑交付"
+  default_prompt: "Use $brandbai-douyin-download to download a Douyin account's visible pinned plus recent works, media, metadata, and retrievable top-level comments, then create the ordinary BrandBAI delivery without analysis."
