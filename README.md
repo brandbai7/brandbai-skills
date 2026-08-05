@@ -51,6 +51,8 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 如果宿主不支持网页唤起，也可以从 [最新 GitHub Release](https://github.com/brandbai7/brandbai-skills/releases/latest) 下载 `brandbai-douyin-download.zip` 手动安装。压缩包根目录直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。
 
+首次安装、环境检查、常用任务话术和转发说明见 [BrandBAI 抖音下载 Skill 安装与使用说明](DOUYIN_DOWNLOAD_USER_GUIDE.md)。
+
 ## Why BrandBAI
 
 - **Content-commerce first**：围绕达人、内容、商品、用户表达和交易承接设计，不做泛化工具堆砌。
@@ -92,6 +94,8 @@ python -m unittest test_download_creator_works.py test_browser_collect_comments.
 ## License and brand
 
 代码与公开 Skill 内容采用 [PolyForm Noncommercial License 1.0.0](LICENSE)，免费授权仅覆盖该许可证定义的非商业用途。企业内部使用、客户交付、收费服务、插件、SaaS、数据服务及其他预期商业用途需要单独取得 [书面商业授权](COMMERCIAL_LICENSING.md)。
+
+BrandBAI 商业授权由 **杭州岂飞品牌管理有限公司**（统一社会信用代码：`91330109MAEPG1CB16`，对外品牌：`布兰德老白 BrandBAI`）统一签发，指定联系邮箱为 **brandlaobai@163.com**。
 
 项目使用的第三方依赖仍分别遵守其原始许可证，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
