@@ -22,6 +22,15 @@ class FoundationError(RuntimeError):
     pass
 
 
+def configure_output() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
+
+
 def unique_work_urls(values: Iterable[str]) -> list[str]:
     output: list[str] = []
     seen: set[str] = set()
@@ -230,6 +239,7 @@ def run_all(
     scripts_dir: Path | None = None,
     runner: Any = subprocess.run,
 ) -> int:
+    configure_output()
     scripts_dir = scripts_dir or Path(__file__).resolve().parent
     if args.recent < 0:
         raise FoundationError("--recent cannot be negative")
@@ -328,8 +338,7 @@ def run_all(
 
 
 def main(argv: list[str] | None = None) -> int:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    configure_output()
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable
@@ -31,6 +32,15 @@ WHITE = "FFFFFF"
 FONT_NAME = "Microsoft YaHei"
 THIN = Side(style="thin", color=BORDER)
 CHINA_TZ = timezone(timedelta(hours=8))
+
+
+def configure_output() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
 
 
 def load_json(path: Path) -> Any:
@@ -577,6 +587,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_output()
     args = build_parser().parse_args(argv)
     works_path = Path(args.works_json).expanduser().resolve()
     works_manifest_path = Path(args.works_manifest).expanduser().resolve()
