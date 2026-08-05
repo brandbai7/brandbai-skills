@@ -1,0 +1,35 @@
+name: release-skill
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build standalone Skill package
+        run: >-
+          python scripts/build_skill_release.py
+          --skill-dir skills/brandbai-douyin-download
+          --dist dist
+          --tag "${GITHUB_REF_NAME}"
+      - name: Publish GitHub Release
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/brandbai-douyin-download.zip
+          dist/brandbai-douyin-download.zip.sha256
+          --verify-tag
+          --title "BrandBAI Douyin Download ${GITHUB_REF_NAME}"
+          --notes-file RELEASE_NOTES.md

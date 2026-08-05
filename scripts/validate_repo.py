@@ -20,6 +20,7 @@ REQUIRED_ROOT_FILES = {
     "IP_AND_DATA_POLICY.md",
     "LICENSE",
     "README.md",
+    "RELEASE_NOTES.md",
     "THIRD_PARTY_NOTICES.md",
     "TRADEMARKS.md",
 }

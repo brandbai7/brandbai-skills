@@ -43,6 +43,14 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 包括视频、图文、封面、可用原声和全部可检索一级评论，生成 BrandBAI 普通版交付。
 ```
 
+### WorkBuddy 一键安装
+
+腾讯 WorkBuddy 用户可点击下面的链接唤起自定义 Skill 安装：
+
+[在 WorkBuddy 安装 brandbai-douyin-download](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Flatest%2Fdownload%2Fbrandbai-douyin-download.zip&channelType=github)
+
+如果宿主不支持网页唤起，也可以从 [最新 GitHub Release](https://github.com/brandbai7/brandbai-skills/releases/latest) 下载 `brandbai-douyin-download.zip` 手动安装。压缩包根目录直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。
+
 ## Why BrandBAI
 
 - **Content-commerce first**：围绕达人、内容、商品、用户表达和交易承接设计，不做泛化工具堆砌。
@@ -74,6 +82,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 ```bash
 python -m pip install -r requirements-dev.txt
 python scripts/validate_repo.py
+python -m unittest scripts/test_build_skill_release.py
 cd skills/brandbai-douyin-download/scripts
 python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_build_foundation_workbooks.py
 ```

@@ -8,6 +8,7 @@ venv/
 outputs/
 data/
 media/
+dist/
 *.sqlite3
 *.xlsx
 *.jsonl
