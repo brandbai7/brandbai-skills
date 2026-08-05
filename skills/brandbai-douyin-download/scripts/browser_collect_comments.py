@@ -1673,11 +1673,10 @@ def collect_with_context(
             manifest["warnings"].append(
                 f"Login is required to expand all comments/replies for video {aweme_id}"
             )
-    if worker_page is not None:
-        try:
-            worker_page.close()
-        except Exception:
-            pass
+    # The caller owns the browser context and its final page. Closing the last
+    # persistent-context page here can close Chrome before the caller records
+    # and performs the single session shutdown. Crash-recovery pages are still
+    # closed above when they are replaced.
     manifest["status"] = "complete_source_visible"
     for video_url in video_urls:
         aweme_id = video_id_from(video_url)

@@ -104,6 +104,73 @@ class BrowserCollectorTests(unittest.TestCase):
             self.assertEqual(manifest["browser_launches_owned"], 0)
             self.assertTrue((temp / "out" / "browser_runtime_trace.jsonl").is_file())
 
+    def test_collect_with_context_leaves_final_worker_page_for_context_owner(self):
+        class FakePage:
+            def __init__(self):
+                self.closed = False
+                self.listeners = []
+
+            def set_default_timeout(self, _milliseconds):
+                return None
+
+            def on(self, event, _callback):
+                self.listeners.append(event)
+
+            def is_closed(self):
+                return self.closed
+
+            def close(self):
+                self.closed = True
+
+        page = FakePage()
+
+        class FakeContext:
+            pages = [page]
+
+            def new_page(self):
+                raise AssertionError("the existing worker page should be reused")
+
+        args = SimpleNamespace(
+            page_timeout=10,
+            video=["https://www.douyin.com/video/10000000001"],
+            creator=None,
+            videos=1,
+            scroll_delay=0.1,
+            idle_rounds=1,
+            login_wait=0,
+            include_replies=False,
+            max_comments_per_video=0,
+            reply_batch_size=1,
+            reply_sweeps=1,
+        )
+        store = SimpleNamespace(
+            get_progress=lambda *_args: {
+                "done": True,
+                "meta": {"done_reason": "exhausted"},
+            }
+        )
+        capture = SimpleNamespace(on_response=lambda *_args: None)
+        manifest = {
+            "warnings": [],
+            "worker_pages_created": 0,
+            "worker_page_retries": 0,
+            "worker_page_crashes": 0,
+        }
+        with patch.object(collector_module, "collect_video_ui", return_value=None):
+            result = collector_module.collect_with_context(
+                FakeContext(),
+                args,
+                [],
+                store,
+                ActionBudget(10),
+                capture,
+                manifest,
+            )
+        self.assertEqual(result, 0)
+        self.assertFalse(page.closed)
+        self.assertIn("response", page.listeners)
+        self.assertIn("crash", page.listeners)
+
     def test_runtime_event_is_written_to_trace_without_enabling_diagnostic_samples(self):
         with workspace_temp() as temp:
             trace = temp / "browser_runtime_trace.jsonl"
@@ -452,12 +519,13 @@ class BrowserCollectorTests(unittest.TestCase):
             store.upsert_video({
                 "aweme_id": aweme_id,
                 "description": "合成测试作品",
-                "statistics": {"comment_count": 2},
+                "statistics": {"comment_count": 3},
             })
             store.upsert_comment(
                 {
                     "cid": "platform-c1",
                     "text": "平台 ID 评论",
+                    "reply_count": 1,
                     "user": {"sec_uid": "platform-user"},
                 },
                 aweme_id,
@@ -503,7 +571,9 @@ class BrowserCollectorTests(unittest.TestCase):
             report = (out_dir / "collection_report.md").read_text(encoding="utf-8")
             self.assertIn("平台 ID 评论：1", report)
             self.assertIn("页面兜底评论：1", report)
-            self.assertIn("| 1 | 1 | 一级评论分页完成；未采二级回复 |", report)
+            self.assertIn("一级声明回复数", report)
+            self.assertIn("| 2 | 1 | 0 | 1 | 1 | 一级评论分页完成；未采二级回复 |", report)
+            self.assertIn("不等于本次实际采集的回复", report)
             store.close()
 
     def test_reconcile_removes_dom_row_when_platform_row_arrived_first(self):

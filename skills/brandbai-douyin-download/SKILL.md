@@ -4,7 +4,7 @@ description: Download public Douyin account works, video or image-post media, co
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.3"
+  version: "0.2.4"
   category: content-commerce
 ---
 
@@ -129,6 +129,8 @@ python scripts/run_foundation.py all `
 
 `all` 模式只启动一个可见的持久 Chrome 上下文：作品阶段完成后不关闭浏览器，直接在同一窗口和登录态中进入评论阶段。评论阶段仍复用一个工作标签页；只有页面崩溃或导航中断时才重建标签页。
 
+正常完成时，评论阶段保留最后一个工作标签页，由拥有浏览器上下文的统一入口关闭一次整个会话；不得先关闭最后标签页再重复关闭上下文。
+
 ## 选择交付预设
 
 ### 普通下载版
@@ -161,6 +163,7 @@ python scripts/run_foundation.py all `
 
 - 作品任务只有在每条所选作品的主要素材成功写入，或明确记录为公开不可用时，才能标记 `complete`。
 - 一级评论任务只有在每条所选作品都收到一级评论分页终止信号时，才能标记 `complete_source_visible`。
+- 平台显示评论数可能同时包含一级评论和其下回复；一级评论中的回复数字段只表示该评论声明的子回复数量，不等于本次实际采集的回复。
 - 正数评论上限、动作预算耗尽、页面不可见、登录要求或异常停止都只能标记部分完成。
 - 请求二级回复后，只要任一显示有回复的楼层未收到终止信号，整批仍是部分完成。
 - 退出码 `3` 表示结果可保留并续跑，但不得对外写“完整下载”。

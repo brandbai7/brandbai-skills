@@ -513,8 +513,8 @@ def write_report(
         "",
         "## 覆盖情况",
         "",
-        "| 视频ID | 标题/描述 | 平台显示评论数 | 一级已采集 | 回复已采集 | 平台ID | 页面兜底ID | 完整性 |",
-        "|---|---|---:|---:|---:|---:|---:|---|",
+        "| 视频ID | 标题/描述 | 平台显示评论数 | 一级已采集 | 一级声明回复数 | 回复已采集 | 平台ID | 页面兜底ID | 完整性 |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---|",
     ]
     videos = list(store.conn.execute("SELECT * FROM videos ORDER BY publish_time DESC,aweme_id"))
     for video in videos:
@@ -524,6 +524,11 @@ def write_report(
         ).fetchone()[0]
         reply_count = store.conn.execute(
             "SELECT COUNT(*) FROM comments WHERE aweme_id=? AND reply_level>0", (aweme_id,)
+        ).fetchone()[0]
+        declared_reply_count = store.conn.execute(
+            "SELECT COALESCE(SUM(reply_count),0) FROM comments "
+            "WHERE aweme_id=? AND reply_level=0",
+            (aweme_id,),
         ).fetchone()[0]
         platform_id_count = store.conn.execute(
             "SELECT COUNT(*) FROM comments WHERE aweme_id=? AND comment_id NOT GLOB 'generated_*'",
@@ -555,7 +560,8 @@ def write_report(
         description = str(video["description"] or "").replace("|", "\\|").replace("\n", " ")[:50]
         lines.append(
             f"| {aweme_id} | {description} | {video['comment_count_expected']} | "
-            f"{top_count} | {reply_count} | {platform_id_count} | {dom_fallback_count} | "
+            f"{top_count} | {declared_reply_count} | {reply_count} | "
+            f"{platform_id_count} | {dom_fallback_count} | "
             f"{completeness} |"
         )
     lines.extend(
@@ -564,6 +570,7 @@ def write_report(
             "## 口径与限制",
             "",
             "- “全部评论”指采集时点该数据源可分页返回的全部可见评论，不等于平台内部的绝对全量。删除、折叠、风控、地区、登录态和个性化排序都可能造成差异。",
+            "- 平台显示评论数可能同时包含一级评论和其下回复；“一级声明回复数”来自一级评论的回复数字段，不等于本次实际采集的回复。三者必须分开报告。",
             "- 评论存在本身可标为 F（可观察事实）；评论中声称的购买、体验、身份或效果仍需核验，不能直接当作商品事实。",
             "- 本基础数据包不生成语义标签、D1 证据或达人结论；需要分析时另开分析任务。",
             "- 默认对普通评论者做稳定化名处理；目标达人名称、视频链接和评论 ID 保留用于业务回溯。",

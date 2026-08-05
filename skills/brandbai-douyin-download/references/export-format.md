@@ -63,6 +63,7 @@ The raw `comments.csv` remains the canonical machine-readable table. Do not remo
 
 - Store aweme, comment, root, parent, evidence, and semantic sample IDs as text. Verify the exported XLSX XML/cell values preserve every digit; never accept scientific-notation precision loss.
 - Store known counts as integers. Unknown counts are blank, not `-`; confirmed zero is numeric `0`.
+- Treat the platform-displayed comment count, collected top-level rows, top-level declared reply-count sum, and collected reply rows as separate measures. The displayed total may include replies; a top-level row's `reply_count` is metadata, not proof that those replies were collected.
 - Store known absolute timestamps as actual spreadsheet date-time values and display `yyyy-mm-dd hh:mm:ss`. If the page exposes only a relative time such as `1年前`, preserve that visible text; leave truly unknown timestamps blank.
 - Preserve the original visible comment text. Do not overwrite source text with classifications or cleaned prose.
 - Use `reply_level=0` for top-level comments and `1` for replies. Keep `viewer_comment`, `viewer_reply`, and `creator_reply` distinct.

@@ -44,7 +44,7 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                 "title": "这是一条带标题的测试作品",
                 "publish_time": "2026-08-01T10:30:00+08:00",
                 "digg_count": 123,
-                "comment_count": 2,
+                "comment_count": 3,
                 "collect_count": 9,
                 "share_count": 4,
                 "is_pinned": "0",
@@ -83,7 +83,7 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                     "author_pseudonym": "用户_001",
                     "create_time": "2026-08-01T11:00:00+08:00",
                     "digg_count": "8",
-                    "reply_count": "0",
+                    "reply_count": "1",
                     "source_role": "viewer_comment",
                     "source_url": "https://www.douyin.com/video/7551794579813502262",
                     "ip_label": "上海",
@@ -166,6 +166,8 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             self.assertIsNotNone(comments_book["评论明细"]["H2"].hyperlink)
             self.assertIsNotNone(comments_book["视频清单"]["E2"].hyperlink)
             self.assertIn("静态查看快照", comments_book["导出说明"]["A18"].value)
+            self.assertIn("页面评论数可能", comments_book["导出说明"]["A14"].value)
+            self.assertIn("不代表已采集回复", comments_book["字段字典"]["C6"].value)
             self.assertEqual(comments_book["导出说明"]["B7"].value, 1)
             self.assertEqual(comments_book["导出说明"]["B9"].value, "一级评论完整")
             self.assertEqual(comments_book["采集质量"]["F2"].value, 1)
