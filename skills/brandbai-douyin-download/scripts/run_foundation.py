@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -155,8 +156,19 @@ def build_parser() -> argparse.ArgumentParser:
     all_in_one.add_argument("--reply-batch-size", type=int, default=5)
     all_in_one.add_argument("--reply-sweeps", type=int, default=3)
     all_in_one.add_argument("--page-timeout", type=float, default=60.0)
+    all_in_one.add_argument(
+        "--comment-login-wait",
+        type=float,
+        default=60.0,
+        help="Comment-surface wait per work; independent from the creator-page login wait",
+    )
     all_in_one.add_argument("--privacy-mode", choices=("hash", "raw"), default="hash")
     all_in_one.add_argument("--diagnostic-trace", action="store_true")
+    all_in_one.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse a matching complete works stage and the existing comment checkpoint",
+    )
     all_in_one.add_argument(
         "--preview-dir",
         default="",
@@ -236,10 +248,19 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "capability": "all",
         "creator": args.creator,
+        "recent_non_pinned": args.recent,
         "selection": f"all visible pinned works plus latest {args.recent} non-pinned works",
         "comments": "top-level plus replies" if args.include_replies else "top-level only",
+        "max_comments_per_video": args.max_comments_per_video,
         "privacy_mode": args.privacy_mode,
-        "browser_session": "one shared visible Chrome context for works and comments",
+        "works_login_wait": args.login_wait,
+        "comment_login_wait": args.comment_login_wait,
+        "resume": bool(args.resume),
+        "browser_session": (
+            "one visible Chrome context for resumed comments; complete works stage skipped"
+            if args.resume
+            else "one shared visible Chrome context for works and comments"
+        ),
         "delivery": str(delivery_dir),
         "ordinary_files": ["01_作品清单.xlsx", "02_评论明细.xlsx", "03_作品素材", "04_采集说明.md"],
         "raw_data": ["data/作品采集", "data/评论采集"],
@@ -247,6 +268,30 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
         "runtime_trace": "data/browser_session_trace.jsonl and data/评论采集/browser_runtime_trace.jsonl",
         "analysis_included": False,
     }
+
+
+def validate_resume_works(
+    manifest_path: Path,
+    works_json: Path,
+    creator: str,
+    recent: int,
+) -> None:
+    if not manifest_path.is_file() or not works_json.is_file():
+        raise FoundationError(
+            "--resume requires existing complete works.json and download_manifest.json"
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FoundationError(f"Cannot read resume manifest: {manifest_path}") from exc
+    if manifest.get("status") != "complete":
+        raise FoundationError("--resume requires download_manifest.status=complete")
+    if str(manifest.get("creator") or "").strip() != str(creator or "").strip():
+        raise FoundationError("--resume creator does not match the existing works manifest")
+    if int(manifest.get("requested_recent_non_pinned", -1)) != int(recent):
+        raise FoundationError("--resume recent count does not match the existing works manifest")
+    if int(manifest.get("works_selected", 0)) < 1:
+        raise FoundationError("--resume works manifest contains no selected works")
 
 
 def run_shared_browser_stages(
@@ -257,6 +302,7 @@ def run_shared_browser_stages(
     works_runner: Any = None,
     comments_runner: Any = None,
     chrome_finder: Any = None,
+    skip_works: bool = False,
 ) -> tuple[int, int]:
     if any(value is None for value in (
         playwright_factory, works_runner, comments_runner, chrome_finder
@@ -279,10 +325,13 @@ def run_shared_browser_stages(
     chrome_path = chrome_finder(works_args.chrome_path)
     works_code = 2
     comments_code = 2
+    session_id = uuid.uuid4().hex
     append_runtime_event(
         trace_path,
         {
             "event": "browser_session_start",
+            "session_id": session_id,
+            "resume": bool(skip_works),
             "browser_context_mode": "shared_all_context",
             "browser_launches_total": 1,
         },
@@ -302,6 +351,7 @@ def run_shared_browser_stages(
                 trace_path,
                 {
                     "event": "browser_session_launch_error",
+                    "session_id": session_id,
                     "error_type": type(exc).__name__,
                 },
             )
@@ -309,6 +359,7 @@ def run_shared_browser_stages(
                 trace_path,
                 {
                     "event": "browser_session_end",
+                    "session_id": session_id,
                     "works_exit_code": works_code,
                     "comments_exit_code": comments_code,
                     "close_error_type": "",
@@ -317,24 +368,45 @@ def run_shared_browser_stages(
             )
             raise FoundationError(f"Browser launch failed: {exc}") from exc
         try:
-            append_runtime_event(trace_path, {"event": "works_stage_start"})
-            try:
-                works_code = int(works_runner(works_args, browser_context=context))
-            except Exception as exc:
+            if skip_works:
+                works_code = 0
                 append_runtime_event(
                     trace_path,
                     {
-                        "event": "works_stage_error",
-                        "error_type": type(exc).__name__,
+                        "event": "works_stage_skipped",
+                        "session_id": session_id,
+                        "reason": "existing_complete_manifest",
                     },
                 )
-                raise FoundationError(f"Works stage failed: {exc}") from exc
-            append_runtime_event(
-                trace_path, {"event": "works_stage_end", "exit_code": works_code}
-            )
+            else:
+                append_runtime_event(
+                    trace_path, {"event": "works_stage_start", "session_id": session_id}
+                )
+                try:
+                    works_code = int(works_runner(works_args, browser_context=context))
+                except Exception as exc:
+                    append_runtime_event(
+                        trace_path,
+                        {
+                            "event": "works_stage_error",
+                            "session_id": session_id,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                    raise FoundationError(f"Works stage failed: {exc}") from exc
+                append_runtime_event(
+                    trace_path,
+                    {
+                        "event": "works_stage_end",
+                        "session_id": session_id,
+                        "exit_code": works_code,
+                    },
+                )
             if works_code not in (0, 3):
                 return works_code, comments_code
-            append_runtime_event(trace_path, {"event": "comments_stage_start"})
+            append_runtime_event(
+                trace_path, {"event": "comments_stage_start", "session_id": session_id}
+            )
             try:
                 comments_code = int(comments_runner(comments_args, browser_context=context))
             except Exception as exc:
@@ -342,12 +414,18 @@ def run_shared_browser_stages(
                     trace_path,
                     {
                         "event": "comments_stage_error",
+                        "session_id": session_id,
                         "error_type": type(exc).__name__,
                     },
                 )
                 raise FoundationError(f"Comments stage failed: {exc}") from exc
             append_runtime_event(
-                trace_path, {"event": "comments_stage_end", "exit_code": comments_code}
+                trace_path,
+                {
+                    "event": "comments_stage_end",
+                    "session_id": session_id,
+                    "exit_code": comments_code,
+                },
             )
         finally:
             close_error = ""
@@ -360,6 +438,7 @@ def run_shared_browser_stages(
                     trace_path,
                     {
                         "event": "browser_session_end",
+                        "session_id": session_id,
                         "works_exit_code": works_code,
                         "comments_exit_code": comments_code,
                         "close_error_type": close_error,
@@ -378,6 +457,8 @@ def run_all(
     scripts_dir = scripts_dir or Path(__file__).resolve().parent
     if args.recent < 0:
         raise FoundationError("--recent cannot be negative")
+    if args.comment_login_wait < 0:
+        raise FoundationError("--comment-login-wait cannot be negative")
     if args.dry_run:
         print(json.dumps(all_plan(args), ensure_ascii=False, indent=2))
         return 0
@@ -426,16 +507,33 @@ def run_all(
         profile_dir=args.profile_dir,
         out=str(comments_out),
         chrome_path=args.chrome_path,
-        login_wait=args.login_wait,
+        login_wait=args.comment_login_wait,
         privacy_mode=args.privacy_mode,
         diagnostic_trace=args.diagnostic_trace,
         dry_run=False,
     )
-    works_code, comments_code = browser_stage_runner(
-        works_args,
-        comments_args,
-        delivery_dir / "data" / "browser_session_trace.jsonl",
-    )
+    skip_works = False
+    if args.resume:
+        validate_resume_works(
+            works_out / "download_manifest.json",
+            works_json,
+            args.creator,
+            args.recent,
+        )
+        skip_works = True
+    if skip_works:
+        works_code, comments_code = browser_stage_runner(
+            works_args,
+            comments_args,
+            delivery_dir / "data" / "browser_session_trace.jsonl",
+            skip_works=True,
+        )
+    else:
+        works_code, comments_code = browser_stage_runner(
+            works_args,
+            comments_args,
+            delivery_dir / "data" / "browser_session_trace.jsonl",
+        )
     if works_code not in (0, 3):
         return int(works_code)
     if not works_json.is_file():

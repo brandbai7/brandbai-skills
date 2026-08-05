@@ -33,4 +33,5 @@ jobs:
           test_download_creator_works.py
           test_browser_collect_comments.py
           test_run_foundation.py
+          test_run_long_job.py
           test_build_foundation_workbooks.py

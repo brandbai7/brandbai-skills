@@ -1,6 +1,6 @@
-# BrandBAI Douyin Download 0.2.4
+# BrandBAI Douyin Download 0.2.5
 
-这是 v0.2.3 单浏览器真实页面验收后的会话收尾与评论口径修正版。
+这是 v0.2.4 最近 5 条真实页面压力测试后的长任务与断点续跑修正版。
 
 ## 能力
 
@@ -12,16 +12,19 @@
 
 ## 本次修复
 
-- 评论阶段正常完成时不再提前关闭最后一个工作标签页；由 `all` 统一入口只关闭一次浏览器上下文，避免会话轨迹出现重复关闭产生的 `TargetClosedError`；
-- 崩溃恢复仍会关闭并替换异常工作标签页，不改变断点、重试和后续作品继续处理逻辑；
-- `collection_report.md` 新增“一级声明回复数”，将平台显示评论数、一级已采集、回复数字段和实际回复采集量分开报告；
-- 普通版 Excel、`04_采集说明.md`、Skill 与导出规范同步说明：页面评论总数可能包含一级评论和回复，一级评论的回复数字段不等于已采集回复。
+- 将作品主页登录等待与逐作品评论面等待拆分为 `--login-wait` 和 `--comment-login-wait`，避免把 180 秒首次登录等待重复施加到每条作品；
+- 新增 `scripts/run_long_job.py`，让 WorkBuddy 等存在单次调用时限的宿主可以启动一次长任务并轮询状态，不再因宿主等待超时强杀采集；
+- 新增 `all --resume`：校验已有完整作品 manifest 后跳过作品下载，继续评论断点并构建普通版交付；
+- 续跑时直接跳过 `done_reason=exhausted` 的一级评论作品，未完成作品继续使用 SQLite 去重和进度；
+- 浏览器会话轨迹新增 `session_id` 和续跑标记，避免把中断会话与后续正常会话混为一条；
+- Dry Run 显式输出最近 N、评论上限、作品等待、评论等待和续跑状态；
+- 补充断点报告要求：按作品读取 SQLite 计数，不得把整库缓存总数归到单个作品，也不得用系统全部 Chrome 进程数推断本轮残留。
 
 ## 验收口径
 
-- 单次 `all` 正式运行只调用一次 `launch_persistent_context`；
-- 作品与评论 manifest 均标记 `browser_context_mode=shared_all_context`；
-- `browser_session_trace.jsonl` 依次出现会话开始、作品阶段、评论阶段和会话结束；正常结束时 `close_error_type` 为空；
+- 长任务只允许启动一次；后续使用同一 job 目录轮询，`completed + exit_code=0` 才进入完整验收；
+- `partial + exit_code=3` 保留断点，不包装为完成；
+- `all --resume` 只接受同一达人、同一最近 N 且作品 manifest 已为 `complete` 的目录；
 - 一级评论只有收到明确分页终止信号时才能标记 `complete_source_visible`；
 - 二级回复未开启时，`replies=0` 只表示未采集，不表示作品没有回复。
 
