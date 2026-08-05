@@ -13,7 +13,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
-| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.2.4 | DataTool 式抖音下载总入口：作品清单、视频、图文、封面、可用原声和可检索评论，保留断点与完整性状态 | Community beta · Noncommercial |
+| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.2.5 | DataTool 式抖音下载总入口：作品清单、视频、图文、封面、可用原声和可检索评论，支持长任务轮询与断点续跑 | Community beta · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
 
@@ -84,7 +84,7 @@ python -m pip install -r requirements-dev.txt
 python scripts/validate_repo.py
 python -m unittest scripts/test_build_skill_release.py
 cd skills/brandbai-douyin-download/scripts
-python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_build_foundation_workbooks.py
+python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
 ```
 
 提交新 Skill 前请阅读 [`AGENTS.md`](AGENTS.md)。不要提交登录资料、Cookie、客户数据、真实评论样本、输出目录或本地绝对路径。

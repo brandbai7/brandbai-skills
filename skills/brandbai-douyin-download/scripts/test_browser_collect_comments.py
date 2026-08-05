@@ -52,6 +52,73 @@ def workspace_temp():
 
 
 class BrowserCollectorTests(unittest.TestCase):
+    def test_resume_rejects_privacy_mode_change(self):
+        with workspace_temp() as temp:
+            store = CommentStore(temp / "comments.sqlite3", "hash")
+            store.close()
+            with self.assertRaisesRegex(ValueError, "same privacy mode"):
+                CommentStore(temp / "comments.sqlite3", "raw")
+
+    def test_resume_skips_terminal_top_level_video_before_navigation(self):
+        with workspace_temp() as temp:
+            aweme_id = "7000000000000000001"
+            store = CommentStore(temp / "comments.sqlite3", "hash")
+            store.ensure_video(aweme_id)
+            store.set_progress(
+                "comments",
+                aweme_id,
+                "120",
+                True,
+                {"done_reason": "exhausted", "terminal_known": True},
+            )
+
+            class FakePage:
+                def set_default_timeout(self, _value):
+                    pass
+
+                def on(self, _event, _callback):
+                    pass
+
+            page = FakePage()
+            context = SimpleNamespace(pages=[page])
+            args = SimpleNamespace(
+                page_timeout=60,
+                video=[],
+                creator=None,
+                videos=1,
+                include_replies=False,
+                max_comments_per_video=0,
+                scroll_delay=1.2,
+                idle_rounds=5,
+                login_wait=60,
+                reply_batch_size=5,
+                reply_sweeps=3,
+            )
+            manifest = {
+                "warnings": [],
+                "worker_pages_created": 0,
+                "worker_page_retries": 0,
+                "worker_page_crashes": 0,
+            }
+            with patch.object(
+                collector_module,
+                "RUNTIME_TRACE_PATH",
+                temp / "browser_runtime_trace.jsonl",
+            ):
+                result = collector_module.collect_with_context(
+                    context,
+                    args,
+                    [{"source_url": f"https://www.douyin.com/video/{aweme_id}"}],
+                    store,
+                    ActionBudget(20),
+                    ResponseCapture(store),
+                    manifest,
+                )
+            self.assertEqual(result, 0)
+            self.assertEqual(manifest["status"], "complete_source_visible")
+            self.assertEqual(manifest["videos_skipped_terminal"], 1)
+            store.close()
+
     def test_external_browser_context_is_reused_and_not_closed_by_comment_stage(self):
         with workspace_temp() as temp:
             class FakeContext:
@@ -143,12 +210,15 @@ class BrowserCollectorTests(unittest.TestCase):
             reply_batch_size=1,
             reply_sweeps=1,
         )
-        store = SimpleNamespace(
-            get_progress=lambda *_args: {
-                "done": True,
-                "meta": {"done_reason": "exhausted"},
-            }
-        )
+        progress_calls = {"count": 0}
+
+        def get_progress(*_args):
+            progress_calls["count"] += 1
+            if progress_calls["count"] == 1:
+                return {"done": False, "meta": {}}
+            return {"done": True, "meta": {"done_reason": "exhausted"}}
+
+        store = SimpleNamespace(get_progress=get_progress)
         capture = SimpleNamespace(on_response=lambda *_args: None)
         manifest = {
             "warnings": [],

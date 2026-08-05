@@ -103,6 +103,15 @@ class CommentStore:
         self.conn.row_factory = sqlite3.Row
         self.privacy_mode = privacy_mode
         self._init_schema()
+        stored_privacy_mode = self.get_meta("privacy_mode")
+        if stored_privacy_mode and stored_privacy_mode != privacy_mode:
+            self.conn.close()
+            raise ValueError(
+                "Existing comment checkpoint uses privacy_mode="
+                f"{stored_privacy_mode}; resume with the same privacy mode"
+            )
+        if not stored_privacy_mode:
+            self.set_meta("privacy_mode", privacy_mode)
         salt = self.get_meta("privacy_salt")
         if not salt:
             salt = secrets.token_hex(16)

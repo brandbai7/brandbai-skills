@@ -1608,6 +1608,7 @@ def collect_with_context(
             )
         pause_page_media(controller_page)
     manifest["selected_video_urls"] = video_urls
+    manifest["videos_skipped_terminal"] = 0
     if not video_urls:
         raise BrowserRouteError(
             "No visible video links were found. Complete any login/verification in Chrome and rerun."
@@ -1616,6 +1617,23 @@ def collect_with_context(
     worker_page.on("response", capture.on_response)
     for video_url in video_urls:
         aweme_id = video_id_from(video_url)
+        existing_progress = store.get_progress("comments", aweme_id)
+        top_level_exhausted = (
+            existing_progress.get("done")
+            and existing_progress.get("meta", {}).get("done_reason") == "exhausted"
+        )
+        if top_level_exhausted and (
+            not args.include_replies or replies_complete(store, aweme_id)
+        ):
+            manifest["videos_skipped_terminal"] += 1
+            emit_runtime_event(
+                {
+                    "event": "video_resume_skip",
+                    "aweme_id": aweme_id,
+                    "reason": "terminal_checkpoint",
+                }
+            )
+            continue
         for attempt in range(2):
             if worker_page is None or worker_page.is_closed():
                 worker_page = context.new_page()

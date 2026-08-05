@@ -4,7 +4,7 @@ description: Download public Douyin account works, video or image-post media, co
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.4"
+  version: "0.2.5"
   category: content-commerce
 ---
 
@@ -121,6 +121,7 @@ python scripts/run_foundation.py all `
   --recent 5 `
   --profile-dir "<私有登录资料夹>" `
   --login-wait 180 `
+  --comment-login-wait 60 `
   --out "<BrandBAI普通版交付目录>" `
   --dry-run
 ```
@@ -129,7 +130,36 @@ python scripts/run_foundation.py all `
 
 `all` 模式只启动一个可见的持久 Chrome 上下文：作品阶段完成后不关闭浏览器，直接在同一窗口和登录态中进入评论阶段。评论阶段仍复用一个工作标签页；只有页面崩溃或导航中断时才重建标签页。
 
+`--login-wait` 只控制作品主页和首次登录等待；`--comment-login-wait` 控制每条作品的评论面等待，默认 60 秒。不要把作品登录等待时间重复套到每条评论页。
+
 正常完成时，评论阶段保留最后一个工作标签页，由拥有浏览器上下文的统一入口关闭一次整个会话；不得先关闭最后标签页再重复关闭上下文。
+
+### 适配有调用时限的宿主
+
+预计任务可能超过宿主单次调用时限时，使用随 Skill 提供的长任务包装，不要让宿主直接等待 `all`：
+
+```powershell
+python scripts/run_long_job.py start `
+  --job-dir "<交付目录同级的独立任务目录>" `
+  --cwd "<Skill目录>" `
+  -- python scripts/run_foundation.py all `
+  --creator "<达人主页URL>" `
+  --recent 5 `
+  --profile-dir "<私有登录资料夹>" `
+  --login-wait 180 `
+  --comment-login-wait 60 `
+  --out "<BrandBAI普通版交付目录>"
+```
+
+启动命令会立即返回。后续只轮询同一个任务，不得再次启动：
+
+```powershell
+python scripts/run_long_job.py status `
+  --job-dir "<同一个独立任务目录>" `
+  --tail-lines 30
+```
+
+只有 `state=completed` 且 `exit_code=0` 才进入完整验收；`state=partial` 对应退出码 3，必须保留断点；`state=failed` 或 `observed_state=interrupted` 时读取日志和 manifest 后再决定是否续跑。任务目录必须放在交付目录之外，不得随客户包交付。
 
 ## 选择交付预设
 
@@ -171,20 +201,22 @@ python scripts/run_foundation.py all `
 ## 续跑与交付
 
 - 同一目标、同一隐私模式可复用原输出目录；SQLite 和已有素材用于跳过重复数据。
+- `all` 中断且作品 manifest 已为 `complete` 时，使用完全相同的达人、N、隐私模式和输出目录并增加 `--resume`；统一入口会校验作品范围、跳过作品下载，并直接续跑评论断点和普通版构建。
+- 一级评论进度已是 `done_reason=exhausted` 的作品在续跑时直接跳过页面导航；未完成作品从 SQLite 断点继续。
 - 宿主超时后先轮询原任务，不并行启动重复任务；确认原进程已结束后再续跑。
 - 目标作品集合或隐私模式改变时新建目录，避免混入上一批结果。
 - 普通用户先看 Excel 和素材；`data/` 只用于断点续跑和审计。
 - 普通版汇总中的“素材文件”只统计实际写入或确认已存在的文件；`素材明细` 同时保留公开不可用等资产记录。
 - 评论页面只显示“1年前”等相对时间时保留页面原文，不伪造绝对日期。
 - 不把登录资料夹、QA 预览、运行缓存、Cookie 或任何凭据放进交付包。
-- `all` 模式的浏览器阶段轨迹写入 `data/browser_session_trace.jsonl`；评论事件轨迹写入 `data/评论采集/browser_runtime_trace.jsonl`。轨迹只记录阶段、状态、作品 ID 和数量等审计字段，不记录 Cookie、请求头或签名材料。
+- `all` 模式的浏览器阶段轨迹写入 `data/browser_session_trace.jsonl`；评论事件轨迹写入 `data/评论采集/browser_runtime_trace.jsonl`。每次浏览器运行带独立 `session_id`；续跑时按 `session_id` 分组验收，不把上一次被强制中断的会话和本次正常结束事件混成一条会话。轨迹只记录阶段、状态、作品 ID 和数量等审计字段，不记录 Cookie、请求头或签名材料。
 
 ## 验证修改
 
 在 `scripts/` 目录运行：
 
 ```powershell
-python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_build_foundation_workbooks.py
+python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
 ```
 
 这些测试只使用本地模拟数据，不打开抖音、不启动 Chrome，也不产生付费请求。
