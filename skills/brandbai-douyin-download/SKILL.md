@@ -4,7 +4,7 @@ description: Download public Douyin account works, video or image-post media, co
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.2"
+  version: "0.2.3"
   category: content-commerce
 ---
 
@@ -127,6 +127,8 @@ python scripts/run_foundation.py all `
 
 先检查 Dry Run 的作品范围和输出目录，再去掉 `--dry-run` 正式运行。默认只采一级评论；只有用户明确接受实验性完整性边界时才增加 `--include-replies`。
 
+`all` 模式只启动一个可见的持久 Chrome 上下文：作品阶段完成后不关闭浏览器，直接在同一窗口和登录态中进入评论阶段。评论阶段仍复用一个工作标签页；只有页面崩溃或导航中断时才重建标签页。
+
 ## 选择交付预设
 
 ### 普通下载版
@@ -150,6 +152,7 @@ python scripts/run_foundation.py all `
 - `works.json` 与 `download_manifest.json`；
 - `comments.csv`、`comments.jsonl` 与 `comments.sqlite3`；
 - `videos.csv`、`run_manifest.json` 与 `collection_report.md`；
+- `browser_session_trace.jsonl` 与 `browser_runtime_trace.jsonl`；
 - 作品选择范围、采集时间、隐私模式、评论显示量与实际保存量、分页终止和部分完成原因。
 
 分析准备版只保证来源、字段和完成状态可回溯，不在下载阶段填充 D1、SEM、UE、REL、MIG、人设、匹配或归因结论。
@@ -171,6 +174,7 @@ python scripts/run_foundation.py all `
 - 普通版汇总中的“素材文件”只统计实际写入或确认已存在的文件；`素材明细` 同时保留公开不可用等资产记录。
 - 评论页面只显示“1年前”等相对时间时保留页面原文，不伪造绝对日期。
 - 不把登录资料夹、QA 预览、运行缓存、Cookie 或任何凭据放进交付包。
+- `all` 模式的浏览器阶段轨迹写入 `data/browser_session_trace.jsonl`；评论事件轨迹写入 `data/评论采集/browser_runtime_trace.jsonl`。轨迹只记录阶段、状态、作品 ID 和数量等审计字段，不记录 Cookie、请求头或签名材料。
 
 ## 验证修改
 

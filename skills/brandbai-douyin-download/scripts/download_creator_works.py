@@ -416,7 +416,51 @@ def dry_plan(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def run(args: argparse.Namespace) -> int:
+def collect_visible_works(context: Any, args: argparse.Namespace) -> tuple[list[dict[str, Any]], int, int]:
+    raw_items: dict[str, dict[str, Any]] = {}
+    response_count = 0
+    page = context.pages[0] if context.pages else context.new_page()
+    page.set_default_timeout(60_000)
+
+    def on_response(response: Any) -> None:
+        nonlocal response_count
+        url = str(response.url or "").lower()
+        if "aweme/post" not in url and "aweme/listcollection" not in url:
+            return
+        try:
+            if response.status != 200:
+                return
+            posts = pick_posts(response.json())
+            if posts:
+                response_count += 1
+            for item in posts:
+                aweme_id = str(item.get("aweme_id") or item.get("awemeId") or "")
+                if aweme_id:
+                    raw_items[aweme_id] = item
+        except Exception:
+            return
+
+    page.on("response", on_response)
+    page.goto(args.creator, wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(max(1_500, int(args.login_wait * 1000)))
+    idle = 0
+    for _ in range(args.scrolls):
+        before = len(raw_items)
+        page.mouse.wheel(0, 1_800)
+        page.wait_for_timeout(900)
+        idle = idle + 1 if len(raw_items) == before else 0
+        if idle >= 2 and len(raw_items) >= args.recent:
+            break
+    page.wait_for_timeout(1_500)
+    selected = select_pinned_and_recent(raw_items.values(), args.recent)
+    try:
+        page.remove_listener("response", on_response)
+    except Exception:
+        pass
+    return selected, response_count, len(raw_items)
+
+
+def run(args: argparse.Namespace, browser_context: Any = None) -> int:
     if args.recent < 0:
         raise WorkDownloadError("--recent cannot be negative")
     if args.scrolls < 1:
@@ -424,11 +468,6 @@ def run(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(json.dumps(dry_plan(args), ensure_ascii=False, indent=2))
         return 0
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise WorkDownloadError("Playwright is required for the browser route") from exc
 
     out_dir = Path(args.out).resolve()
     profile_dir = Path(args.profile_dir).expanduser().resolve()
@@ -460,54 +499,33 @@ def run(args: argparse.Namespace) -> int:
         "works": [],
     }
     write_json(manifest_path, manifest)
-    raw_items: dict[str, dict[str, Any]] = {}
-    response_count = 0
-    chrome_path = find_chrome_path(args.chrome_path)
-
-    with sync_playwright() as playwright:
-        context = playwright.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            executable_path=chrome_path,
-            headless=False,
-            accept_downloads=False,
-            viewport=None,
-            args=["--start-maximized", "--no-first-run", "--no-default-browser-check"],
-        )
-        page = context.pages[0] if context.pages else context.new_page()
-        page.set_default_timeout(60_000)
-
-        def on_response(response: Any) -> None:
-            nonlocal response_count
-            url = str(response.url or "").lower()
-            if "aweme/post" not in url and "aweme/listcollection" not in url:
-                return
+    if browser_context is None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise WorkDownloadError("Playwright is required for the browser route") from exc
+        chrome_path = find_chrome_path(args.chrome_path)
+        with sync_playwright() as playwright:
+            context = playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                executable_path=chrome_path,
+                headless=False,
+                accept_downloads=False,
+                viewport=None,
+                args=["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+            )
             try:
-                if response.status != 200:
-                    return
-                posts = pick_posts(response.json())
-                if posts:
-                    response_count += 1
-                for item in posts:
-                    aweme_id = str(item.get("aweme_id") or item.get("awemeId") or "")
-                    if aweme_id:
-                        raw_items[aweme_id] = item
-            except Exception:
-                return
+                selected, response_count, visible_work_count = collect_visible_works(context, args)
+            finally:
+                context.close()
+    else:
+        selected, response_count, visible_work_count = collect_visible_works(browser_context, args)
 
-        page.on("response", on_response)
-        page.goto(args.creator, wait_until="domcontentloaded", timeout=60_000)
-        page.wait_for_timeout(max(1_500, int(args.login_wait * 1000)))
-        idle = 0
-        for _ in range(args.scrolls):
-            before = len(raw_items)
-            page.mouse.wheel(0, 1_800)
-            page.wait_for_timeout(900)
-            idle = idle + 1 if len(raw_items) == before else 0
-            if idle >= 2 and len(raw_items) >= args.recent:
-                break
-        page.wait_for_timeout(1_500)
-        selected = select_pinned_and_recent(raw_items.values(), args.recent)
-        context.close()
+    manifest["browser_context_mode"] = (
+        "shared_all_context" if browser_context is not None else "standalone_context"
+    )
+    manifest["browser_launches_total"] = 1
+    manifest["browser_launches_owned"] = 0 if browser_context is not None else 1
 
     if len([work for work in selected if work["selection_reason"] == "最近"]) < args.recent:
         manifest["warnings"].append(
@@ -595,7 +613,7 @@ def run(args: argparse.Namespace) -> int:
             "status": "complete" if not partial else "partial_download_errors",
             "finished_at": utc_now(),
             "profile_responses_observed": response_count,
-            "visible_works_observed": len(raw_items),
+            "visible_works_observed": visible_work_count,
             "pinned_selected": len([work for work in public_works if work["selection_reason"] == "置顶"]),
             "recent_selected": len([work for work in public_works if work["selection_reason"] == "最近"]),
             "works_selected": len(public_works),
