@@ -1,7 +1,9 @@
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from download_creator_works import (
+    collect_visible_works,
     download_from_candidates,
     signature_kind,
     normalize_work,
@@ -39,6 +41,58 @@ def fake_work(aweme_id: str, create_time: int, is_top: bool = False, images: boo
 
 
 class DownloadCreatorWorksTests(unittest.TestCase):
+    def test_visible_works_can_use_an_existing_browser_context(self):
+        item = fake_work("10000000009", 900)
+
+        class FakeResponse:
+            url = "https://www.douyin.com/aweme/v1/web/aweme/post/"
+            status = 200
+
+            @staticmethod
+            def json():
+                return {"aweme_list": [item]}
+
+        class FakeMouse:
+            @staticmethod
+            def wheel(_x, _y):
+                return None
+
+        class FakePage:
+            def __init__(self):
+                self.mouse = FakeMouse()
+                self.handlers = {}
+
+            def set_default_timeout(self, _timeout):
+                return None
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            def remove_listener(self, event, _handler):
+                self.handlers.pop(event, None)
+
+            def goto(self, *_args, **_kwargs):
+                self.handlers["response"](FakeResponse())
+
+            def wait_for_timeout(self, _timeout):
+                return None
+
+        page = FakePage()
+        context = SimpleNamespace(pages=[page])
+        selected, responses, visible = collect_visible_works(
+            context,
+            SimpleNamespace(
+                creator="https://www.douyin.com/user/test",
+                login_wait=0,
+                scrolls=1,
+                recent=1,
+            ),
+        )
+        self.assertEqual([row["aweme_id"] for row in selected], ["10000000009"])
+        self.assertEqual(responses, 1)
+        self.assertEqual(visible, 1)
+        self.assertEqual(page.handlers, {})
+
     def test_sanitize_windows_name(self):
         self.assertEqual(sanitize_name('  A:B/C*D?  '), "A_B_C_D")
 

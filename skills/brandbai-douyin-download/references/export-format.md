@@ -6,7 +6,7 @@ Read this reference before producing an XLSX, defining a download contract, or p
 
 - Folder: `BrandBAI_抖音采集_{creator}_{YYYYMMDD}`.
 - Ordinary files: `01_作品清单.xlsx`, `02_评论明细.xlsx`, `03_作品素材/`, `04_采集说明.md`.
-- Raw resumable files: `data/作品采集/` and `data/评论采集/`.
+- Raw resumable files: `data/作品采集/`, `data/评论采集/`, and the safe browser session trace in `data/browser_session_trace.jsonl` when `all` is used.
 - Keep QA previews outside the delivery folder.
 - Replace Windows-invalid folder characters with `_`. Never truncate an aweme ID inside data or media folders.
 - Use `complete` only when every requested work has terminal evidence; otherwise preserve the partial state in the workbook and manifest.
@@ -86,5 +86,6 @@ Make this view a filterable table containing values copied at export time. Label
 - A finished top-level floor with unfinished reply floors remains `partial` when replies were requested.
 - Record child-page creation, retries, crashes, action-budget stops, and remaining incomplete reply floors.
 - Never put cookies, request headers, browser profiles, CAPTCHA data, or signature material in the workbook or delivery package.
+- Keep safe runtime traces in raw data only; do not place them in ordinary workbook sheets.
 
 For commercial quotas, count successfully written, de-duplicated comment/reply rows. Do not charge again for retries or duplicate rows.

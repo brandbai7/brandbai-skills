@@ -48,6 +48,7 @@ REPLY_EXPANDER_RE = re.compile(
     r"(?:(?:展开|查看|加载|继续).{0,22}(?:条)?回复|\d+\s*条回复|更多回复|回复\s*[（(]?\d+[）)]?)"
 )
 RUNTIME_TRACE_PATH: Optional[Path] = None
+DIAGNOSTIC_TRACE_ENABLED = False
 
 
 def emit_runtime_event(payload: Dict[str, Any]) -> None:
@@ -940,7 +941,7 @@ def visible_short_ui_samples(page: Any, limit: int = 40) -> List[Dict[str, str]]
 
 
 def save_runtime_screenshot(page: Any, name: str) -> None:
-    if RUNTIME_TRACE_PATH is None:
+    if not DIAGNOSTIC_TRACE_ENABLED or RUNTIME_TRACE_PATH is None:
         return
     try:
         page.screenshot(path=str(RUNTIME_TRACE_PATH.with_name(name)), full_page=False)
@@ -1164,7 +1165,7 @@ def collect_reply_floors_ui(
             }
         )
         budget.take()
-        if RUNTIME_TRACE_PATH is not None:
+        if DIAGNOSTIC_TRACE_ENABLED:
             emit_runtime_event(
                 {
                     "event": "scroll_surface_samples",
@@ -1176,7 +1177,7 @@ def collect_reply_floors_ui(
         scroll_largest_container(page, to_top=True)
         page.wait_for_timeout(max(300, int(delay * 1000)))
         save_runtime_screenshot(page, f"reply_ui_{aweme_id}_top.png")
-        if RUNTIME_TRACE_PATH is not None:
+        if DIAGNOSTIC_TRACE_ENABLED:
             emit_runtime_event(
                 {
                     "event": "reply_ui_samples",
@@ -1218,7 +1219,7 @@ def collect_reply_floors_ui(
             current = reply_floor_snapshot(store, aweme_id)
             scroll_state = scroll_largest_container(page)
             page.wait_for_timeout(max(250, int(delay * 700)))
-            if RUNTIME_TRACE_PATH is not None:
+            if DIAGNOSTIC_TRACE_ENABLED:
                 samples = visible_reply_ui_samples(page)
                 save_runtime_screenshot(page, f"reply_ui_{aweme_id}_latest.png")
                 emit_runtime_event(
@@ -1571,8 +1572,126 @@ def dry_plan(args: argparse.Namespace, work_rows: Sequence[Dict[str, Any]] = ())
     }
 
 
-def run(args: argparse.Namespace) -> int:
-    global RUNTIME_TRACE_PATH
+def collect_with_context(
+    context: Any,
+    args: argparse.Namespace,
+    work_rows: Sequence[Dict[str, Any]],
+    store: CommentStore,
+    budget: ActionBudget,
+    capture: ResponseCapture,
+    manifest: Dict[str, Any],
+) -> int:
+    controller_page = context.pages[0] if context.pages else context.new_page()
+    controller_page.set_default_timeout(int(max(10, args.page_timeout) * 1000))
+    video_urls = normalize_video_urls(
+        [work_url(row) for row in work_rows if work_url(row)] + list(args.video)
+    )
+    if args.creator:
+        discovered = discover_creator_videos(
+            controller_page,
+            args.creator,
+            args.videos,
+            budget,
+            args.scroll_delay,
+            args.idle_rounds,
+            args.login_wait,
+        )
+        existing_ids = {video_id_from(url) for url in video_urls}
+        for discovered_url in discovered:
+            discovered_id = video_id_from(discovered_url)
+            if discovered_id and discovered_id not in existing_ids:
+                existing_ids.add(discovered_id)
+                video_urls.append(discovered_url)
+        if len(discovered) < args.videos:
+            manifest["warnings"].append(
+                f"Creator discovery found {len(discovered)}/{args.videos} visible videos"
+            )
+        pause_page_media(controller_page)
+    manifest["selected_video_urls"] = video_urls
+    if not video_urls:
+        raise BrowserRouteError(
+            "No visible video links were found. Complete any login/verification in Chrome and rerun."
+        )
+    worker_page = controller_page
+    worker_page.on("response", capture.on_response)
+    for video_url in video_urls:
+        aweme_id = video_id_from(video_url)
+        for attempt in range(2):
+            if worker_page is None or worker_page.is_closed():
+                worker_page = context.new_page()
+                manifest["worker_pages_created"] += 1
+                worker_page.set_default_timeout(int(max(10, args.page_timeout) * 1000))
+                worker_page.on("response", capture.on_response)
+            crash_seen = {"value": False}
+            worker_page.on(
+                "crash", lambda *_args, state=crash_seen: state.__setitem__("value", True)
+            )
+            try:
+                collect_video_ui(
+                    worker_page,
+                    video_url,
+                    capture,
+                    store,
+                    args.include_replies,
+                    args.max_comments_per_video,
+                    budget,
+                    args.scroll_delay,
+                    args.idle_rounds,
+                    args.login_wait,
+                    args.reply_batch_size,
+                    args.reply_sweeps,
+                )
+                break
+            except Exception as exc:
+                page_crashed = crash_seen["value"] or is_page_crash_error(exc)
+                recoverable = page_crashed or is_transient_navigation_error(exc)
+                if not recoverable:
+                    raise
+                if page_crashed:
+                    manifest["worker_page_crashes"] += 1
+                if attempt == 0:
+                    manifest["worker_page_retries"] += 1
+                    reason = "page crash" if page_crashed else "transient navigation"
+                    manifest["warnings"].append(
+                        f"Recoverable {reason} while collecting {aweme_id}; "
+                        "recreating the worker tab and retrying once"
+                    )
+                    try:
+                        worker_page.close()
+                    except Exception:
+                        pass
+                    worker_page = None
+                    continue
+                reason = "page crash" if page_crashed else "transient navigation"
+                manifest["warnings"].append(
+                    f"Recoverable {reason} persisted for {aweme_id}; "
+                    "continuing with the saved checkpoint"
+                )
+                break
+        progress = store.get_progress("comments", aweme_id)
+        if progress.get("meta", {}).get("done_reason") == "login_required":
+            manifest["warnings"].append(
+                f"Login is required to expand all comments/replies for video {aweme_id}"
+            )
+    if worker_page is not None:
+        try:
+            worker_page.close()
+        except Exception:
+            pass
+    manifest["status"] = "complete_source_visible"
+    for video_url in video_urls:
+        aweme_id = video_id_from(video_url)
+        if not store.get_progress("comments", aweme_id).get("done"):
+            manifest["status"] = "partial_browser_visibility"
+            return 3
+        if args.include_replies and not replies_complete(store, aweme_id):
+            manifest["status"] = "partial_browser_visibility"
+            return 3
+    return 0
+
+
+def run(args: argparse.Namespace, browser_context: Any = None) -> int:
+    global RUNTIME_TRACE_PATH, DIAGNOSTIC_TRACE_ENABLED
     work_rows = load_work_rows(args.works_json) if args.works_json else []
     if not args.creator and not args.video and not work_rows:
         raise BrowserRouteError("Provide --creator, --works-json, or at least one --video")
@@ -1590,22 +1709,14 @@ def run(args: argparse.Namespace) -> int:
         print(json.dumps(dry_plan(args, work_rows), ensure_ascii=False, indent=2))
         return 0
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise BrowserRouteError(
-            "Playwright is required for the browser route. Install it in an isolated environment with: "
-            "python -m pip install playwright"
-        ) from exc
-
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    RUNTIME_TRACE_PATH = out_dir / "browser_runtime_trace.jsonl" if args.diagnostic_trace else None
+    RUNTIME_TRACE_PATH = out_dir / "browser_runtime_trace.jsonl"
+    DIAGNOSTIC_TRACE_ENABLED = bool(args.diagnostic_trace)
     profile_dir = Path(args.profile_dir).expanduser().resolve()
     if out_dir == profile_dir or out_dir in profile_dir.parents:
         raise BrowserRouteError("Keep --profile-dir outside --out so login state is never delivered")
     profile_dir.mkdir(parents=True, exist_ok=True)
-    chrome_path = find_chrome_path(args.chrome_path)
     store = CommentStore(out_dir / "comments.sqlite3", args.privacy_mode)
     for row in work_rows:
         store.upsert_video(work_seed(row))
@@ -1631,131 +1742,55 @@ def run(args: argparse.Namespace) -> int:
         "signature_generation": False,
         "dom_fallback": "visible top-level cards only",
         "page_isolation": "one_reused_worker_tab_with_crash_recovery",
+        "browser_context_mode": (
+            "shared_all_context" if browser_context is not None else "standalone_context"
+        ),
+        "browser_launches_total": 1,
+        "browser_launches_owned": 0 if browser_context is not None else 1,
+        "runtime_trace": "browser_runtime_trace.jsonl",
         "worker_pages_created": 0,
         "worker_page_retries": 0,
         "worker_page_crashes": 0,
         "warnings": [],
     }
+    emit_runtime_event(
+        {
+            "event": "collector_start",
+            "browser_context_mode": manifest["browser_context_mode"],
+            "works_json_videos": len(work_rows),
+            "privacy_mode": args.privacy_mode,
+        }
+    )
     exit_code = 0
-    context = None
     try:
-        with sync_playwright() as playwright:
-            context = playwright.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                executable_path=chrome_path,
-                headless=bool(args.headless),
-                accept_downloads=False,
-                viewport=None,
-                args=["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+        if browser_context is not None:
+            exit_code = collect_with_context(
+                browser_context, args, work_rows, store, budget, capture, manifest
             )
-            controller_page = context.pages[0] if context.pages else context.new_page()
-            controller_page.set_default_timeout(int(max(10, args.page_timeout) * 1000))
-            video_urls = normalize_video_urls(
-                [work_url(row) for row in work_rows if work_url(row)] + list(args.video)
-            )
-            if args.creator:
-                discovered = discover_creator_videos(
-                    controller_page,
-                    args.creator,
-                    args.videos,
-                    budget,
-                    args.scroll_delay,
-                    args.idle_rounds,
-                    args.login_wait,
-                )
-                existing_ids = {video_id_from(url) for url in video_urls}
-                for discovered_url in discovered:
-                    discovered_id = video_id_from(discovered_url)
-                    if discovered_id and discovered_id not in existing_ids:
-                        existing_ids.add(discovered_id)
-                        video_urls.append(discovered_url)
-                if len(discovered) < args.videos:
-                    manifest["warnings"].append(
-                        f"Creator discovery found {len(discovered)}/{args.videos} visible videos"
-                    )
-                pause_page_media(controller_page)
-            manifest["selected_video_urls"] = video_urls
-            if not video_urls:
+        else:
+            try:
+                from playwright.sync_api import sync_playwright
+            except ImportError as exc:
                 raise BrowserRouteError(
-                    "No visible video links were found. Complete any login/verification in Chrome and rerun."
-            )
-            worker_page = controller_page
-            worker_page.on("response", capture.on_response)
-            for video_url in video_urls:
-                aweme_id = video_id_from(video_url)
-                for attempt in range(2):
-                    if worker_page is None or worker_page.is_closed():
-                        worker_page = context.new_page()
-                        manifest["worker_pages_created"] += 1
-                        worker_page.set_default_timeout(int(max(10, args.page_timeout) * 1000))
-                        worker_page.on("response", capture.on_response)
-                    crash_seen = {"value": False}
-                    worker_page.on(
-                        "crash", lambda *_args, state=crash_seen: state.__setitem__("value", True)
-                    )
-                    try:
-                        collect_video_ui(
-                            worker_page,
-                            video_url,
-                            capture,
-                            store,
-                            args.include_replies,
-                            args.max_comments_per_video,
-                            budget,
-                            args.scroll_delay,
-                            args.idle_rounds,
-                            args.login_wait,
-                            args.reply_batch_size,
-                            args.reply_sweeps,
-                        )
-                        break
-                    except Exception as exc:
-                        page_crashed = crash_seen["value"] or is_page_crash_error(exc)
-                        recoverable = page_crashed or is_transient_navigation_error(exc)
-                        if not recoverable:
-                            raise
-                        if page_crashed:
-                            manifest["worker_page_crashes"] += 1
-                        if attempt == 0:
-                            manifest["worker_page_retries"] += 1
-                            reason = "page crash" if page_crashed else "transient navigation"
-                            manifest["warnings"].append(
-                                f"Recoverable {reason} while collecting {aweme_id}; "
-                                "recreating the worker tab and retrying once"
-                            )
-                            try:
-                                worker_page.close()
-                            except Exception:
-                                pass
-                            worker_page = None
-                            continue
-                        reason = "page crash" if page_crashed else "transient navigation"
-                        manifest["warnings"].append(
-                            f"Recoverable {reason} persisted for {aweme_id}; "
-                            "continuing with the saved checkpoint"
-                        )
-                        break
-                progress = store.get_progress("comments", aweme_id)
-                if progress.get("meta", {}).get("done_reason") == "login_required":
-                    manifest["warnings"].append(
-                        f"Login is required to expand all comments/replies for video {aweme_id}"
-                    )
-            if worker_page is not None:
+                    "Playwright is required for the browser route. Install it in an isolated "
+                    "environment with: python -m pip install playwright"
+                ) from exc
+            chrome_path = find_chrome_path(args.chrome_path)
+            with sync_playwright() as playwright:
+                context = playwright.chromium.launch_persistent_context(
+                    user_data_dir=str(profile_dir),
+                    executable_path=chrome_path,
+                    headless=bool(args.headless),
+                    accept_downloads=False,
+                    viewport=None,
+                    args=["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+                )
                 try:
-                    worker_page.close()
-                except Exception:
-                    pass
-            manifest["status"] = "complete_source_visible"
-            for video_url in video_urls:
-                aweme_id = video_id_from(video_url)
-                if not store.get_progress("comments", aweme_id).get("done"):
-                    manifest["status"] = "partial_browser_visibility"
-                    exit_code = 3
-                    break
-                if args.include_replies and not replies_complete(store, aweme_id):
-                    manifest["status"] = "partial_browser_visibility"
-                    exit_code = 3
-                    break
+                    exit_code = collect_with_context(
+                        context, args, work_rows, store, budget, capture, manifest
+                    )
+                finally:
+                    context.close()
     except ActionBudgetExceeded as exc:
         manifest["status"] = "partial_action_budget"
         manifest["warnings"].append(str(exc))
@@ -1771,12 +1806,15 @@ def run(args: argparse.Namespace) -> int:
         manifest["dom_duplicates_replaced"] = capture.dom_duplicates_replaced
         manifest["capture_errors"] = capture.errors
         export_bundle(store, out_dir, manifest, bool(args.include_replies))
+        emit_runtime_event(
+            {
+                "event": "collector_end",
+                "status": manifest.get("status"),
+                "comments_exported": manifest.get("comments_exported", 0),
+                "replies_exported": manifest.get("replies_exported", 0),
+            }
+        )
         store.close()
-        if context is not None:
-            try:
-                context.close()
-            except Exception:
-                pass
     return exit_code
 
 

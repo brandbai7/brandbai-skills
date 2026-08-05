@@ -1,3 +1,4 @@
+import argparse
 import json
 import shutil
 import unittest
@@ -6,11 +7,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from run_foundation import (
+    FoundationError,
     all_plan,
     build_parser,
     child_command,
     load_work_urls,
     run_all,
+    run_shared_browser_stages,
     unique_work_urls,
 )
 
@@ -109,6 +112,8 @@ class RunFoundationTests(unittest.TestCase):
         plan = all_plan(args)
         self.assertEqual(plan["ordinary_files"][0], "01_作品清单.xlsx")
         self.assertEqual(plan["comments"], "top-level only")
+        self.assertEqual(plan["privacy_mode"], "hash")
+        self.assertIn("one shared visible Chrome context", plan["browser_session"])
         self.assertFalse(plan["analysis_included"])
         self.assertTrue(plan["preview_dir"].endswith("delivery_QA"))
 
@@ -127,27 +132,30 @@ class RunFoundationTests(unittest.TestCase):
             delivery = temp / "delivery"
             preview = temp / "preview"
             calls = []
+            browser_calls = []
 
             class Result:
                 def __init__(self, returncode=0):
                     self.returncode = returncode
 
+            def fake_browser_stage_runner(works_args, comments_args, trace_path):
+                browser_calls.append((works_args, comments_args, trace_path))
+                works_out = Path(works_args.out)
+                works_out.mkdir(parents=True, exist_ok=True)
+                (works_out / "works.json").write_text(json.dumps([
+                    {"source_url": "https://www.douyin.com/video/12345678901"}
+                ]), encoding="utf-8")
+                (works_out / "download_manifest.json").write_text("{}", encoding="utf-8")
+                comments_out = Path(comments_args.out)
+                comments_out.mkdir(parents=True, exist_ok=True)
+                (comments_out / "comments.csv").write_text(
+                    "aweme_id,text\n12345678901,test\n", encoding="utf-8"
+                )
+                (comments_out / "run_manifest.json").write_text("{}", encoding="utf-8")
+                return 0, 0
+
             def fake_runner(command, **_kwargs):
                 calls.append(command)
-                if str(command[1]).endswith("download_creator_works.py"):
-                    out = Path(command[command.index("--out") + 1])
-                    out.mkdir(parents=True, exist_ok=True)
-                    (out / "works.json").write_text(json.dumps([
-                        {"source_url": "https://www.douyin.com/video/12345678901"}
-                    ]), encoding="utf-8")
-                    (out / "download_manifest.json").write_text("{}", encoding="utf-8")
-                    return Result()
-                if str(command[1]).endswith("browser_collect_comments.py"):
-                    out = Path(command[command.index("--out") + 1])
-                    out.mkdir(parents=True, exist_ok=True)
-                    (out / "comments.csv").write_text("aweme_id,text\n12345678901,test\n", encoding="utf-8")
-                    (out / "run_manifest.json").write_text("{}", encoding="utf-8")
-                    return Result()
                 delivery.mkdir(parents=True, exist_ok=True)
                 preview.mkdir(parents=True, exist_ok=True)
                 for name in ("01_作品清单.xlsx", "02_评论明细.xlsx", "04_采集说明.md"):
@@ -160,11 +168,108 @@ class RunFoundationTests(unittest.TestCase):
                 "--profile-dir", str(temp / "profile"), "--out", str(delivery),
                 "--preview-dir", str(preview),
             ])
-            self.assertEqual(run_all(args, scripts, runner=fake_runner), 0)
-            self.assertEqual(len(calls), 3)
-            self.assertIn(str(delivery / "03_作品素材"), calls[0])
+            self.assertEqual(
+                run_all(
+                    args,
+                    scripts,
+                    runner=fake_runner,
+                    browser_stage_runner=fake_browser_stage_runner,
+                ),
+                0,
+            )
+            self.assertEqual(len(browser_calls), 1)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(browser_calls[0][0].media_dir, str(delivery / "03_作品素材"))
             self.assertTrue((delivery / "data" / "作品采集" / "works.json").is_file())
             self.assertTrue((delivery / "data" / "评论采集" / "comments.csv").is_file())
+
+    def test_shared_browser_stages_launch_once_and_reuse_context(self):
+        with workspace_temp() as temp:
+            launches = []
+            seen_contexts = []
+
+            class FakeContext:
+                def __init__(self):
+                    self.closed = False
+
+                def close(self):
+                    self.closed = True
+
+            class FakeChromium:
+                def launch_persistent_context(self, **kwargs):
+                    launches.append(kwargs)
+                    return FakeContext()
+
+            class FakePlaywright:
+                chromium = FakeChromium()
+
+            @contextmanager
+            def fake_playwright_factory():
+                yield FakePlaywright()
+
+            def fake_works(_args, browser_context=None):
+                seen_contexts.append(browser_context)
+                return 0
+
+            def fake_comments(_args, browser_context=None):
+                seen_contexts.append(browser_context)
+                return 0
+
+            works_args = argparse.Namespace(
+                profile_dir=str(temp / "profile"), chrome_path=""
+            )
+            comments_args = argparse.Namespace()
+            result = run_shared_browser_stages(
+                works_args,
+                comments_args,
+                temp / "trace.jsonl",
+                playwright_factory=fake_playwright_factory,
+                works_runner=fake_works,
+                comments_runner=fake_comments,
+                chrome_finder=lambda _value: "chrome.exe",
+            )
+            self.assertEqual(result, (0, 0))
+            self.assertEqual(len(launches), 1)
+            self.assertIs(seen_contexts[0], seen_contexts[1])
+            self.assertTrue(seen_contexts[0].closed)
+            events = [json.loads(line) for line in (temp / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(events[0]["event"], "browser_session_start")
+            self.assertEqual(events[-1]["event"], "browser_session_end")
+
+    def test_shared_browser_launch_failure_still_closes_audit_trace(self):
+        with workspace_temp() as temp:
+            class FakeChromium:
+                def launch_persistent_context(self, **_kwargs):
+                    raise RuntimeError("synthetic launch failure")
+
+            class FakePlaywright:
+                chromium = FakeChromium()
+
+            @contextmanager
+            def fake_playwright_factory():
+                yield FakePlaywright()
+
+            works_args = argparse.Namespace(
+                profile_dir=str(temp / "profile"), chrome_path=""
+            )
+            trace_path = temp / "trace.jsonl"
+            with self.assertRaisesRegex(FoundationError, "Browser launch failed"):
+                run_shared_browser_stages(
+                    works_args,
+                    argparse.Namespace(),
+                    trace_path,
+                    playwright_factory=fake_playwright_factory,
+                    works_runner=lambda *_args, **_kwargs: 0,
+                    comments_runner=lambda *_args, **_kwargs: 0,
+                    chrome_finder=lambda _value: "chrome.exe",
+                )
+            events = [
+                json.loads(line)
+                for line in trace_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(events[-2]["event"], "browser_session_launch_error")
+            self.assertEqual(events[-1]["event"], "browser_session_end")
+            self.assertNotIn("synthetic launch failure", trace_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

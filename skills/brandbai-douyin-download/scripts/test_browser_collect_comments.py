@@ -16,6 +16,7 @@ from unittest.mock import patch
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+import browser_collect_comments as collector_module  # noqa: E402
 from browser_collect_comments import (  # noqa: E402
     ActionBudget,
     PROVIDER,
@@ -51,6 +52,69 @@ def workspace_temp():
 
 
 class BrowserCollectorTests(unittest.TestCase):
+    def test_external_browser_context_is_reused_and_not_closed_by_comment_stage(self):
+        with workspace_temp() as temp:
+            class FakeContext:
+                closed = False
+
+                def close(self):
+                    self.closed = True
+
+            context = FakeContext()
+
+            def fake_collect(
+                received_context, _args, _rows, _store, _budget, _capture, manifest
+            ):
+                self.assertIs(received_context, context)
+                manifest["status"] = "complete_source_visible"
+                manifest["selected_video_urls"] = [
+                    "https://www.douyin.com/video/10000000001"
+                ]
+                return 0
+
+            args = SimpleNamespace(
+                works_json=None,
+                creator=None,
+                video=["https://www.douyin.com/video/10000000001"],
+                videos=1,
+                include_replies=False,
+                max_comments_per_video=0,
+                max_ui_actions=10,
+                idle_rounds=2,
+                scroll_delay=0.1,
+                reply_batch_size=1,
+                reply_sweeps=1,
+                page_timeout=10,
+                login_wait=0,
+                profile_dir=str(temp / "profile"),
+                out=str(temp / "out"),
+                chrome_path="",
+                privacy_mode="hash",
+                headless=False,
+                diagnostic_trace=False,
+                dry_run=False,
+            )
+            with patch.object(collector_module, "collect_with_context", side_effect=fake_collect):
+                self.assertEqual(collector_module.run(args, browser_context=context), 0)
+            self.assertFalse(context.closed)
+            manifest = json.loads(
+                (temp / "out" / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["browser_context_mode"], "shared_all_context")
+            self.assertEqual(manifest["browser_launches_owned"], 0)
+            self.assertTrue((temp / "out" / "browser_runtime_trace.jsonl").is_file())
+
+    def test_runtime_event_is_written_to_trace_without_enabling_diagnostic_samples(self):
+        with workspace_temp() as temp:
+            trace = temp / "browser_runtime_trace.jsonl"
+            with patch.object(collector_module, "RUNTIME_TRACE_PATH", trace), patch.object(
+                collector_module, "DIAGNOSTIC_TRACE_ENABLED", False
+            ):
+                collector_module.emit_runtime_event({"event": "collector_test"})
+            rows = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(rows[0]["event"], "collector_test")
+            self.assertIn("at", rows[0])
+
     def test_resume_waits_for_current_page_surface_not_historical_store_rows(self):
         with workspace_temp() as temp:
             store = CommentStore(temp / "comments.sqlite3", "hash")

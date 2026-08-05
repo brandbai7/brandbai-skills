@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -29,6 +30,17 @@ def configure_output() -> None:
                 stream.reconfigure(encoding="utf-8", errors="replace")
             except (AttributeError, ValueError):
                 pass
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def append_runtime_event(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    event = {"at": utc_now(), **payload}
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def unique_work_urls(values: Iterable[str]) -> list[str]:
@@ -226,18 +238,141 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
         "creator": args.creator,
         "selection": f"all visible pinned works plus latest {args.recent} non-pinned works",
         "comments": "top-level plus replies" if args.include_replies else "top-level only",
+        "privacy_mode": args.privacy_mode,
+        "browser_session": "one shared visible Chrome context for works and comments",
         "delivery": str(delivery_dir),
         "ordinary_files": ["01_作品清单.xlsx", "02_评论明细.xlsx", "03_作品素材", "04_采集说明.md"],
         "raw_data": ["data/作品采集", "data/评论采集"],
         "preview_dir": str(preview_dir),
+        "runtime_trace": "data/browser_session_trace.jsonl and data/评论采集/browser_runtime_trace.jsonl",
         "analysis_included": False,
     }
+
+
+def run_shared_browser_stages(
+    works_args: argparse.Namespace,
+    comments_args: argparse.Namespace,
+    trace_path: Path,
+    playwright_factory: Any = None,
+    works_runner: Any = None,
+    comments_runner: Any = None,
+    chrome_finder: Any = None,
+) -> tuple[int, int]:
+    if any(value is None for value in (
+        playwright_factory, works_runner, comments_runner, chrome_finder
+    )):
+        try:
+            from playwright.sync_api import sync_playwright
+            from browser_collect_comments import find_chrome_path, run as run_comments
+            from download_creator_works import run as run_works
+        except ImportError as exc:
+            raise FoundationError(
+                "Playwright and the bundled collectors are required for the shared browser route"
+            ) from exc
+        playwright_factory = playwright_factory or sync_playwright
+        works_runner = works_runner or run_works
+        comments_runner = comments_runner or run_comments
+        chrome_finder = chrome_finder or find_chrome_path
+
+    profile_dir = Path(works_args.profile_dir).expanduser().resolve()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    chrome_path = chrome_finder(works_args.chrome_path)
+    works_code = 2
+    comments_code = 2
+    append_runtime_event(
+        trace_path,
+        {
+            "event": "browser_session_start",
+            "browser_context_mode": "shared_all_context",
+            "browser_launches_total": 1,
+        },
+    )
+    with playwright_factory() as playwright:
+        try:
+            context = playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                executable_path=chrome_path,
+                headless=False,
+                accept_downloads=False,
+                viewport=None,
+                args=["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+            )
+        except Exception as exc:
+            append_runtime_event(
+                trace_path,
+                {
+                    "event": "browser_session_launch_error",
+                    "error_type": type(exc).__name__,
+                },
+            )
+            append_runtime_event(
+                trace_path,
+                {
+                    "event": "browser_session_end",
+                    "works_exit_code": works_code,
+                    "comments_exit_code": comments_code,
+                    "close_error_type": "",
+                    "launch_error_type": type(exc).__name__,
+                },
+            )
+            raise FoundationError(f"Browser launch failed: {exc}") from exc
+        try:
+            append_runtime_event(trace_path, {"event": "works_stage_start"})
+            try:
+                works_code = int(works_runner(works_args, browser_context=context))
+            except Exception as exc:
+                append_runtime_event(
+                    trace_path,
+                    {
+                        "event": "works_stage_error",
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise FoundationError(f"Works stage failed: {exc}") from exc
+            append_runtime_event(
+                trace_path, {"event": "works_stage_end", "exit_code": works_code}
+            )
+            if works_code not in (0, 3):
+                return works_code, comments_code
+            append_runtime_event(trace_path, {"event": "comments_stage_start"})
+            try:
+                comments_code = int(comments_runner(comments_args, browser_context=context))
+            except Exception as exc:
+                append_runtime_event(
+                    trace_path,
+                    {
+                        "event": "comments_stage_error",
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise FoundationError(f"Comments stage failed: {exc}") from exc
+            append_runtime_event(
+                trace_path, {"event": "comments_stage_end", "exit_code": comments_code}
+            )
+        finally:
+            close_error = ""
+            try:
+                context.close()
+            except Exception as exc:
+                close_error = type(exc).__name__
+            finally:
+                append_runtime_event(
+                    trace_path,
+                    {
+                        "event": "browser_session_end",
+                        "works_exit_code": works_code,
+                        "comments_exit_code": comments_code,
+                        "close_error_type": close_error,
+                    },
+                )
+    return works_code, comments_code
 
 
 def run_all(
     args: argparse.Namespace,
     scripts_dir: Path | None = None,
     runner: Any = subprocess.run,
+    browser_stage_runner: Any = run_shared_browser_stages,
 ) -> int:
     configure_output()
     scripts_dir = scripts_dir or Path(__file__).resolve().parent
@@ -274,12 +409,6 @@ def run_all(
         download_timeout=args.download_timeout,
         dry_run=False,
     )
-    works_result = runner(child_command(works_args, scripts_dir), check=False)
-    if works_result.returncode not in (0, 3):
-        return int(works_result.returncode)
-    if not works_json.is_file():
-        raise FoundationError(f"Works stage did not create: {works_json}")
-
     comments_args = argparse.Namespace(
         capability="comments",
         works_json=str(works_json),
@@ -302,9 +431,17 @@ def run_all(
         diagnostic_trace=args.diagnostic_trace,
         dry_run=False,
     )
-    comments_result = runner(child_command(comments_args, scripts_dir), check=False)
-    if comments_result.returncode not in (0, 3):
-        return int(comments_result.returncode)
+    works_code, comments_code = browser_stage_runner(
+        works_args,
+        comments_args,
+        delivery_dir / "data" / "browser_session_trace.jsonl",
+    )
+    if works_code not in (0, 3):
+        return int(works_code)
+    if not works_json.is_file():
+        raise FoundationError(f"Works stage did not create: {works_json}")
+    if comments_code not in (0, 3):
+        return int(comments_code)
 
     builder_source = scripts_dir / "build_foundation_workbooks.py"
     if not builder_source.is_file():
@@ -334,7 +471,7 @@ def run_all(
             "提示：Excel 构建程序返回了非零状态，但普通版文件与质检记录均已完整落盘。",
             file=sys.stderr,
         )
-    return 3 if 3 in (works_result.returncode, comments_result.returncode) else 0
+    return 3 if 3 in (works_code, comments_code) else 0
 
 
 def main(argv: list[str] | None = None) -> int:
