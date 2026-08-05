@@ -148,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     all_in_one.add_argument(
         "--preview-dir",
         default="",
-        help="Optional workbook QA directory; defaults to <delivery>/data/质检",
+        help="Optional workbook QA directory; defaults to sibling <delivery>_QA",
     )
     add_common_browser_args(all_in_one)
     return parser
@@ -173,12 +173,10 @@ def child_command(args: argparse.Namespace, scripts_dir: Path | None = None) -> 
         if args.media_label:
             command.extend(["--media-label", args.media_label])
     elif args.capability == "comments":
-        explicit_urls = list(args.video)
-        if args.works_json:
-            explicit_urls.extend(load_work_urls(args.works_json))
-        explicit_urls = unique_work_urls(explicit_urls)
+        explicit_urls = unique_work_urls(list(args.video))
         if not explicit_urls and not args.creator:
-            raise FoundationError("Provide --works-json, at least one --video, or --creator")
+            if not args.works_json:
+                raise FoundationError("Provide --works-json, at least one --video, or --creator")
 
         command = [
             sys.executable,
@@ -198,6 +196,8 @@ def child_command(args: argparse.Namespace, scripts_dir: Path | None = None) -> 
         ]
         if args.creator:
             command.extend(["--creator", args.creator])
+        if args.works_json:
+            command.extend(["--works-json", args.works_json])
         for url in explicit_urls:
             command.extend(["--video", url])
         if args.include_replies:
@@ -219,7 +219,7 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
     preview_dir = (
         Path(args.preview_dir).expanduser().resolve()
         if args.preview_dir
-        else delivery_dir / "data" / "质检"
+        else delivery_dir.parent / f"{delivery_dir.name}_QA"
     )
     return {
         "capability": "all",
@@ -255,7 +255,7 @@ def run_all(
     preview_dir = (
         Path(args.preview_dir).expanduser().resolve()
         if args.preview_dir
-        else delivery_dir / "data" / "质检"
+        else delivery_dir.parent / f"{delivery_dir.name}_QA"
     )
 
     delivery_dir.mkdir(parents=True, exist_ok=True)

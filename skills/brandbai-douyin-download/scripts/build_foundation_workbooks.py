@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable
+from urllib.parse import quote
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.formatting.rule import FormulaRule
@@ -29,6 +30,7 @@ GRAY = "5B6573"
 DARK = "24313D"
 BORDER = "D7E1E8"
 WHITE = "FFFFFF"
+LINK_BLUE = "0563C1"
 FONT_NAME = "Microsoft YaHei"
 THIN = Side(style="thin", color=BORDER)
 CHINA_TZ = timezone(timedelta(hours=8))
@@ -151,9 +153,10 @@ def style_data_sheet(
     row_height: float | None = None,
     table_name: str | None = None,
     table_style: str = "TableStyleMedium2",
+    freeze_panes: str = "A2",
 ) -> None:
     ws.sheet_view.showGridLines = False
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = freeze_panes
     style_header(ws, columns)
     set_dimensions(ws, widths)
     wrap_set = set(wrap_columns)
@@ -191,6 +194,26 @@ def style_data_sheet(
             showColumnStripes=False,
         )
         ws.add_table(table)
+
+
+def style_hyperlink_column(
+    ws: Any,
+    rows: int,
+    column: int,
+    *,
+    relative_local_path: bool = False,
+) -> None:
+    """Make URL or relative-path cells clickable without changing their display values."""
+    for row_index in range(2, rows + 2):
+        cell = ws.cell(row_index, column)
+        value = str(cell.value or "").strip()
+        if not value:
+            continue
+        target = value
+        if relative_local_path:
+            target = quote(value.replace("\\", "/"), safe="/:")
+        cell.hyperlink = target
+        cell.font = Font(name=FONT_NAME, size=10, color=LINK_BLUE, underline="single")
 
 
 def style_title(ws: Any, title: str) -> None:
@@ -291,6 +314,8 @@ def build_works_book(
         wrap_columns=[4, 13, 14, 15, 16], date_columns=[5], integer_columns=[6, 7, 8, 9, 10],
         text_columns=[1], row_height=48, table_name="WorksTable", table_style="TableStyleMedium2",
     )
+    style_hyperlink_column(work_list, len(works), 13)
+    style_hyperlink_column(work_list, len(works), 14, relative_local_path=True)
 
     asset_headers = ["作品ID", "标题", "资产类型", "序号", "文件名", "状态", "字节数", "大小(MB)", "本地相对路径"]
     asset_list.append(asset_headers)
@@ -320,6 +345,7 @@ def build_works_book(
         wrap_columns=[2, 9], integer_columns=[7], decimal_columns=[8], text_columns=[1],
         table_name="AssetsTable", table_style="TableStyleMedium4",
     )
+    style_hyperlink_column(asset_list, asset_count, 9, relative_local_path=True)
 
     intro.sheet_view.showGridLines = False
     style_title(intro, f"BrandBAI 抖音作品采集｜{creator}")
@@ -372,8 +398,8 @@ def build_comments_book(
     intro = book.active
     intro.title = "导出说明"
     video_list = book.create_sheet("视频清单")
-    comment_list = book.create_sheet("评论明细")
     datatool = book.create_sheet("DataTool兼容")
+    comment_list = book.create_sheet("评论明细")
     quality = book.create_sheet("采集质量")
     dictionary = book.create_sheet("字段字典")
     workbook_properties(book, f"BrandBAI 抖音评论采集｜{creator}")
@@ -403,7 +429,9 @@ def build_comments_book(
         comment_list, 19, len(detail_rows), widths=[48, 58, 18, 20, 11, 11, 12, 42, 22, 22, 22, 22, 8, 12, 10, 12, 10, 30, 20],
         wrap_columns=[1, 2, 8], date_columns=[4, 19], integer_columns=[5, 6, 13],
         text_columns=[9, 10, 11, 12, 18], row_height=34, table_name="CommentsTable",
+        freeze_panes="C2",
     )
+    style_hyperlink_column(comment_list, len(detail_rows), 8)
 
     video_headers = ["作品ID", "类型", "标题", "发布时间", "作品链接", "页面评论数", "一级已采集", "回复已采集", "完整性", "备注"]
     video_list.append(video_headers)
@@ -425,6 +453,7 @@ def build_comments_book(
         wrap_columns=[3, 5, 10], date_columns=[4], integer_columns=[6, 7, 8], text_columns=[1],
         row_height=42, table_name="VideosTable", table_style="TableStyleMedium4",
     )
+    style_hyperlink_column(video_list, len(video_rows), 5)
 
     datatool.append(["评论内容", "评论人", "评论时间", "点赞数", "回复数"])
     for row in detail_rows:
@@ -432,7 +461,9 @@ def build_comments_book(
     style_data_sheet(
         datatool, 5, len(detail_rows), widths=[64, 20, 20, 12, 12], wrap_columns=[1],
         date_columns=[3], integer_columns=[4, 5], row_height=34,
+        table_name="DataToolView", table_style="TableStyleMedium9",
     )
+    datatool.sheet_properties.tabColor = TEAL
 
     quality.append(["作品ID", "标题", "一级分页", "一级评论", "回复", "是否请求回复", "整体状态", "重试", "崩溃", "备注"])
     quality_rows: list[list[Any]] = []
@@ -500,9 +531,10 @@ def build_comments_book(
         "本次请求二级回复；整体完整性同时受回复楼层完成状态约束。" if include_replies else "本次只采一级评论，二级回复没有展开，也不计入一级评论数量。",
         "普通评论者默认使用稳定化名；作品、评论和证据 ID 保留用于去重与回溯。",
         "评论文字的存在可作为可观察事实；评论中的购买、效果、身份或体验主张仍需另行核验。",
+        "DataTool兼容表是导出时点的静态查看快照；如需修改数据，请以评论明细和 data 原始文件为准并重新生成。",
         "本文件不包含语义分析、达人画像、商品匹配或商业结论。",
     ])
-    style_metadata(intro, 19, [
+    style_metadata(intro, 20, [
         ("采集来源", "抖音普通登录页面可见返回"),
         ("隐私模式", comments_manifest.get("privacy_mode") or ""),
         ("开始时间", as_datetime(comments_manifest.get("started_at"))),
@@ -521,25 +553,46 @@ def workbook_qa(paths: list[Path]) -> dict[str, Any]:
         book = load_workbook(path, data_only=False, read_only=False)
         sheets: dict[str, Any] = {}
         errors: list[str] = []
+        id_text_errors: list[str] = []
         for sheet in book.worksheets:
             formulas = 0
+            hyperlinks = 0
+            id_columns = {
+                cell.column
+                for cell in sheet[1]
+                if isinstance(cell.value, str) and "ID" in cell.value.upper()
+            }
             for row in sheet.iter_rows():
                 for cell in row:
                     if isinstance(cell.value, str) and cell.value.startswith("="):
                         formulas += 1
                     if cell.value in error_tokens:
                         errors.append(f"{sheet.title}!{cell.coordinate}:{cell.value}")
+                    if cell.hyperlink is not None:
+                        hyperlinks += 1
+                    if (
+                        cell.row > 1
+                        and cell.column in id_columns
+                        and cell.value not in (None, "")
+                        and (cell.data_type != "s" or cell.number_format != "@")
+                    ):
+                        id_text_errors.append(
+                            f"{sheet.title}!{cell.coordinate}:"
+                            f"type={cell.data_type},format={cell.number_format}"
+                        )
             sheets[sheet.title] = {
                 "rows": sheet.max_row,
                 "columns": sheet.max_column,
                 "freeze_panes": str(sheet.freeze_panes or ""),
                 "tables": sorted(sheet.tables.keys()),
                 "formulas": formulas,
+                "hyperlinks": hyperlinks,
             }
         results[path.name] = {
             "bytes": path.stat().st_size,
             "sheets": sheets,
             "formula_errors": errors,
+            "id_text_errors": id_text_errors,
         }
         book.close()
     return results
@@ -594,7 +647,11 @@ def main(argv: list[str] | None = None) -> int:
     comments_path = Path(args.comments_csv).expanduser().resolve()
     comments_manifest_path = Path(args.comments_manifest).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
-    qa_dir = Path(args.qa_dir).expanduser().resolve() if args.qa_dir else output_dir / "data" / "质检"
+    qa_dir = (
+        Path(args.qa_dir).expanduser().resolve()
+        if args.qa_dir
+        else output_dir.parent / f"{output_dir.name}_QA"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     qa_dir.mkdir(parents=True, exist_ok=True)
 

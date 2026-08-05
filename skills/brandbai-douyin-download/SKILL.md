@@ -4,7 +4,7 @@ description: Download public Douyin account works, video or image-post media, co
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.0"
+  version: "0.2.1"
   category: content-commerce
 ---
 
@@ -108,6 +108,8 @@ python scripts/run_foundation.py comments `
 
 评论任务在一个可见 Chrome 窗口中顺序处理并复用工作标签页；只有页面崩溃或导航中断时才重建标签页并从 SQLite 断点重试。
 
+宿主界面显示“执行超时”不等于采集进程已经失败。先检查输出目录中的 manifest、运行进程和文件更新时间；只要状态仍为 `running` 或文件仍在增长，就等待原任务完成，不得自动重新执行同一任务。只有确认原进程已经结束，且 manifest 为部分完成或失败状态时，才使用同一输出目录续跑。
+
 ### 一次完成普通版交付
 
 正式交付优先使用 `all`，它会依次下载作品与素材、采集一级评论并生成两份 Excel：
@@ -162,6 +164,7 @@ python scripts/run_foundation.py all `
 ## 续跑与交付
 
 - 同一目标、同一隐私模式可复用原输出目录；SQLite 和已有素材用于跳过重复数据。
+- 宿主超时后先轮询原任务，不并行启动重复任务；确认原进程已结束后再续跑。
 - 目标作品集合或隐私模式改变时新建目录，避免混入上一批结果。
 - 普通用户先看 Excel 和素材；`data/` 只用于断点续跑和审计。
 - 不把登录资料夹、QA 预览、运行缓存、Cookie 或任何凭据放进交付包。

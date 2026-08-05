@@ -25,8 +25,8 @@ Put title and human-readable content before audit fields. Keep IDs as text and l
 
 1. `导出说明`: scope, source, privacy mode, counts, status, timestamps, and completeness caveat.
 2. `视频清单`: aweme ID as text, content type, title, real `/video/` or `/note/` URL, top-level/reply counts, incomplete reply floors, completeness.
-3. `评论明细`: canonical traceable evidence table.
-4. `DataTool兼容`: five-column human-browsing view.
+3. `DataTool兼容`: five-column human-browsing view shown before the wide detail table.
+4. `评论明细`: canonical traceable evidence table.
 5. `采集质量`: per-item terminal-pagination and recovery status.
 6. `字段字典`: type, definition, null policy, and DataTool mapping.
 
@@ -67,7 +67,8 @@ The raw `comments.csv` remains the canonical machine-readable table. Do not remo
 - Use `reply_level=0` for top-level comments and `1` for replies. Keep `viewer_comment`, `viewer_reply`, and `creator_reply` distinct.
 - Set `ID来源=platform` for platform IDs and `dom_fallback` for generated fallback IDs.
 - Default commenter identity to a stable pseudonym. Raw identity requires explicit authorization and legitimate need.
-- Freeze the header row, enable filters, wrap long text, and use readable fixed widths. Do not make visual styling obscure audit fields.
+- Add clickable hyperlinks for work URLs and relative media paths while preserving their visible values.
+- Freeze the header row, enable filters, wrap long text, and use readable fixed widths. On the wide comment table, freeze the title and comment columns as well. Do not make visual styling obscure audit fields.
 
 ## DataTool compatibility view
 
@@ -75,7 +76,7 @@ Keep exactly these headers and order:
 
 `评论内容`, `评论人`, `评论时间`, `点赞数`, `回复数`
 
-Make this view formula-linked to `评论明细` when practical. Treat it as a compatibility/human-reading view only; use the canonical table for deduplication, reply relationships, creator analysis, and evidence tracing.
+Make this view a filterable table containing values copied at export time. Label it as an export-time static viewing snapshot rather than a live formula view, because cached cross-host formula results are not reliable. Use the canonical table and raw data for edits, deduplication, reply relationships, creator analysis, and evidence tracing, then regenerate the workbook.
 
 ## Quality contract
 

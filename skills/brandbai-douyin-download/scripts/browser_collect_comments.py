@@ -111,6 +111,49 @@ def normalize_video_urls(values: Iterable[str]) -> List[str]:
     return output
 
 
+def load_work_rows(path_value: str) -> List[Dict[str, Any]]:
+    path = Path(path_value).expanduser().resolve()
+    if not path.is_file():
+        raise BrowserRouteError(f"works.json not found: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BrowserRouteError(f"Unable to read works.json: {path}") from exc
+    rows = payload.get("works") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise BrowserRouteError("works.json must be a list or contain a works list")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def work_url(row: Dict[str, Any]) -> str:
+    source_url = str(row.get("source_url") or "").strip()
+    if video_id_from(source_url):
+        return source_url
+    aweme_id = str(row.get("aweme_id") or "").strip()
+    if not video_id_from(aweme_id):
+        return ""
+    route = "note" if str(row.get("type") or "").strip().lower() in {"图文", "note"} else "video"
+    return f"https://www.douyin.com/{route}/{aweme_id}"
+
+
+def work_seed(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Translate works-collector metadata into the comment store's video schema."""
+    return {
+        "aweme_id": str(row.get("aweme_id") or ""),
+        "source_url": work_url(row),
+        "author": {"nickname": str(row.get("author") or "")},
+        "title": str(row.get("title") or ""),
+        "publish_time": row.get("publish_time"),
+        "statistics": {
+            "digg_count": as_int(row.get("digg_count")),
+            "comment_count": as_int(row.get("comment_count")),
+            "collect_count": as_int(row.get("collect_count")),
+            "share_count": as_int(row.get("share_count")),
+        },
+        "is_pinned": as_bool(row.get("is_pinned")),
+    }
+
+
 def is_transient_navigation_error(exc: BaseException) -> bool:
     message = str(exc).lower()
     return any(
@@ -1469,6 +1512,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--creator", help="Douyin creator profile URL")
     parser.add_argument("--videos", type=int, default=20, help="Number of visible creator videos")
     parser.add_argument("--video", action="append", default=[], help="Explicit video URL or ID")
+    parser.add_argument("--works-json", help="works.json used to seed titles, URLs and platform counts")
     parser.add_argument("--include-replies", action="store_true")
     parser.add_argument("--max-comments-per-video", type=int, default=0)
     parser.add_argument("--max-ui-actions", type=int, default=2500)
@@ -1503,12 +1547,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def dry_plan(args: argparse.Namespace) -> Dict[str, Any]:
+def dry_plan(args: argparse.Namespace, work_rows: Sequence[Dict[str, Any]] = ()) -> Dict[str, Any]:
     return {
         "provider": PROVIDER,
         "creator": args.creator or "",
         "creator_videos": args.videos if args.creator else 0,
         "explicit_videos": len(args.video),
+        "works_json_videos": len(work_rows),
         "include_replies": bool(args.include_replies),
         "max_comments_per_video": args.max_comments_per_video,
         "max_ui_actions": args.max_ui_actions,
@@ -1528,8 +1573,9 @@ def dry_plan(args: argparse.Namespace) -> Dict[str, Any]:
 
 def run(args: argparse.Namespace) -> int:
     global RUNTIME_TRACE_PATH
-    if not args.creator and not args.video:
-        raise BrowserRouteError("Provide --creator or at least one --video")
+    work_rows = load_work_rows(args.works_json) if args.works_json else []
+    if not args.creator and not args.video and not work_rows:
+        raise BrowserRouteError("Provide --creator, --works-json, or at least one --video")
     if args.videos < 1:
         raise BrowserRouteError("--videos must be positive")
     if args.max_comments_per_video < 0:
@@ -1541,7 +1587,7 @@ def run(args: argparse.Namespace) -> int:
     if args.reply_sweeps < 1:
         raise BrowserRouteError("--reply-sweeps must be positive")
     if args.dry_run:
-        print(json.dumps(dry_plan(args), ensure_ascii=False, indent=2))
+        print(json.dumps(dry_plan(args, work_rows), ensure_ascii=False, indent=2))
         return 0
 
     try:
@@ -1561,6 +1607,8 @@ def run(args: argparse.Namespace) -> int:
     profile_dir.mkdir(parents=True, exist_ok=True)
     chrome_path = find_chrome_path(args.chrome_path)
     store = CommentStore(out_dir / "comments.sqlite3", args.privacy_mode)
+    for row in work_rows:
+        store.upsert_video(work_seed(row))
     budget = ActionBudget(args.max_ui_actions)
     capture = ResponseCapture(store)
     manifest: Dict[str, Any] = {
@@ -1571,6 +1619,7 @@ def run(args: argparse.Namespace) -> int:
         "include_replies": bool(args.include_replies),
         "creator": args.creator or "",
         "requested_creator_videos": args.videos if args.creator else 0,
+        "works_json_videos": len(work_rows),
         "max_comments_per_video": args.max_comments_per_video,
         "max_ui_actions": args.max_ui_actions,
         "reply_batch_size": args.reply_batch_size,
@@ -1601,7 +1650,9 @@ def run(args: argparse.Namespace) -> int:
             )
             controller_page = context.pages[0] if context.pages else context.new_page()
             controller_page.set_default_timeout(int(max(10, args.page_timeout) * 1000))
-            video_urls = normalize_video_urls(args.video)
+            video_urls = normalize_video_urls(
+                [work_url(row) for row in work_rows if work_url(row)] + list(args.video)
+            )
             if args.creator:
                 discovered = discover_creator_videos(
                     controller_page,

@@ -120,17 +120,28 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             self.assertEqual(works_book["使用说明"]["B6"].value, 0)
             self.assertEqual(works_book["使用说明"]["B21"].value, "完成")
             self.assertIn("WorksTable", works_book["作品清单"].tables)
+            self.assertEqual(
+                works_book["作品清单"]["M2"].hyperlink.target,
+                "https://www.douyin.com/video/7551794579813502262",
+            )
+            self.assertIn("03_%E4%BD%9C%E5%93%81%E7%B4%A0%E6%9D%90", works_book["作品清单"]["N2"].hyperlink.target)
+            self.assertIsNotNone(works_book["素材明细"]["I2"].hyperlink)
             works_book.close()
 
             comments_book = load_workbook(output_dir / "02_评论明细.xlsx")
             self.assertEqual(comments_book.sheetnames, [
-                "导出说明", "视频清单", "评论明细", "DataTool兼容", "采集质量", "字段字典",
+                "导出说明", "视频清单", "DataTool兼容", "评论明细", "采集质量", "字段字典",
             ])
             self.assertEqual(comments_book["评论明细"]["J2"].value, "7551794579813502262001")
             self.assertEqual(comments_book["评论明细"]["J2"].number_format, "@")
             self.assertTrue(comments_book["评论明细"]["J2"].quotePrefix)
             self.assertEqual(comments_book["评论明细"]["D2"].value.hour, 11)
             self.assertEqual(comments_book["DataTool兼容"]["A2"].value, "这条评论用于验证普通版导出。")
+            self.assertIn("DataToolView", comments_book["DataTool兼容"].tables)
+            self.assertEqual(comments_book["评论明细"].freeze_panes, "C2")
+            self.assertIsNotNone(comments_book["评论明细"]["H2"].hyperlink)
+            self.assertIsNotNone(comments_book["视频清单"]["E2"].hyperlink)
+            self.assertIn("静态查看快照", comments_book["导出说明"]["A17"].value)
             self.assertEqual(comments_book["导出说明"]["B8"].value, "一级评论完整")
             self.assertEqual(comments_book["采集质量"]["G2"].value, "一级评论完整")
             self.assertIn("CommentsTable", comments_book["评论明细"].tables)
@@ -139,6 +150,10 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             qa = json.loads((qa_dir / "workbook_qa.json").read_text(encoding="utf-8"))
             self.assertEqual(qa["01_作品清单.xlsx"]["formula_errors"], [])
             self.assertEqual(qa["02_评论明细.xlsx"]["formula_errors"], [])
+            self.assertEqual(qa["01_作品清单.xlsx"]["id_text_errors"], [])
+            self.assertEqual(qa["02_评论明细.xlsx"]["id_text_errors"], [])
+            self.assertGreater(qa["01_作品清单.xlsx"]["sheets"]["作品清单"]["hyperlinks"], 0)
+            self.assertGreater(qa["02_评论明细.xlsx"]["sheets"]["评论明细"]["hyperlinks"], 0)
 
 
 if __name__ == "__main__":

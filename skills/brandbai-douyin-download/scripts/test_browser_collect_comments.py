@@ -28,6 +28,7 @@ from browser_collect_comments import (  # noqa: E402
     reconcile_dom_fallback_duplicates,
     reply_floor_snapshot,
     wait_for_comment_surface,
+    work_seed,
 )
 from collector_core import CommentStore  # noqa: E402
 
@@ -241,6 +242,56 @@ class BrowserCollectorTests(unittest.TestCase):
             self.assertFalse(plan["signature_generation"])
             self.assertFalse((temp / "profile").exists())
             self.assertFalse((temp / "out").exists())
+
+    def test_works_json_dry_run_counts_seeded_videos_without_browser(self):
+        with workspace_temp() as temp:
+            works_path = temp / "works.json"
+            works_path.write_text(json.dumps({"works": [{
+                "aweme_id": "7000000000000000003",
+                "type": "图文",
+                "title": "合成测试作品",
+                "comment_count": 374,
+            }]}), encoding="utf-8")
+            command = [
+                sys.executable,
+                str(SCRIPT_DIR / "browser_collect_comments.py"),
+                "--works-json", str(works_path),
+                "--profile-dir", str(temp / "profile"),
+                "--out", str(temp / "out"),
+                "--dry-run",
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            plan = json.loads(result.stdout)
+            self.assertEqual(plan["works_json_videos"], 1)
+            self.assertEqual(plan["explicit_videos"], 0)
+            self.assertFalse((temp / "profile").exists())
+            self.assertFalse((temp / "out").exists())
+
+    def test_work_seed_preserves_platform_count_and_metadata_after_page_fallback(self):
+        with workspace_temp() as temp:
+            store = CommentStore(temp / "comments.sqlite3", "hash")
+            aweme_id = "7000000000000000001"
+            store.upsert_video(work_seed({
+                "aweme_id": aweme_id,
+                "type": "视频",
+                "author": "测试达人",
+                "title": "来自作品采集的标题",
+                "source_url": f"https://www.douyin.com/video/{aweme_id}",
+                "comment_count": 374,
+                "digg_count": 1200,
+            }))
+            store.upsert_video({
+                "aweme_id": aweme_id,
+                "source_url": f"https://www.douyin.com/video/{aweme_id}",
+                "title": "",
+                "statistics": {"comment_count": 0, "digg_count": 0},
+            })
+            video = store.get_video(aweme_id)
+            self.assertEqual(video["description"], "来自作品采集的标题")
+            self.assertEqual(video["creator_name"], "测试达人")
+            self.assertEqual(video["comment_count_expected"], 374)
+            self.assertEqual(video["digg_count"], 1200)
+            store.close()
 
     def test_visible_dom_comment_normalizes_without_volatile_class_names(self):
         item = normalize_dom_comment(

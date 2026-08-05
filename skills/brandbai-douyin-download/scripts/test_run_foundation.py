@@ -88,7 +88,9 @@ class RunFoundationTests(unittest.TestCase):
             ])
             command = child_command(args, Path("scripts"))
             self.assertTrue(command[1].endswith("browser_collect_comments.py"))
-            self.assertIn("https://www.douyin.com/video/12345678901", command)
+            self.assertIn("--works-json", command)
+            self.assertIn(str(path), command)
+            self.assertNotIn("--video", command)
             self.assertNotIn("--include-replies", command)
 
     def test_replies_are_explicit_opt_in(self):
@@ -108,6 +110,7 @@ class RunFoundationTests(unittest.TestCase):
         self.assertEqual(plan["ordinary_files"][0], "01_作品清单.xlsx")
         self.assertEqual(plan["comments"], "top-level only")
         self.assertFalse(plan["analysis_included"])
+        self.assertTrue(plan["preview_dir"].endswith("delivery_QA"))
 
         def must_not_run(*_args, **_kwargs):
             raise AssertionError("dry-run must not start browser or workbook processes")
