@@ -52,6 +52,31 @@ def workspace_temp():
 
 
 class BrowserCollectorTests(unittest.TestCase):
+    def test_content_navigation_waits_for_commit_not_slow_domcontentloaded(self):
+        class FakePage:
+            url = ""
+
+            def __init__(self):
+                self.goto_calls = []
+                self.waits = 0
+
+            def goto(self, url, wait_until):
+                self.goto_calls.append((url, wait_until))
+                self.url = url
+
+            def wait_for_timeout(self, _milliseconds):
+                self.waits += 1
+
+        aweme_id = "7000000000000000101"
+        url = f"https://www.douyin.com/video/{aweme_id}"
+        page = FakePage()
+        resolved = collector_module.settle_content_navigation(
+            page, url, aweme_id, delay=0.1, settle_seconds=1.0
+        )
+        self.assertEqual(resolved, url)
+        self.assertEqual(page.goto_calls, [(url, "commit")])
+        self.assertGreaterEqual(page.waits, 2)
+
     def test_resume_rejects_privacy_mode_change(self):
         with workspace_temp() as temp:
             store = CommentStore(temp / "comments.sqlite3", "hash")
@@ -117,6 +142,62 @@ class BrowserCollectorTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertEqual(manifest["status"], "complete_source_visible")
             self.assertEqual(manifest["videos_skipped_terminal"], 1)
+            store.close()
+
+    def test_positive_comment_limit_is_reported_as_partial_sample(self):
+        with workspace_temp() as temp:
+            aweme_id = "7000000000000000099"
+            store = CommentStore(temp / "comments.sqlite3", "hash")
+            store.ensure_video(aweme_id)
+            store.set_progress(
+                "comments",
+                aweme_id,
+                "20",
+                True,
+                {"done_reason": "limit", "limit": 20},
+            )
+
+            class FakePage:
+                def set_default_timeout(self, _value):
+                    return None
+
+                def on(self, _event, _callback):
+                    return None
+
+                def is_closed(self):
+                    return False
+
+            args = SimpleNamespace(
+                page_timeout=60,
+                video=[],
+                creator=None,
+                videos=1,
+                include_replies=False,
+                max_comments_per_video=20,
+                scroll_delay=1.2,
+                idle_rounds=5,
+                login_wait=60,
+                reply_batch_size=5,
+                reply_sweeps=3,
+            )
+            manifest = {
+                "warnings": [],
+                "worker_pages_created": 0,
+                "worker_page_retries": 0,
+                "worker_page_crashes": 0,
+            }
+            with patch.object(collector_module, "collect_video_ui", return_value=None):
+                result = collector_module.collect_with_context(
+                    SimpleNamespace(pages=[FakePage()]),
+                    args,
+                    [{"source_url": f"https://www.douyin.com/video/{aweme_id}"}],
+                    store,
+                    ActionBudget(20),
+                    ResponseCapture(store),
+                    manifest,
+                )
+            self.assertEqual(result, 3)
+            self.assertEqual(manifest["status"], "partial_limit_sample")
             store.close()
 
     def test_external_browser_context_is_reused_and_not_closed_by_comment_stage(self):
@@ -285,6 +366,40 @@ class BrowserCollectorTests(unittest.TestCase):
                 state = wait_for_comment_surface(page, capture, ActionBudget(10), 5)
             self.assertEqual(state["item_count"], 1)
             self.assertEqual(page.waits, 1)
+            store.close()
+
+    def test_new_browser_response_can_finish_surface_wait_without_dom_cards(self):
+        with workspace_temp() as temp:
+            store = CommentStore(temp / "comments.sqlite3", "hash")
+            aweme_id = "7000000000000000002"
+            store.ensure_video(aweme_id)
+            store.upsert_comment(
+                {"cid": "fresh-c1", "text": "本次响应", "user": {"sec_uid": "u2"}},
+                aweme_id,
+            )
+            capture = SimpleNamespace(
+                comment_responses=1,
+                current_video_response_baseline=0,
+                current_aweme_id=aweme_id,
+                store=store,
+            )
+
+            class FakePage:
+                def __init__(self):
+                    self.waits = 0
+
+                def wait_for_timeout(self, _milliseconds):
+                    self.waits += 1
+
+            page = FakePage()
+            with patch(
+                "browser_collect_comments.comment_surface_state",
+                return_value={"item_count": 0, "list_count": 0, "login_gate": False},
+            ), patch("browser_collect_comments.open_comment_panel", return_value=False):
+                state = wait_for_comment_surface(page, capture, ActionBudget(10), 5)
+            self.assertTrue(state["captured_response"])
+            self.assertEqual(state["captured_count"], 1)
+            self.assertEqual(page.waits, 0)
             store.close()
 
     def test_page_title_cleanup_keeps_real_caption(self):

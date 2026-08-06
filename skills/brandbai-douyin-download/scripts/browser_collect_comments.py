@@ -232,10 +232,12 @@ class ResponseCapture:
         self.comment_responses = 0
         self.dom_duplicates_replaced = 0
         self.last_capture_at = 0.0
+        self.current_video_response_baseline = 0
         self.errors: List[str] = []
 
     def set_current_video(self, aweme_id: str) -> None:
         self.current_aweme_id = aweme_id
+        self.current_video_response_baseline = self.comment_responses
         self.store.ensure_video(aweme_id)
 
     def on_response(self, response: Any) -> None:
@@ -646,13 +648,43 @@ def wait_for_comment_surface(
     attempt = 0
     while True:
         state = comment_surface_state(page)
+        current_aweme_id = str(getattr(capture, "current_aweme_id", "") or "")
+        response_baseline = int(
+            getattr(
+                capture,
+                "current_video_response_baseline",
+                getattr(capture, "comment_responses", 0),
+            )
+            or 0
+        )
+        response_advanced = int(getattr(capture, "comment_responses", 0) or 0) > response_baseline
+        captured_count = (
+            capture.store.count_top_level_comments(current_aweme_id)
+            if current_aweme_id
+            else 0
+        )
+        captured_progress = (
+            capture.store.get_progress("comments", current_aweme_id)
+            if current_aweme_id
+            else {}
+        )
+        response_ready = response_advanced and (
+            captured_count > 0 or captured_progress.get("done")
+        )
         if (
             not as_bool(state.get("login_gate"))
             and (
                 as_int(state.get("item_count"), 0) > 0
                 or as_int(state.get("list_count"), 0) > 0
+                or response_ready
             )
         ):
+            if response_ready:
+                state = {
+                    **state,
+                    "captured_response": True,
+                    "captured_count": captured_count,
+                }
             return state
         if attempt % 3 == 0 and open_comment_panel(page):
             budget.take()
@@ -1302,9 +1334,15 @@ def settle_content_navigation(
     delay: float,
     settle_seconds: float = 6.0,
 ) -> str:
-    """Accept Douyin's ordinary /video/ to /note/ redirect and wait for a stable route."""
+    """Accept Douyin's ordinary /video/ to /note/ redirect and wait for a stable route.
+
+    Douyin's document can keep ``domcontentloaded`` pending long after the target
+    route and comment response are already available. Waiting only for the
+    navigation commit keeps the visible browser responsive; the stable-route
+    loop and comment-surface wait below remain the evidence gates.
+    """
     try:
-        page.goto(content_url, wait_until="domcontentloaded")
+        page.goto(content_url, wait_until="commit")
     except Exception as exc:
         current_url = str(getattr(page, "url", "") or "")
         if not is_transient_navigation_error(exc) or video_id_from(current_url) != aweme_id:
@@ -1428,6 +1466,8 @@ def collect_video_ui(
             "item_count": as_int(surface_state.get("item_count"), 0),
             "list_count": as_int(surface_state.get("list_count"), 0),
             "login_gate": as_bool(surface_state.get("login_gate")),
+            "captured_response": as_bool(surface_state.get("captured_response")),
+            "captured_count": as_int(surface_state.get("captured_count"), 0),
         }
     )
     settled_title = safe_page_title(page, delay)
@@ -1696,14 +1736,25 @@ def collect_with_context(
     # and performs the single session shutdown. Crash-recovery pages are still
     # closed above when they are replaced.
     manifest["status"] = "complete_source_visible"
+    limit_seen = False
     for video_url in video_urls:
         aweme_id = video_id_from(video_url)
-        if not store.get_progress("comments", aweme_id).get("done"):
+        progress = store.get_progress("comments", aweme_id)
+        done_reason = progress.get("meta", {}).get("done_reason")
+        if not progress.get("done"):
+            manifest["status"] = "partial_browser_visibility"
+            return 3
+        if done_reason == "limit":
+            limit_seen = True
+        elif done_reason != "exhausted":
             manifest["status"] = "partial_browser_visibility"
             return 3
         if args.include_replies and not replies_complete(store, aweme_id):
             manifest["status"] = "partial_browser_visibility"
             return 3
+    if limit_seen:
+        manifest["status"] = "partial_limit_sample"
+        return 3
     return 0
 
 

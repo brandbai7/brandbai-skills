@@ -4,7 +4,7 @@ description: Download public Douyin account works, video or image-post media, co
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.5"
+  version: "0.2.6"
   category: content-commerce
 ---
 
@@ -83,6 +83,8 @@ python scripts/run_foundation.py works `
 ```
 
 必须保持选择规则：全部当前可见置顶作品，加最近 N 条非置顶作品。视频保存视频、封面和可用原声；图文保存全部可用图片、封面和可用原声。公开原声不存在时记录 `not_available`，不要伪装成下载失败。
+
+主页发现的滚动预算必须随 N 自动增加；登录等待后若首屏元数据不足，应刷新一次再继续滚动。实际发现的近期非置顶作品少于 N 时，作品任务只能标记为 `partial_selection_shortfall`，不得因为已发现作品均下载成功而写成 `complete`。
 
 ### 采集上述作品的一级评论
 

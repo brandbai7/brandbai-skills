@@ -118,6 +118,7 @@ def display_status(value: Any) -> str:
     return {
         "complete": "完成",
         "complete_source_visible": "一级评论完整",
+        "partial_limit_sample": "限额样本",
         "partial": "部分完成",
         "partial_source_visible": "部分完成",
         "failed": "失败",

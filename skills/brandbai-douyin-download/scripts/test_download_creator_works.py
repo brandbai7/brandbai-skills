@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 from download_creator_works import (
     collect_visible_works,
+    discovery_scroll_budget,
     download_from_candidates,
+    final_works_status,
     signature_kind,
     normalize_work,
     sanitize_name,
@@ -92,6 +94,78 @@ class DownloadCreatorWorksTests(unittest.TestCase):
         self.assertEqual(responses, 1)
         self.assertEqual(visible, 1)
         self.assertEqual(page.handlers, {})
+
+    def test_creator_page_reloads_after_login_wait_when_first_page_is_short(self):
+        first_batch = [fake_work(str(10000000000 + index), index) for index in range(1, 6)]
+        refreshed_batch = [fake_work(str(20000000000 + index), index) for index in range(1, 19)]
+
+        class FakeResponse:
+            url = "https://www.douyin.com/aweme/v1/web/aweme/post/"
+            status = 200
+
+            def __init__(self, items):
+                self.items = items
+
+            def json(self):
+                return {"aweme_list": self.items}
+
+        class FakeMouse:
+            @staticmethod
+            def wheel(_x, _y):
+                return None
+
+        class FakePage:
+            def __init__(self):
+                self.mouse = FakeMouse()
+                self.handlers = {}
+                self.reloads = 0
+
+            def set_default_timeout(self, _timeout):
+                return None
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            def remove_listener(self, event, _handler):
+                self.handlers.pop(event, None)
+
+            def goto(self, *_args, **_kwargs):
+                self.handlers["response"](FakeResponse(first_batch))
+
+            def reload(self, *_args, **_kwargs):
+                self.reloads += 1
+                self.handlers["response"](FakeResponse(refreshed_batch))
+
+            def wait_for_timeout(self, _timeout):
+                return None
+
+        page = FakePage()
+        selected, responses, visible = collect_visible_works(
+            SimpleNamespace(pages=[page]),
+            SimpleNamespace(
+                creator="https://www.douyin.com/user/test",
+                login_wait=0,
+                scrolls=5,
+                recent=12,
+            ),
+        )
+        self.assertEqual(page.reloads, 1)
+        self.assertEqual(len(selected), 12)
+        self.assertEqual(responses, 2)
+        self.assertEqual(visible, 23)
+
+    def test_discovery_budget_grows_with_recent_n(self):
+        self.assertEqual(discovery_scroll_budget(5, 5), 10)
+        self.assertEqual(discovery_scroll_budget(30, 5), 60)
+        self.assertEqual(discovery_scroll_budget(200, 5), 120)
+
+    def test_selection_shortfall_is_never_marked_complete(self):
+        self.assertEqual(final_works_status(False, 5, 30), "partial_selection_shortfall")
+        self.assertEqual(
+            final_works_status(True, 5, 30),
+            "partial_selection_and_download_errors",
+        )
+        self.assertEqual(final_works_status(False, 30, 30), "complete")
 
     def test_sanitize_windows_name(self):
         self.assertEqual(sanitize_name('  A:B/C*D?  '), "A_B_C_D")
