@@ -57,6 +57,7 @@ Chrome 出现后，用户只需完成普通登录/验证并保持窗口打开。
 
 - `complete_source_visible`：所选视频的一级评论分页均收到终止信号；请求回复时，所有显示有回复的根评论也收到回复终止信号。
 - `partial_browser_visibility`：页面空闲或不可继续，但至少一个层级没有终止信号。
+- `partial_limit_sample`：设置了正数评论上限并按上限停止，只能称为限额样本。
 - `partial_action_budget`：达到界面动作硬上限，可用同一输出目录续跑。
 - `partial_browser_error`：页面或浏览器异常；已写入 SQLite 的证据仍保留。
 - `done_reason=limit`：用户设置了正数上限，只能称为限额样本，不能称全量。

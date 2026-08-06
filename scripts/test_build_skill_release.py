@@ -31,12 +31,12 @@ def workspace_temp():
 class BuildSkillReleaseTests(unittest.TestCase):
     def test_builds_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(SKILL_DIR, temp, "v0.2.5")
+            result = build_release(SKILL_DIR, temp, "v0.2.6")
             archive_path = temp / ARCHIVE_NAME
             checksum_path = temp / CHECKSUM_NAME
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.2.5")
+            self.assertEqual(result["version"], "0.2.6")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)

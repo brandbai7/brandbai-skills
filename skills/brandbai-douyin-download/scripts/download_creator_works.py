@@ -268,6 +268,23 @@ def select_pinned_and_recent(items: Iterable[dict[str, Any]], recent_n: int) -> 
     return pinned + recent
 
 
+def discovery_scroll_budget(recent_n: int, requested_scrolls: int) -> int:
+    """Return a bounded discovery budget that grows with the requested sample."""
+    adaptive = max(5, max(0, recent_n) * 2)
+    return max(1, requested_scrolls, min(120, adaptive))
+
+
+def final_works_status(has_download_errors: bool, recent_selected: int, recent_requested: int) -> str:
+    selection_shortfall = recent_selected < recent_requested
+    if selection_shortfall and has_download_errors:
+        return "partial_selection_and_download_errors"
+    if selection_shortfall:
+        return "partial_selection_shortfall"
+    if has_download_errors:
+        return "partial_download_errors"
+    return "complete"
+
+
 def public_work_record(work: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in work.items() if not key.startswith("_")}
 
@@ -390,7 +407,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Relative folder label written into works.json when --media-dir is external",
     )
     parser.add_argument("--chrome-path", default="")
-    parser.add_argument("--scrolls", type=int, default=5)
+    parser.add_argument(
+        "--scrolls",
+        type=int,
+        default=5,
+        help="Minimum discovery scroll rounds; automatically expands with --recent",
+    )
     parser.add_argument("--login-wait", type=float, default=30.0)
     parser.add_argument("--download-timeout", type=float, default=180.0)
     parser.add_argument("--dry-run", action="store_true")
@@ -443,11 +465,18 @@ def collect_visible_works(context: Any, args: argparse.Namespace) -> tuple[list[
     page.on("response", on_response)
     page.goto(args.creator, wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(max(1_500, int(args.login_wait * 1000)))
+
+    # A login or verification completed during the wait may not replay the first
+    # creator response. Reload once when the observed first page cannot satisfy N.
+    if len(raw_items) < args.recent:
+        page.reload(wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_timeout(1_500)
+
     idle = 0
-    for _ in range(args.scrolls):
+    for _ in range(discovery_scroll_budget(args.recent, args.scrolls)):
         before = len(raw_items)
         page.mouse.wheel(0, 1_800)
-        page.wait_for_timeout(900)
+        page.wait_for_timeout(1_200)
         idle = idle + 1 if len(raw_items) == before else 0
         if idle >= 2 and len(raw_items) >= args.recent:
             break
@@ -539,6 +568,27 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         write_json(manifest_path, manifest)
         raise WorkDownloadError("No visible creator work metadata was observed; check login or verification")
 
+    selected_recent_count = len(
+        [work for work in selected if work["selection_reason"] == "最近"]
+    )
+    manifest.update(
+        {
+            "status": "downloading",
+            "profile_responses_observed": response_count,
+            "visible_works_observed": visible_work_count,
+            "requested_scroll_rounds": args.scrolls,
+            "effective_scroll_budget": discovery_scroll_budget(args.recent, args.scrolls),
+            "pinned_selected": len(
+                [work for work in selected if work["selection_reason"] == "置顶"]
+            ),
+            "recent_selected": selected_recent_count,
+            "selection_complete": selected_recent_count >= args.recent,
+            "works_selected": len(selected),
+            "selected_work_ids": [work["aweme_id"] for work in selected],
+        }
+    )
+    write_json(manifest_path, manifest)
+
     public_works: list[dict[str, Any]] = []
     for overall_index, work in enumerate(selected, 1):
         reason_label = "置顶" if work["selection_reason"] == "置顶" else f"最近{work['selection_rank']:02d}"
@@ -608,14 +658,19 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         )
 
     partial = [work for work in public_works if work.get("download_status") != "完成"]
+    recent_selected = len([work for work in public_works if work["selection_reason"] == "最近"])
+    status = final_works_status(bool(partial), recent_selected, args.recent)
     manifest.update(
         {
-            "status": "complete" if not partial else "partial_download_errors",
+            "status": status,
             "finished_at": utc_now(),
             "profile_responses_observed": response_count,
             "visible_works_observed": visible_work_count,
+            "requested_scroll_rounds": args.scrolls,
+            "effective_scroll_budget": discovery_scroll_budget(args.recent, args.scrolls),
             "pinned_selected": len([work for work in public_works if work["selection_reason"] == "置顶"]),
-            "recent_selected": len([work for work in public_works if work["selection_reason"] == "最近"]),
+            "recent_selected": recent_selected,
+            "selection_complete": recent_selected >= args.recent,
             "works_selected": len(public_works),
             "works_complete": len(public_works) - len(partial),
             "works_partial": len(partial),
