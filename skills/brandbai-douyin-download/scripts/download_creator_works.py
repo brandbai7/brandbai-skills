@@ -8,6 +8,7 @@ signatures, and never automates CAPTCHA or access-control bypasses.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -20,11 +21,28 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from package_delivery import package_directory
+from selection_contract import (
+    SelectionContractError,
+    deduplicate as deduplicate_seeds,
+    load_selection,
+    seed_from_url,
+)
+
 
 INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 MULTISPACE = re.compile(r"\s+")
-PROVIDER = "douyin_web_creator_page"
+PROVIDER = "douyin_visible_chrome_page"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
+ASSET_KINDS = {"primary", "cover", "audio", "caption"}
+RESPONSE_TOKENS = (
+    "aweme/post",
+    "aweme/listcollection",
+    "aweme/detail",
+    "search/item",
+    "general/search",
+    "/search/",
+)
 
 
 class WorkDownloadError(RuntimeError):
@@ -93,19 +111,51 @@ def url_list(value: Any) -> list[str]:
 
 
 def pick_posts(payload: Any) -> list[dict[str, Any]]:
-    if not isinstance(payload, dict):
-        return []
-    for key in ("aweme_list", "awemeList", "items"):
-        value = payload.get(key)
-        if isinstance(value, list) and value and isinstance(value[0], dict):
-            if value[0].get("aweme_id") or value[0].get("awemeId"):
-                return value
-    for value in payload.values():
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def visit(value: Any) -> None:
         if isinstance(value, dict):
-            found = pick_posts(value)
-            if found:
-                return found
-    return []
+            aweme_id = str(value.get("aweme_id") or value.get("awemeId") or "")
+            if aweme_id and aweme_id not in seen:
+                seen.add(aweme_id)
+                found.append(value)
+                return
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(payload)
+    return found
+
+
+def search_dom_work_ids(page: Any) -> list[str]:
+    """Return work IDs exposed by ordinary visible search result cards.
+
+    Douyin's search page can render usable cards even when the corresponding
+    JSON response was delivered before the listener was attached or uses a new
+    response envelope. The public ``data-e2e-vid`` marker is therefore a safe
+    discovery fallback; detail pages are still opened through normal Chrome to
+    obtain the actual work metadata.
+    """
+
+    try:
+        values = page.locator("[data-e2e-vid]").evaluate_all(
+            "nodes => nodes.map(node => node.getAttribute('data-e2e-vid') || '')"
+        )
+    except Exception:
+        return []
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        aweme_id = str(value or "").strip()
+        if not re.fullmatch(r"\d{10,24}", aweme_id) or aweme_id in seen:
+            continue
+        seen.add(aweme_id)
+        output.append(aweme_id)
+    return output
 
 
 def find_chrome_path(explicit: str = "") -> str:
@@ -268,6 +318,112 @@ def select_pinned_and_recent(items: Iterable[dict[str, Any]], recent_n: int) -> 
     return pinned + recent
 
 
+def page_type(url: str) -> str:
+    value = str(url or "").lower()
+    if "/search/" in value or "search?" in value:
+        return "search"
+    if "/user/" in value:
+        return "creator"
+    if "/video/" in value or "/note/" in value:
+        return "work"
+    return "page"
+
+
+def search_keyword(url: str) -> str:
+    parsed = urllib.parse.urlparse(str(url or ""))
+    query = urllib.parse.parse_qs(parsed.query)
+    for key in ("keyword", "query", "q"):
+        if query.get(key):
+            return str(query[key][0])
+    match = re.search(r"/search/([^/?#]+)", parsed.path)
+    return urllib.parse.unquote(match.group(1)) if match else ""
+
+
+def select_visible(
+    items: Iterable[dict[str, Any]],
+    *,
+    selected_ids: Iterable[str] = (),
+    limit: int = 0,
+    reason: str = "当前页面",
+) -> tuple[list[dict[str, Any]], list[str]]:
+    normalized = [normalize_work(item) for item in items]
+    by_id = {work["aweme_id"]: work for work in normalized}
+    requested = [str(value or "").strip() for value in selected_ids if str(value or "").strip()]
+    missing: list[str] = []
+    if requested:
+        selected = []
+        for aweme_id in requested:
+            if aweme_id in by_id:
+                selected.append(by_id[aweme_id])
+            else:
+                missing.append(aweme_id)
+    else:
+        selected = normalized
+        if limit > 0:
+            selected = selected[:limit]
+    for index, work in enumerate(selected, 1):
+        work["selection_reason"] = reason
+        work["selection_rank"] = index
+    return selected, missing
+
+
+def merge_seed_with_observed(seed: dict[str, Any], observed: dict[str, Any] | None) -> dict[str, Any]:
+    merged = dict(observed or seed)
+    for key, value in seed.items():
+        if key.startswith("_"):
+            if value and not merged.get(key):
+                merged[key] = value
+            continue
+        if value not in (None, "", 0, False) or key in {
+            "source_url", "selection_reason", "selection_rank", "source_page_type",
+            "source_keyword", "source_rank",
+        }:
+            if merged.get(key) in (None, "", 0, False) or key.startswith(("source_", "selection_")):
+                merged[key] = value
+    merged["aweme_id"] = seed["aweme_id"]
+    merged["source_url"] = seed["source_url"]
+    merged["selection_reason"] = seed.get("selection_reason") or "手动选择"
+    merged["selection_rank"] = seed.get("selection_rank") or 1
+    for key in ("_video_urls", "_cover_urls", "_music_urls", "_image_urls"):
+        merged.setdefault(key, [])
+    return merged
+
+
+def parse_assets(value: str) -> set[str]:
+    text = str(value or "").strip().lower()
+    if text in {"", "all"}:
+        return set(ASSET_KINDS)
+    if text in {"none", "data", "metadata"}:
+        return set()
+    aliases = {"video": "primary", "image": "primary", "music": "audio", "text": "caption"}
+    selected = {aliases.get(part.strip(), part.strip()) for part in text.split(",") if part.strip()}
+    invalid = selected - ASSET_KINDS
+    if invalid:
+        raise WorkDownloadError(f"Unsupported --assets values: {', '.join(sorted(invalid))}")
+    return selected
+
+
+def work_file_base(work: dict[str, Any], index: int) -> str:
+    publish = str(work.get("publish_time") or "")[:10].replace("-", "") or "日期未知"
+    author = sanitize_name(work.get("author"), "作者未知", 24)
+    title = sanitize_name(work.get("title"), "未命名作品", 46)
+    return sanitize_name(
+        f"{index:03d}_{publish}_{author}_{title}_{work['aweme_id']}",
+        max_length=128,
+    )
+
+
+def write_caption(folder: Path, work: dict[str, Any]) -> dict[str, Any]:
+    title = str(work.get("title") or "").strip()
+    if not title:
+        return {"status": "not_available", "file": "", "bytes": 0}
+    target = folder / "发布文案.txt"
+    if target.is_file() and target.stat().st_size > 0:
+        return {"status": "skipped_existing", "file": target.name, "bytes": target.stat().st_size}
+    target.write_text(title + "\n", encoding="utf-8")
+    return {"status": "created", "file": target.name, "bytes": target.stat().st_size}
+
+
 def discovery_scroll_budget(recent_n: int, requested_scrolls: int) -> int:
     """Return a bounded discovery budget that grows with the requested sample."""
     adaptive = max(5, max(0, recent_n) * 2)
@@ -390,10 +546,21 @@ def write_json(path: Path, value: Any) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Download all visible pinned works plus the latest N non-pinned works."
+        description="Download selected public Douyin works through visible signed-in Chrome."
     )
-    parser.add_argument("--creator", required=True, help="Douyin creator profile URL")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--creator", help="Douyin creator profile URL")
+    source.add_argument("--source-page", help="Douyin creator or search result page URL")
+    source.add_argument("--selection-file", help="BrandBAI selection JSON or plugin works Excel")
+    source.add_argument("--video", action="append", help="Explicit video/note URL; repeat for multiple works")
     parser.add_argument("--recent", type=int, default=5, help="Recent non-pinned works to add")
+    parser.add_argument("--limit", type=int, default=0, help="Maximum works from a generic/search page; 0 keeps all observed")
+    parser.add_argument("--selected-id", action="append", default=[], help="Explicit work ID to keep from --source-page")
+    parser.add_argument(
+        "--assets",
+        default="primary,cover,audio,caption",
+        help="Comma list: primary,cover,audio,caption; use none for metadata only",
+    )
     parser.add_argument("--profile-dir", required=True, help="Persistent Chrome profile outside output")
     parser.add_argument("--out", required=True, help="New or resumable output directory")
     parser.add_argument(
@@ -415,17 +582,78 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--login-wait", type=float, default=30.0)
     parser.add_argument("--download-timeout", type=float, default=180.0)
+    parser.add_argument("--zip", action="store_true", help="Create a sibling ZIP after the works task finishes")
+    parser.add_argument("--zip-path", default="", help="Optional ZIP path; must be outside --out")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
 
+def input_mode(args: argparse.Namespace) -> str:
+    if getattr(args, "selection_file", ""):
+        return "selection_file"
+    if getattr(args, "video", None):
+        return "explicit_works"
+    if getattr(args, "source_page", ""):
+        return "visible_page"
+    return "creator_pinned_recent"
+
+
+def source_page_url(args: argparse.Namespace) -> str:
+    return str(getattr(args, "creator", "") or getattr(args, "source_page", "") or "").strip()
+
+
+def selection_description(args: argparse.Namespace) -> str:
+    mode = input_mode(args)
+    if mode == "creator_pinned_recent":
+        return f"all visible pinned works plus latest {args.recent} non-pinned works"
+    if mode == "visible_page":
+        if getattr(args, "selected_id", []):
+            return f"{len(args.selected_id)} selected work IDs from the visible page"
+        return f"up to {args.limit} observed works" if args.limit > 0 else "all observed works from the visible page"
+    if mode == "selection_file":
+        return "works listed in the BrandBAI selection file"
+    return f"{len(args.video or [])} explicit work URLs"
+
+
+def input_identity(args: argparse.Namespace) -> dict[str, Any]:
+    selection_file = str(getattr(args, "selection_file", "") or "")
+    selection_identity: dict[str, str] | str = ""
+    if selection_file:
+        path = Path(selection_file).expanduser().resolve()
+        selection_identity = {
+            "name": path.name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing",
+        }
+    return {
+        "mode": input_mode(args),
+        "creator": str(getattr(args, "creator", "") or ""),
+        "source_page": str(getattr(args, "source_page", "") or ""),
+        "selection_file": selection_identity,
+        "videos": [str(value) for value in getattr(args, "video", []) or []],
+        "recent": int(getattr(args, "recent", 0) or 0),
+        "limit": int(getattr(args, "limit", 0) or 0),
+        "selected_ids": [str(value) for value in getattr(args, "selected_id", []) or []],
+        "assets": str(getattr(args, "assets", "")),
+    }
+
+
+def resolve_zip_path(args: argparse.Namespace) -> Path:
+    return (
+        Path(args.zip_path).expanduser().resolve()
+        if getattr(args, "zip_path", "")
+        else Path(args.out).expanduser().resolve().with_suffix(".zip")
+    )
+
+
 def dry_plan(args: argparse.Namespace) -> dict[str, Any]:
+    source_value = args.creator or args.source_page or args.selection_file or list(args.video or [])
     return {
         "provider": PROVIDER,
-        "creator": args.creator,
-        "selection": "all visible pinned works plus latest non-pinned works",
+        "source": source_value,
+        "selection_mode": input_mode(args),
+        "selection": selection_description(args),
         "recent_non_pinned": args.recent,
-        "media": ["video_or_all_images", "cover", "music"],
+        "assets": sorted(parse_assets(args.assets)),
         "browser": "one visible persistent Chrome context",
         "cookies_exported": False,
         "signature_generation": False,
@@ -435,6 +663,7 @@ def dry_plan(args: argparse.Namespace) -> dict[str, Any]:
             if args.media_dir
             else Path(args.out).resolve() / "media"
         ),
+        "zip_output": str(resolve_zip_path(args)) if args.zip else "",
     }
 
 
@@ -443,11 +672,19 @@ def collect_visible_works(context: Any, args: argparse.Namespace) -> tuple[list[
     response_count = 0
     page = context.pages[0] if context.pages else context.new_page()
     page.set_default_timeout(60_000)
+    target_url = source_page_url(args)
+    target_type = page_type(target_url)
+    target_count = max(
+        1,
+        int(getattr(args, "limit", 0) or 0),
+        int(getattr(args, "recent", 0) or 0),
+        len(getattr(args, "selected_id", []) or []),
+    )
 
     def on_response(response: Any) -> None:
         nonlocal response_count
         url = str(response.url or "").lower()
-        if "aweme/post" not in url and "aweme/listcollection" not in url:
+        if not any(token in url for token in RESPONSE_TOKENS):
             return
         try:
             if response.status != 200:
@@ -463,30 +700,186 @@ def collect_visible_works(context: Any, args: argparse.Namespace) -> tuple[list[
             return
 
     page.on("response", on_response)
-    page.goto(args.creator, wait_until="domcontentloaded", timeout=60_000)
+    page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(max(1_500, int(args.login_wait * 1000)))
 
     # A login or verification completed during the wait may not replay the first
     # creator response. Reload once when the observed first page cannot satisfy N.
-    if len(raw_items) < args.recent:
+    if len(raw_items) < target_count:
         page.reload(wait_until="domcontentloaded", timeout=60_000)
         page.wait_for_timeout(1_500)
 
     idle = 0
-    for _ in range(discovery_scroll_budget(args.recent, args.scrolls)):
+    for _ in range(discovery_scroll_budget(target_count, args.scrolls)):
         before = len(raw_items)
         page.mouse.wheel(0, 1_800)
         page.wait_for_timeout(1_200)
         idle = idle + 1 if len(raw_items) == before else 0
-        if idle >= 2 and len(raw_items) >= args.recent:
+        if idle >= 2 and len(raw_items) >= target_count:
             break
     page.wait_for_timeout(1_500)
-    selected = select_pinned_and_recent(raw_items.values(), args.recent)
+    if target_type == "search":
+        for aweme_id in search_dom_work_ids(page):
+            raw_items.setdefault(
+                aweme_id,
+                {"aweme_id": aweme_id, "__brandbai_dom_seed": True},
+            )
+    visible_candidate_ids = list(raw_items)
+    if input_mode(args) == "creator_pinned_recent":
+        selected = select_pinned_and_recent(raw_items.values(), args.recent)
+        missing_ids: list[str] = []
+    else:
+        reason = "搜索结果" if target_type == "search" else "页面选择"
+        selected, missing_ids = select_visible(
+            raw_items.values(),
+            selected_ids=getattr(args, "selected_id", []) or [],
+            limit=int(getattr(args, "limit", 0) or 0),
+            reason=reason,
+        )
+    # Search cards expose stable work IDs but not always the full JSON payload.
+    # Enrich only the selected cards through their ordinary visible detail page.
+    if target_type == "search":
+        selected_ids = [work["aweme_id"] for work in selected]
+        for aweme_id in selected_ids:
+            item = raw_items.get(aweme_id, {})
+            if not item.get("__brandbai_dom_seed"):
+                continue
+            page.goto(
+                f"https://www.douyin.com/video/{aweme_id}",
+                wait_until="domcontentloaded",
+                timeout=60_000,
+            )
+            page.wait_for_timeout(1_500)
+        candidates = [raw_items[aweme_id] for aweme_id in visible_candidate_ids if aweme_id in raw_items]
+        selected, missing_ids = select_visible(
+            candidates,
+            selected_ids=getattr(args, "selected_id", []) or [],
+            limit=int(getattr(args, "limit", 0) or 0),
+            reason="搜索结果",
+        )
+        missing_metadata = []
+        for work in selected:
+            observed = not bool(raw_items[work["aweme_id"]].get("__brandbai_dom_seed"))
+            work["_metadata_observed"] = observed
+            if not observed:
+                missing_metadata.append(work["aweme_id"])
+        args._missing_metadata_ids = missing_metadata
+    keyword = search_keyword(target_url) if target_type == "search" else ""
+    for index, work in enumerate(selected, 1):
+        work["source_page_type"] = target_type
+        work["source_keyword"] = keyword
+        work["source_rank"] = index
+    args._missing_selected_ids = missing_ids
     try:
         page.remove_listener("response", on_response)
     except Exception:
         pass
-    return selected, response_count, len(raw_items)
+    return selected, response_count, len(visible_candidate_ids)
+
+
+def selection_seeds(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if getattr(args, "selection_file", ""):
+        try:
+            return load_selection(args.selection_file)
+        except SelectionContractError as exc:
+            raise WorkDownloadError(str(exc)) from exc
+    seeds: list[dict[str, Any]] = []
+    for index, url in enumerate(getattr(args, "video", []) or [], 1):
+        try:
+            seeds.append(seed_from_url(url, index))
+        except SelectionContractError as exc:
+            raise WorkDownloadError(str(exc)) from exc
+    seeds = deduplicate_seeds(seeds)
+    if not seeds:
+        raise WorkDownloadError("No usable explicit works were provided")
+    return seeds, {
+        "contract": "brandbai.douyin.selection/v1",
+        "page_type": "explicit",
+        "selection_mode": "explicit_urls",
+        "selection_reason": "明确作品",
+        "download": {},
+    }
+
+
+def collect_seeded_works(context: Any, args: argparse.Namespace) -> tuple[list[dict[str, Any]], int, int]:
+    seeds, metadata = selection_seeds(args)
+    requested_assets = parse_assets(getattr(args, "assets", "all"))
+    observed: dict[str, dict[str, Any]] = {}
+    response_count = 0
+    page = context.pages[0] if context.pages else context.new_page()
+    page.set_default_timeout(60_000)
+
+    def on_response(response: Any) -> None:
+        nonlocal response_count
+        url = str(response.url or "").lower()
+        if not any(token in url for token in RESPONSE_TOKENS):
+            return
+        try:
+            if response.status != 200:
+                return
+            posts = pick_posts(response.json())
+            if posts:
+                response_count += 1
+            for item in posts:
+                aweme_id = str(item.get("aweme_id") or item.get("awemeId") or "")
+                if aweme_id:
+                    observed[aweme_id] = item
+        except Exception:
+            return
+
+    page.on("response", on_response)
+    try:
+        navigated = 0
+        for seed in seeds:
+            primary_ready = bool(seed.get("_image_urls")) if seed.get("type") == "图文" else bool(seed.get("_video_urls"))
+            metadata_ready = bool(
+                seed.get("author")
+                and seed.get("title")
+                and (seed.get("publish_time") or seed.get("create_time"))
+            )
+            needs_enrichment = (
+                not metadata_ready
+                or ("primary" in requested_assets and not primary_ready)
+                or ("cover" in requested_assets and not seed.get("_cover_urls"))
+                or ("audio" in requested_assets and not seed.get("_music_urls"))
+            )
+            if not needs_enrichment:
+                continue
+            page.goto(seed["source_url"], wait_until="domcontentloaded", timeout=60_000)
+            wait_ms = max(1_500, int(args.login_wait * 1000)) if navigated == 0 else 1_500
+            page.wait_for_timeout(wait_ms)
+            navigated += 1
+    finally:
+        try:
+            page.remove_listener("response", on_response)
+        except Exception:
+            pass
+    selected: list[dict[str, Any]] = []
+    missing_metadata: list[str] = []
+    for seed in seeds:
+        raw = observed.get(seed["aweme_id"])
+        rich = normalize_work(raw) if raw else None
+        metadata_ready = bool(
+            seed.get("author")
+            and seed.get("title")
+            and (seed.get("publish_time") or seed.get("create_time"))
+        )
+        primary_ready = bool(seed.get("_image_urls")) if seed.get("type") == "图文" else bool(seed.get("_video_urls"))
+        requested_ready = all((
+            kind == "caption"
+            or kind == "primary" and primary_ready
+            or kind == "cover" and bool(seed.get("_cover_urls"))
+            or kind == "audio" and bool(seed.get("_music_urls"))
+        ) for kind in requested_assets)
+        if rich is None and not (requested_ready and metadata_ready):
+            missing_metadata.append(seed["aweme_id"])
+        merged = merge_seed_with_observed(seed, rich)
+        merged["_metadata_observed"] = raw is not None or metadata_ready
+        selected.append(merged)
+    args._missing_selected_ids = []
+    args._missing_metadata_ids = missing_metadata
+    args._selection_metadata = metadata
+    return selected, response_count, len(observed)
 
 
 def run(args: argparse.Namespace, browser_context: Any = None) -> int:
@@ -494,6 +887,9 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         raise WorkDownloadError("--recent cannot be negative")
     if args.scrolls < 1:
         raise WorkDownloadError("--scrolls must be positive")
+    if int(getattr(args, "limit", 0) or 0) < 0:
+        raise WorkDownloadError("--limit cannot be negative")
+    requested_assets = parse_assets(getattr(args, "assets", "all"))
     if args.dry_run:
         print(json.dumps(dry_plan(args), ensure_ascii=False, indent=2))
         return 0
@@ -519,9 +915,17 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         "provider": PROVIDER,
         "status": "running",
         "started_at": utc_now(),
-        "creator": args.creator,
-        "selection": "all_visible_pinned_plus_recent_non_pinned",
+        "creator": str(getattr(args, "creator", "") or ""),
+        "source_page": source_page_url(args),
+        "selection_file": Path(args.selection_file).name if getattr(args, "selection_file", "") else "",
+        "selection": input_mode(args),
+        "selection_description": selection_description(args),
         "requested_recent_non_pinned": args.recent,
+        "requested_limit": int(getattr(args, "limit", 0) or 0),
+        "requested_work_ids": list(getattr(args, "selected_id", []) or []),
+        "requested_assets": sorted(requested_assets),
+        "input_identity": input_identity(args),
+        "zip_requested": bool(getattr(args, "zip", False)),
         "cookies_exported": False,
         "signature_generation": False,
         "warnings": [],
@@ -544,11 +948,13 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
                 args=["--start-maximized", "--no-first-run", "--no-default-browser-check"],
             )
             try:
-                selected, response_count, visible_work_count = collect_visible_works(context, args)
+                collector = collect_seeded_works if input_mode(args) in {"selection_file", "explicit_works"} else collect_visible_works
+                selected, response_count, visible_work_count = collector(context, args)
             finally:
                 context.close()
     else:
-        selected, response_count, visible_work_count = collect_visible_works(browser_context, args)
+        collector = collect_seeded_works if input_mode(args) in {"selection_file", "explicit_works"} else collect_visible_works
+        selected, response_count, visible_work_count = collector(browser_context, args)
 
     manifest["browser_context_mode"] = (
         "shared_all_context" if browser_context is not None else "standalone_context"
@@ -556,10 +962,20 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
     manifest["browser_launches_total"] = 1
     manifest["browser_launches_owned"] = 0 if browser_context is not None else 1
 
-    if len([work for work in selected if work["selection_reason"] == "最近"]) < args.recent:
+    if input_mode(args) == "creator_pinned_recent" and len([work for work in selected if work["selection_reason"] == "最近"]) < args.recent:
         manifest["warnings"].append(
             f"Only {len([work for work in selected if work['selection_reason'] == '最近'])}/"
             f"{args.recent} recent non-pinned works were visible"
+        )
+    missing_selected_ids = list(getattr(args, "_missing_selected_ids", []) or [])
+    missing_metadata_ids = list(getattr(args, "_missing_metadata_ids", []) or [])
+    if missing_selected_ids:
+        manifest["warnings"].append(
+            f"{len(missing_selected_ids)} requested work IDs were not observed on the page"
+        )
+    if missing_metadata_ids:
+        manifest["warnings"].append(
+            f"{len(missing_metadata_ids)} selected works had no retrievable media metadata"
         )
     if not selected:
         manifest["status"] = "failed_no_visible_works"
@@ -577,31 +993,45 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
             "profile_responses_observed": response_count,
             "visible_works_observed": visible_work_count,
             "requested_scroll_rounds": args.scrolls,
-            "effective_scroll_budget": discovery_scroll_budget(args.recent, args.scrolls),
+            "effective_scroll_budget": discovery_scroll_budget(
+                max(args.recent, int(getattr(args, "limit", 0) or 0), 1), args.scrolls
+            ),
             "pinned_selected": len(
                 [work for work in selected if work["selection_reason"] == "置顶"]
             ),
             "recent_selected": selected_recent_count,
-            "selection_complete": selected_recent_count >= args.recent,
+            "selection_complete": not missing_selected_ids and (
+                selected_recent_count >= args.recent
+                if input_mode(args) == "creator_pinned_recent"
+                else len(selected) > 0
+            ),
             "works_selected": len(selected),
             "selected_work_ids": [work["aweme_id"] for work in selected],
+            "missing_selected_work_ids": missing_selected_ids,
+            "missing_metadata_work_ids": missing_metadata_ids,
+            "selection_metadata": getattr(args, "_selection_metadata", {}),
         }
     )
     write_json(manifest_path, manifest)
 
     public_works: list[dict[str, Any]] = []
     for overall_index, work in enumerate(selected, 1):
-        reason_label = "置顶" if work["selection_reason"] == "置顶" else f"最近{work['selection_rank']:02d}"
-        title_part = sanitize_name(work["title"], fallback=work["aweme_id"], max_length=46)
-        folder_name = sanitize_name(
-            f"{overall_index:02d}_{reason_label}_{work['aweme_id']}_{title_part}",
-            max_length=96,
-        )
+        reason_label = str(work.get("selection_reason") or "选择")
+        if reason_label == "最近":
+            reason_label = f"最近{work['selection_rank']:02d}"
+        folder_name = work_file_base(work, overall_index)
         folder = media_dir / folder_name
-        folder.mkdir(parents=True, exist_ok=True)
-        work["local_folder"] = str(media_label / folder_name)
+        if requested_assets:
+            folder.mkdir(parents=True, exist_ok=True)
+            work["local_folder"] = str(media_label / folder_name)
+        else:
+            work["local_folder"] = ""
         downloads: dict[str, Any] = {}
-        if work["type"] == "图文":
+        if "primary" not in requested_assets:
+            downloads["images" if work["type"] == "图文" else "video"] = {
+                "status": "not_requested", "file": "", "bytes": 0
+            }
+        elif work["type"] == "图文":
             image_results: list[dict[str, Any]] = []
             for image_index, candidates in enumerate(work["_image_urls"], 1):
                 image_results.append(
@@ -620,24 +1050,35 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
                 work["source_url"],
                 args.download_timeout,
             )
-        downloads["cover"] = download_from_candidates(
-            work["_cover_urls"],
-            folder / "封面.jpg",
-            work["source_url"],
-            args.download_timeout,
+        downloads["cover"] = (
+            download_from_candidates(
+                work["_cover_urls"], folder / "封面.jpg", work["source_url"], args.download_timeout
+            )
+            if "cover" in requested_assets
+            else {"status": "not_requested", "file": "", "bytes": 0}
         )
-        downloads["music"] = download_from_candidates(
-            work["_music_urls"],
-            folder / "原声.mp3",
-            work["source_url"],
-            args.download_timeout,
+        downloads["music"] = (
+            download_from_candidates(
+                work["_music_urls"], folder / "原声.mp3", work["source_url"], args.download_timeout
+            )
+            if "audio" in requested_assets
+            else {"status": "not_requested", "file": "", "bytes": 0}
+        )
+        downloads["caption"] = (
+            write_caption(folder, work)
+            if "caption" in requested_assets
+            else {"status": "not_requested", "file": "", "bytes": 0}
         )
         work["downloads"] = downloads
         flat_results: list[dict[str, Any]] = []
         for value in downloads.values():
             flat_results.extend(value if isinstance(value, list) else [value])
         failed = [result for result in flat_results if result.get("status") == "failed"]
-        work["download_status"] = "完成" if not failed else "部分完成"
+        metadata_shortfall = (
+            not bool(work.get("_metadata_observed", True))
+            and bool(requested_assets & {"primary", "cover", "audio"})
+        )
+        work["download_status"] = "完成" if not failed and not metadata_shortfall else "部分完成"
         public = public_work_record(work)
         public_works.append(public)
         manifest["works"] = public_works
@@ -659,7 +1100,14 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
 
     partial = [work for work in public_works if work.get("download_status") != "完成"]
     recent_selected = len([work for work in public_works if work["selection_reason"] == "最近"])
-    status = final_works_status(bool(partial), recent_selected, args.recent)
+    if input_mode(args) == "creator_pinned_recent":
+        status = final_works_status(bool(partial), recent_selected, args.recent)
+    elif missing_selected_ids:
+        status = "partial_selection_and_download_errors" if partial else "partial_selection_shortfall"
+    elif missing_metadata_ids and requested_assets & {"primary", "cover", "audio"}:
+        status = "partial_metadata_unavailable"
+    else:
+        status = "partial_download_errors" if partial else "complete"
     manifest.update(
         {
             "status": status,
@@ -667,10 +1115,16 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
             "profile_responses_observed": response_count,
             "visible_works_observed": visible_work_count,
             "requested_scroll_rounds": args.scrolls,
-            "effective_scroll_budget": discovery_scroll_budget(args.recent, args.scrolls),
+            "effective_scroll_budget": discovery_scroll_budget(
+                max(args.recent, int(getattr(args, "limit", 0) or 0), 1), args.scrolls
+            ),
             "pinned_selected": len([work for work in public_works if work["selection_reason"] == "置顶"]),
             "recent_selected": recent_selected,
-            "selection_complete": recent_selected >= args.recent,
+            "selection_complete": not missing_selected_ids and (
+                recent_selected >= args.recent
+                if input_mode(args) == "creator_pinned_recent"
+                else len(public_works) > 0
+            ),
             "works_selected": len(public_works),
             "works_complete": len(public_works) - len(partial),
             "works_partial": len(partial),
@@ -679,6 +1133,10 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
     )
     write_json(works_path, public_works)
     write_json(manifest_path, manifest)
+    if getattr(args, "zip", False):
+        package_result = package_directory(out_dir, resolve_zip_path(args))
+        manifest["package"] = {**package_result, "zip": Path(package_result["zip"]).name}
+        write_json(manifest_path, manifest)
     print(json.dumps({key: manifest[key] for key in (
         "status", "visible_works_observed", "pinned_selected", "recent_selected",
         "works_selected", "works_complete", "works_partial",

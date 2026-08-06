@@ -32,18 +32,21 @@ def workspace_temp():
 class BuildSkillReleaseTests(unittest.TestCase):
     def test_builds_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(SKILL_DIR, temp, "v0.2.6")
+            result = build_release(SKILL_DIR, temp, "v0.3.0")
             archive_path = temp / ARCHIVE_NAME
             checksum_path = temp / CHECKSUM_NAME
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.2.6")
+            self.assertEqual(result["version"], "0.3.0")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
                 self.assertIn("references/license.md", names)
                 self.assertIn("scripts/run_foundation.py", names)
                 self.assertIn("scripts/run_long_job.py", names)
+                self.assertIn("scripts/selection_contract.py", names)
+                self.assertIn("scripts/package_delivery.py", names)
+                self.assertIn("references/selection-contract.md", names)
                 self.assertNotIn("scripts/build_foundation_workbooks.mjs", names)
                 self.assertFalse(any(name.startswith("brandbai-douyin-download/") for name in names))
 

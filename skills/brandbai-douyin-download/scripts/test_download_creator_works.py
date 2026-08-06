@@ -3,13 +3,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from download_creator_works import (
+    collect_seeded_works,
     collect_visible_works,
     discovery_scroll_budget,
     download_from_candidates,
     final_works_status,
     signature_kind,
     normalize_work,
+    page_type,
+    parse_assets,
+    pick_posts,
     sanitize_name,
+    search_keyword,
+    search_dom_work_ids,
+    select_visible,
     select_pinned_and_recent,
     url_list,
 )
@@ -158,6 +165,102 @@ class DownloadCreatorWorksTests(unittest.TestCase):
         self.assertEqual(discovery_scroll_budget(5, 5), 10)
         self.assertEqual(discovery_scroll_budget(30, 5), 60)
         self.assertEqual(discovery_scroll_budget(200, 5), 120)
+
+    def test_search_page_and_keyword_are_detected(self):
+        url = "https://www.douyin.com/search/%E6%B5%8B%E8%AF%95?type=general"
+        self.assertEqual(page_type(url), "search")
+        self.assertEqual(search_keyword(url), "测试")
+
+    def test_nested_search_payload_finds_aweme_info(self):
+        item = fake_work("10000000008", 80)
+        self.assertEqual(
+            [row["aweme_id"] for row in pick_posts({"data": [{"aweme_info": item}]})],
+            ["10000000008"],
+        )
+
+    def test_search_dom_fallback_deduplicates_visible_work_ids(self):
+        class FakeLocator:
+            @staticmethod
+            def evaluate_all(_script):
+                return ["7629304613908529329", "", "7629304613908529329", "bad"]
+
+        class FakePage:
+            @staticmethod
+            def locator(selector):
+                self = selector
+                return FakeLocator()
+
+        self.assertEqual(search_dom_work_ids(FakePage()), ["7629304613908529329"])
+
+    def test_manual_visible_selection_reports_missing_ids(self):
+        items = [fake_work("10000000001", 10), fake_work("10000000002", 20)]
+        selected, missing = select_visible(
+            items,
+            selected_ids=["10000000002", "99999999999"],
+            reason="页面选择",
+        )
+        self.assertEqual([row["aweme_id"] for row in selected], ["10000000002"])
+        self.assertEqual(missing, ["99999999999"])
+
+    def test_visible_selection_preserves_page_order(self):
+        items = [
+            fake_work("10000000001", 10),
+            fake_work("10000000002", 30),
+            fake_work("10000000003", 20),
+        ]
+        selected, missing = select_visible(items, limit=2, reason="搜索结果")
+        self.assertEqual([row["aweme_id"] for row in selected], ["10000000001", "10000000002"])
+        self.assertEqual(missing, [])
+
+    def test_explicit_metadata_only_still_enriches_missing_metadata(self):
+        item = fake_work("10000000007", 70)
+
+        class FakeResponse:
+            url = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
+            status = 200
+
+            @staticmethod
+            def json():
+                return {"aweme_detail": item}
+
+        class FakePage:
+            def __init__(self):
+                self.handlers = {}
+                self.visited = []
+
+            def set_default_timeout(self, _timeout):
+                return None
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            def remove_listener(self, event, _handler):
+                self.handlers.pop(event, None)
+
+            def goto(self, url, **_kwargs):
+                self.visited.append(url)
+                self.handlers["response"](FakeResponse())
+
+            def wait_for_timeout(self, _timeout):
+                return None
+
+        page = FakePage()
+        args = SimpleNamespace(
+            selection_file="",
+            video=["https://www.douyin.com/video/10000000007"],
+            assets="none",
+            login_wait=0,
+        )
+        selected, responses, visible = collect_seeded_works(SimpleNamespace(pages=[page]), args)
+        self.assertEqual(page.visited, ["https://www.douyin.com/video/10000000007"])
+        self.assertEqual(selected[0]["title"], "work 10000000007")
+        self.assertTrue(selected[0]["_metadata_observed"])
+        self.assertEqual(responses, 1)
+        self.assertEqual(visible, 1)
+
+    def test_asset_selection_supports_metadata_only(self):
+        self.assertEqual(parse_assets("none"), set())
+        self.assertEqual(parse_assets("video,cover,text"), {"primary", "cover", "caption"})
 
     def test_selection_shortfall_is_never_marked_complete(self):
         self.assertEqual(final_works_status(False, 5, 30), "partial_selection_shortfall")

@@ -4,10 +4,11 @@ Read this reference before producing an XLSX, defining a download contract, or p
 
 ## Unified ordinary delivery
 
-- Folder: `BrandBAI_抖音采集_{creator}_{YYYYMMDD}`.
+- Folder: `BrandBAI_抖音采集_{creator_or_keyword}_{YYYYMMDD}`.
 - Ordinary files: `01_作品清单.xlsx`, `02_评论明细.xlsx`, `03_作品素材/`, `04_采集说明.md`.
 - Raw resumable files: `data/作品采集/`, `data/评论采集/`, and the safe browser session trace in `data/browser_session_trace.jsonl` when `all` is used.
 - Keep QA previews outside the delivery folder.
+- Optional ZIP is created next to the delivery folder with ZIP64 support. Do not include the Chrome profile, long-job directory, or QA preview.
 - Replace Windows-invalid folder characters with `_`. Never truncate an aweme ID inside data or media folders.
 - Use `complete` only when every requested work has terminal evidence; otherwise preserve the partial state in the workbook and manifest.
 
@@ -17,9 +18,11 @@ Read this reference before producing an XLSX, defining a download contract, or p
 
 1. `使用说明`: creator, selection scope, counts, status, source, timestamps, and boundaries.
 2. `作品清单`: work ID, type, creator, title, publish time, interactions, selection reason, real URL, media folder, and download state.
-3. `素材明细`: one row per video/image/cover/audio asset record, including status, size, and relative path. Keep `not_available` records, but count only `downloaded` and `skipped_existing` rows with a filename as actual media files in the summary.
+3. `素材明细`: one row per video/image/cover/audio/release-caption asset record, including status, size, and relative path. Keep `not_available` and `not_requested` records, but count only `downloaded`, `skipped_existing`, and generated caption rows with a filename as actual files in the summary.
 
 Put title and human-readable content before audit fields. Keep IDs as text and link each media row back to its work.
+
+For plugin or search selections, retain `source_page_type`, `source_keyword`, `source_rank`, `selection_reason`, and `selection_rank` in raw `works.json`. The ordinary workbook may keep the common human-readable subset, but must not discard the raw traceable fields.
 
 ## Comment workbook
 
