@@ -16,6 +16,7 @@ from run_foundation import (
     run_shared_browser_stages,
     unique_work_urls,
     validate_resume_works,
+    work_input_identity,
 )
 
 
@@ -79,6 +80,29 @@ class RunFoundationTests(unittest.TestCase):
         command = child_command(args, Path("scripts"))
         self.assertIn("--media-dir", command)
         self.assertIn("03_作品素材", command)
+
+    def test_works_command_accepts_plugin_excel_and_asset_options(self):
+        args = build_parser().parse_args([
+            "works", "--selection-file", "plugin-works.xlsx",
+            "--assets", "primary,caption", "--zip",
+            "--profile-dir", "profile", "--out", "out",
+        ])
+        command = child_command(args, Path("scripts"))
+        self.assertIn("--selection-file", command)
+        self.assertIn("plugin-works.xlsx", command)
+        self.assertIn("primary,caption", command)
+        self.assertIn("--zip", command)
+
+    def test_all_plan_accepts_search_page_manual_selection(self):
+        args = build_parser().parse_args([
+            "all", "--source-page", "https://www.douyin.com/search/test",
+            "--selected-id", "12345678901", "--skip-comments", "--zip",
+            "--profile-dir", "profile", "--out", "delivery", "--dry-run",
+        ])
+        plan = all_plan(args)
+        self.assertEqual(plan["selection_mode"], "visible_page")
+        self.assertEqual(plan["comments"], "not requested")
+        self.assertTrue(plan["zip_output"].endswith("delivery.zip"))
 
     def test_comments_command_uses_works_json_and_defaults_to_top_level(self):
         with workspace_temp() as temp:
@@ -201,6 +225,50 @@ class RunFoundationTests(unittest.TestCase):
             self.assertTrue((delivery / "data" / "作品采集" / "works.json").is_file())
             self.assertTrue((delivery / "data" / "评论采集" / "comments.csv").is_file())
 
+    def test_all_can_skip_comments_and_still_build_delivery(self):
+        with workspace_temp() as temp:
+            scripts = temp / "scripts"
+            scripts.mkdir()
+            (scripts / "build_foundation_workbooks.py").write_text("# test", encoding="utf-8")
+            delivery = temp / "delivery"
+            preview = temp / "preview"
+            browser_options = []
+
+            def fake_browser_stage_runner(works_args, _comments_args, _trace_path, **options):
+                browser_options.append(options)
+                works_out = Path(works_args.out)
+                works_out.mkdir(parents=True, exist_ok=True)
+                (works_out / "works.json").write_text(json.dumps([
+                    {"source_url": "https://www.douyin.com/video/12345678901"}
+                ]), encoding="utf-8")
+                (works_out / "download_manifest.json").write_text("{}", encoding="utf-8")
+                return 0, 0
+
+            class Result:
+                returncode = 0
+
+            def fake_runner(_command, **_kwargs):
+                preview.mkdir(parents=True, exist_ok=True)
+                for name in ("01_作品清单.xlsx", "02_评论明细.xlsx", "04_采集说明.md"):
+                    (delivery / name).write_text("test", encoding="utf-8")
+                (preview / "workbook_qa.json").write_text("{}", encoding="utf-8")
+                return Result()
+
+            args = build_parser().parse_args([
+                "all", "--video", "https://www.douyin.com/video/12345678901",
+                "--skip-comments", "--assets", "none",
+                "--profile-dir", str(temp / "profile"), "--out", str(delivery),
+                "--preview-dir", str(preview),
+            ])
+            self.assertEqual(run_all(
+                args, scripts, runner=fake_runner, browser_stage_runner=fake_browser_stage_runner
+            ), 0)
+            self.assertEqual(browser_options, [{"skip_comments": True}])
+            comments_out = delivery / "data" / "评论采集"
+            self.assertTrue((comments_out / "comments.csv").is_file())
+            manifest = json.loads((comments_out / "run_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["status"], "not_requested")
+
     def test_resume_requires_matching_complete_works_manifest(self):
         with workspace_temp() as temp:
             works_json = temp / "works.json"
@@ -227,6 +295,25 @@ class RunFoundationTests(unittest.TestCase):
                 validate_resume_works(
                     manifest, works_json, "https://www.douyin.com/user/test", 6
                 )
+
+    def test_resume_v030_uses_full_input_identity(self):
+        with workspace_temp() as temp:
+            works_json = temp / "works.json"
+            manifest = temp / "download_manifest.json"
+            works_json.write_text(json.dumps([{"source_url": "https://www.douyin.com/video/12345678901"}]), encoding="utf-8")
+            args = build_parser().parse_args([
+                "all", "--video", "https://www.douyin.com/video/12345678901",
+                "--assets", "none", "--profile-dir", "profile", "--out", "delivery",
+            ])
+            identity = work_input_identity(args)
+            manifest.write_text(json.dumps({
+                "status": "complete", "works_selected": 1, "input_identity": identity,
+            }), encoding="utf-8")
+            validate_resume_works(manifest, works_json, "", 5, identity)
+            changed = dict(identity)
+            changed["assets"] = "primary"
+            with self.assertRaisesRegex(FoundationError, "input selection"):
+                validate_resume_works(manifest, works_json, "", 5, changed)
 
     def test_all_resume_skips_complete_works_stage_and_builds_delivery(self):
         with workspace_temp() as temp:

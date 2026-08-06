@@ -118,6 +118,7 @@ def display_status(value: Any) -> str:
     return {
         "complete": "完成",
         "complete_source_visible": "一级评论完整",
+        "not_requested": "未采集",
         "partial_limit_sample": "限额样本",
         "partial": "部分完成",
         "partial_source_visible": "部分完成",
@@ -139,6 +140,8 @@ def asset_status(item: Any) -> str:
     return {
         "downloaded": "已下载",
         "skipped_existing": "已存在",
+        "created": "已生成",
+        "not_requested": "未选择",
         "not_available": "源未提供",
         "failed": "下载失败",
     }.get(status, status)
@@ -313,7 +316,7 @@ def build_works_book(
 
     headers = [
         "作品ID", "类型", "达人", "标题", "发布时间", "点赞数", "评论数", "收藏数", "分享数", "推荐数",
-        "是否置顶", "入选口径", "作品链接", "素材文件夹", "下载状态", "原声状态",
+        "是否置顶", "入选口径", "作品链接", "素材文件夹", "下载状态", "原声状态", "发布文案状态",
     ]
     work_list.append(headers)
     for work in works:
@@ -326,10 +329,11 @@ def build_works_book(
             work.get("selection_reason") or "", work.get("source_url") or "",
             str(work.get("local_folder") or "").replace("media/", "03_作品素材\\").replace("media\\", "03_作品素材\\"),
             work.get("download_status") or "", asset_status((work.get("downloads") or {}).get("music")),
+            asset_status((work.get("downloads") or {}).get("caption")),
         ])
     style_data_sheet(
-        work_list, 16, len(works), widths=[22, 9, 14, 54, 20, 11, 11, 11, 11, 11, 10, 12, 42, 38, 12, 16],
-        wrap_columns=[4, 13, 14, 15, 16], date_columns=[5], integer_columns=[6, 7, 8, 9, 10],
+        work_list, 17, len(works), widths=[22, 9, 14, 54, 20, 11, 11, 11, 11, 11, 10, 12, 42, 38, 12, 16, 16],
+        wrap_columns=[4, 13, 14, 15, 16, 17], date_columns=[5], integer_columns=[6, 7, 8, 9, 10],
         text_columns=[1], row_height=48, table_name="WorksTable", table_style="TableStyleMedium2",
     )
     style_hyperlink_column(work_list, len(works), 13)
@@ -345,7 +349,7 @@ def build_works_book(
         images = downloads.get("images") if isinstance(downloads, dict) else None
         if isinstance(images, list):
             entries.extend(("图文图片", index, item) for index, item in enumerate(images, start=1) if isinstance(item, dict))
-        for label, key in (("视频", "video"), ("封面", "cover"), ("原声", "music")):
+        for label, key in (("视频", "video"), ("封面", "cover"), ("原声", "music"), ("发布文案", "caption")):
             item = downloads.get(key) if isinstance(downloads, dict) else None
             if isinstance(item, dict):
                 entries.append((label, 1, item))
@@ -359,7 +363,7 @@ def build_works_book(
                 asset_status(item), byte_count, round(byte_count / 1024 / 1024, 2), relative,
             ])
             asset_record_count += 1
-            if file_name and str(item.get("status") or "") in {"downloaded", "skipped_existing"}:
+            if file_name and str(item.get("status") or "") in {"downloaded", "skipped_existing", "created"}:
                 media_file_count += 1
     style_data_sheet(
         asset_list, 9, asset_record_count, widths=[22, 52, 12, 8, 18, 12, 14, 12, 54],

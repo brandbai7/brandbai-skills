@@ -7,14 +7,18 @@ browser collectors and does not prepare semantic batches or analysis outputs.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+from package_delivery import package_directory
 
 
 AWEME_ID_RE = re.compile(r"(?:/video/|/note/)(\d{10,})")
@@ -52,7 +56,9 @@ def unique_work_urls(values: Iterable[str]) -> list[str]:
         if not value:
             continue
         match = AWEME_ID_RE.search(value)
-        key = match.group(1) if match else value
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(value).query)
+        modal_id = str((query.get("modal_id") or [""])[0]).strip()
+        key = match.group(1) if match else modal_id if modal_id.isdigit() else value
         if key in seen:
             continue
         seen.add(key)
@@ -100,6 +106,27 @@ def add_common_browser_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true")
 
 
+def add_work_source_args(parser: argparse.ArgumentParser) -> None:
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--creator", help="Douyin creator profile URL")
+    source.add_argument("--source-page", help="Douyin creator or search result page URL")
+    source.add_argument("--selection-file", help="BrandBAI selection JSON or plugin works Excel")
+    source.add_argument("--video", action="append", help="Explicit video/note URL; repeat for multiple works")
+    parser.add_argument("--recent", type=int, default=5, help="Recent non-pinned works to add for --creator")
+    parser.add_argument("--limit", type=int, default=0, help="Maximum observed works from --source-page; 0 keeps all")
+    parser.add_argument("--selected-id", action="append", default=[], help="Work ID to keep from --source-page")
+    parser.add_argument(
+        "--assets",
+        default="primary,cover,audio,caption",
+        help="Comma list: primary,cover,audio,caption; use none for metadata only",
+    )
+
+
+def add_package_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--zip", action="store_true", help="Create a sibling ZIP after successful delivery build")
+    parser.add_argument("--zip-path", default="", help="Optional ZIP path outside the delivery directory")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="BrandBAI foundation collector: creator works or work comments"
@@ -107,14 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="capability", required=True)
 
     works = subparsers.add_parser(
-        "works", help="Download all visible pinned works plus latest N non-pinned works"
+        "works", help="Download creator, search-selected, or explicit Douyin works"
     )
-    works.add_argument("--creator", required=True, help="Douyin creator profile URL")
-    works.add_argument("--recent", type=int, default=5, help="Recent non-pinned works to add")
+    add_work_source_args(works)
     works.add_argument("--scrolls", type=int, default=5)
     works.add_argument("--download-timeout", type=float, default=180.0)
     works.add_argument("--media-dir", default="")
     works.add_argument("--media-label", default="")
+    add_package_args(works)
     add_common_browser_args(works)
 
     comments = subparsers.add_parser(
@@ -144,11 +171,15 @@ def build_parser() -> argparse.ArgumentParser:
         "all",
         help="Collect works and top-level comments, then build the ordinary Excel delivery",
     )
-    all_in_one.add_argument("--creator", required=True, help="Douyin creator profile URL")
-    all_in_one.add_argument("--recent", type=int, default=5)
+    add_work_source_args(all_in_one)
     all_in_one.add_argument("--scrolls", type=int, default=5)
     all_in_one.add_argument("--download-timeout", type=float, default=180.0)
     all_in_one.add_argument("--include-replies", action="store_true")
+    all_in_one.add_argument(
+        "--skip-comments",
+        action="store_true",
+        help="Build a works/data delivery without collecting comments",
+    )
     all_in_one.add_argument("--max-comments-per-video", type=int, default=0)
     all_in_one.add_argument("--max-ui-actions", type=int, default=2500)
     all_in_one.add_argument("--idle-rounds", type=int, default=5)
@@ -174,6 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional workbook QA directory; defaults to sibling <delivery>_QA",
     )
+    add_package_args(all_in_one)
     add_common_browser_args(all_in_one)
     return parser
 
@@ -184,18 +216,34 @@ def child_command(args: argparse.Namespace, scripts_dir: Path | None = None) -> 
         command = [
             sys.executable,
             str(scripts_dir / "download_creator_works.py"),
-            "--creator", args.creator,
             "--recent", str(args.recent),
             "--profile-dir", args.profile_dir,
             "--out", args.out,
             "--scrolls", str(args.scrolls),
             "--login-wait", str(args.login_wait),
             "--download-timeout", str(args.download_timeout),
+            "--limit", str(args.limit),
+            "--assets", args.assets,
         ]
+        if args.creator:
+            command.extend(["--creator", args.creator])
+        elif args.source_page:
+            command.extend(["--source-page", args.source_page])
+        elif args.selection_file:
+            command.extend(["--selection-file", args.selection_file])
+        else:
+            for url in args.video or []:
+                command.extend(["--video", url])
+        for aweme_id in args.selected_id:
+            command.extend(["--selected-id", aweme_id])
         if args.media_dir:
             command.extend(["--media-dir", args.media_dir])
         if args.media_label:
             command.extend(["--media-label", args.media_label])
+        if args.zip:
+            command.append("--zip")
+        if args.zip_path:
+            command.extend(["--zip-path", args.zip_path])
     elif args.capability == "comments":
         explicit_urls = unique_work_urls(list(args.video))
         if not explicit_urls and not args.creator:
@@ -238,6 +286,56 @@ def child_command(args: argparse.Namespace, scripts_dir: Path | None = None) -> 
     return command
 
 
+def work_input_mode(args: argparse.Namespace) -> str:
+    if getattr(args, "selection_file", ""):
+        return "selection_file"
+    if getattr(args, "video", None):
+        return "explicit_works"
+    if getattr(args, "source_page", ""):
+        return "visible_page"
+    return "creator_pinned_recent"
+
+
+def work_selection_description(args: argparse.Namespace) -> str:
+    mode = work_input_mode(args)
+    if mode == "creator_pinned_recent":
+        return f"all visible pinned works plus latest {args.recent} non-pinned works"
+    if mode == "visible_page":
+        if args.selected_id:
+            return f"{len(args.selected_id)} selected work IDs from the visible page"
+        return f"up to {args.limit} observed works" if args.limit > 0 else "all observed works from the visible page"
+    if mode == "selection_file":
+        return "works listed in the BrandBAI selection JSON or plugin Excel"
+    return f"{len(args.video or [])} explicit work URLs"
+
+
+def work_input_identity(args: argparse.Namespace) -> dict[str, Any]:
+    selection_file = str(getattr(args, "selection_file", "") or "")
+    selection_identity: dict[str, str] | str = ""
+    if selection_file:
+        path = Path(selection_file).expanduser().resolve()
+        selection_identity = {
+            "name": path.name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing",
+        }
+    return {
+        "mode": work_input_mode(args),
+        "creator": str(getattr(args, "creator", "") or ""),
+        "source_page": str(getattr(args, "source_page", "") or ""),
+        "selection_file": selection_identity,
+        "videos": unique_work_urls(getattr(args, "video", []) or []),
+        "recent": int(getattr(args, "recent", 0) or 0),
+        "limit": int(getattr(args, "limit", 0) or 0),
+        "selected_ids": [str(value) for value in getattr(args, "selected_id", []) or []],
+        "assets": str(getattr(args, "assets", "")),
+    }
+
+
+def delivery_zip_path(args: argparse.Namespace) -> Path:
+    delivery = Path(args.out).expanduser().resolve()
+    return Path(args.zip_path).expanduser().resolve() if args.zip_path else delivery.with_suffix(".zip")
+
+
 def all_plan(args: argparse.Namespace) -> dict[str, Any]:
     delivery_dir = Path(args.out).expanduser().resolve()
     preview_dir = (
@@ -247,10 +345,16 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
     )
     return {
         "capability": "all",
-        "creator": args.creator,
+        "source": args.creator or args.source_page or args.selection_file or list(args.video or []),
+        "selection_mode": work_input_mode(args),
         "recent_non_pinned": args.recent,
-        "selection": f"all visible pinned works plus latest {args.recent} non-pinned works",
-        "comments": "top-level plus replies" if args.include_replies else "top-level only",
+        "selection": work_selection_description(args),
+        "assets": args.assets,
+        "comments": (
+            "not requested"
+            if args.skip_comments
+            else "top-level plus replies" if args.include_replies else "top-level only"
+        ),
         "max_comments_per_video": args.max_comments_per_video,
         "privacy_mode": args.privacy_mode,
         "works_login_wait": args.login_wait,
@@ -267,6 +371,7 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
         "preview_dir": str(preview_dir),
         "runtime_trace": "data/browser_session_trace.jsonl and data/评论采集/browser_runtime_trace.jsonl",
         "analysis_included": False,
+        "zip_output": str(delivery_zip_path(args)) if args.zip else "",
     }
 
 
@@ -275,6 +380,7 @@ def validate_resume_works(
     works_json: Path,
     creator: str,
     recent: int,
+    expected_identity: dict[str, Any] | None = None,
 ) -> None:
     if not manifest_path.is_file() or not works_json.is_file():
         raise FoundationError(
@@ -286,10 +392,15 @@ def validate_resume_works(
         raise FoundationError(f"Cannot read resume manifest: {manifest_path}") from exc
     if manifest.get("status") != "complete":
         raise FoundationError("--resume requires download_manifest.status=complete")
-    if str(manifest.get("creator") or "").strip() != str(creator or "").strip():
-        raise FoundationError("--resume creator does not match the existing works manifest")
-    if int(manifest.get("requested_recent_non_pinned", -1)) != int(recent):
-        raise FoundationError("--resume recent count does not match the existing works manifest")
+    recorded_identity = manifest.get("input_identity")
+    if expected_identity is not None and isinstance(recorded_identity, dict):
+        if recorded_identity != expected_identity:
+            raise FoundationError("--resume input selection or asset options do not match the existing works manifest")
+    else:
+        if str(manifest.get("creator") or "").strip() != str(creator or "").strip():
+            raise FoundationError("--resume creator does not match the existing works manifest")
+        if int(manifest.get("requested_recent_non_pinned", -1)) != int(recent):
+            raise FoundationError("--resume recent count does not match the existing works manifest")
     if int(manifest.get("works_selected", 0)) < 1:
         raise FoundationError("--resume works manifest contains no selected works")
 
@@ -303,6 +414,7 @@ def run_shared_browser_stages(
     comments_runner: Any = None,
     chrome_finder: Any = None,
     skip_works: bool = False,
+    skip_comments: bool = False,
 ) -> tuple[int, int]:
     if any(value is None for value in (
         playwright_factory, works_runner, comments_runner, chrome_finder
@@ -404,29 +516,36 @@ def run_shared_browser_stages(
                 )
             if works_code not in (0, 3):
                 return works_code, comments_code
-            append_runtime_event(
-                trace_path, {"event": "comments_stage_start", "session_id": session_id}
-            )
-            try:
-                comments_code = int(comments_runner(comments_args, browser_context=context))
-            except Exception as exc:
+            if skip_comments:
+                comments_code = 0
+                append_runtime_event(
+                    trace_path,
+                    {"event": "comments_stage_skipped", "session_id": session_id, "reason": "not_requested"},
+                )
+            else:
+                append_runtime_event(
+                    trace_path, {"event": "comments_stage_start", "session_id": session_id}
+                )
+                try:
+                    comments_code = int(comments_runner(comments_args, browser_context=context))
+                except Exception as exc:
+                    append_runtime_event(
+                        trace_path,
+                        {
+                            "event": "comments_stage_error",
+                            "session_id": session_id,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                    raise FoundationError(f"Comments stage failed: {exc}") from exc
                 append_runtime_event(
                     trace_path,
                     {
-                        "event": "comments_stage_error",
+                        "event": "comments_stage_end",
                         "session_id": session_id,
-                        "error_type": type(exc).__name__,
+                        "exit_code": comments_code,
                     },
                 )
-                raise FoundationError(f"Comments stage failed: {exc}") from exc
-            append_runtime_event(
-                trace_path,
-                {
-                    "event": "comments_stage_end",
-                    "session_id": session_id,
-                    "exit_code": comments_code,
-                },
-            )
         finally:
             close_error = ""
             try:
@@ -479,7 +598,13 @@ def run_all(
     works_args = argparse.Namespace(
         capability="works",
         creator=args.creator,
+        source_page=args.source_page,
+        selection_file=args.selection_file,
+        video=list(args.video or []),
         recent=args.recent,
+        limit=args.limit,
+        selected_id=list(args.selected_id),
+        assets=args.assets,
         profile_dir=args.profile_dir,
         out=str(works_out),
         media_dir=str(media_dir),
@@ -488,6 +613,8 @@ def run_all(
         scrolls=args.scrolls,
         login_wait=args.login_wait,
         download_timeout=args.download_timeout,
+        zip=False,
+        zip_path="",
         dry_run=False,
     )
     comments_args = argparse.Namespace(
@@ -495,7 +622,7 @@ def run_all(
         works_json=str(works_json),
         video=[],
         creator=None,
-        videos=max(args.recent, 1),
+        videos=max(args.recent, args.limit, len(args.video or []), 1),
         include_replies=args.include_replies,
         max_comments_per_video=args.max_comments_per_video,
         max_ui_actions=args.max_ui_actions,
@@ -517,27 +644,71 @@ def run_all(
         validate_resume_works(
             works_out / "download_manifest.json",
             works_json,
-            args.creator,
+            args.creator or "",
             args.recent,
+            work_input_identity(args),
         )
         skip_works = True
     if skip_works:
-        works_code, comments_code = browser_stage_runner(
-            works_args,
-            comments_args,
-            delivery_dir / "data" / "browser_session_trace.jsonl",
-            skip_works=True,
-        )
+        if args.skip_comments:
+            works_code, comments_code = browser_stage_runner(
+                works_args,
+                comments_args,
+                delivery_dir / "data" / "browser_session_trace.jsonl",
+                skip_works=True,
+                skip_comments=True,
+            )
+        else:
+            works_code, comments_code = browser_stage_runner(
+                works_args,
+                comments_args,
+                delivery_dir / "data" / "browser_session_trace.jsonl",
+                skip_works=True,
+            )
     else:
-        works_code, comments_code = browser_stage_runner(
-            works_args,
-            comments_args,
-            delivery_dir / "data" / "browser_session_trace.jsonl",
-        )
+        if args.skip_comments:
+            works_code, comments_code = browser_stage_runner(
+                works_args,
+                comments_args,
+                delivery_dir / "data" / "browser_session_trace.jsonl",
+                skip_comments=True,
+            )
+        else:
+            works_code, comments_code = browser_stage_runner(
+                works_args,
+                comments_args,
+                delivery_dir / "data" / "browser_session_trace.jsonl",
+            )
     if works_code not in (0, 3):
         return int(works_code)
     if not works_json.is_file():
         raise FoundationError(f"Works stage did not create: {works_json}")
+    if args.skip_comments:
+        comments_out.mkdir(parents=True, exist_ok=True)
+        (comments_out / "comments.csv").write_text(
+            "aweme_id,comment_id,root_comment_id,parent_comment_id,reply_level,text,author_pseudonym,create_time,digg_count,reply_count,source_role,source_url,ip_label,is_pinned,is_creator_reply\n",
+            encoding="utf-8-sig",
+        )
+        (comments_out / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "status": "not_requested",
+                    "started_at": utc_now(),
+                    "finished_at": utc_now(),
+                    "privacy_mode": args.privacy_mode,
+                    "videos": [],
+                    "comments_exported": 0,
+                    "replies_exported": 0,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (comments_out / "collection_report.md").write_text(
+            "# 评论采集说明\n\n本次任务未请求评论采集。\n",
+            encoding="utf-8",
+        )
     if comments_code not in (0, 3):
         return int(comments_code)
 
@@ -569,6 +740,9 @@ def run_all(
             "提示：Excel 构建程序返回了非零状态，但普通版文件与质检记录均已完整落盘。",
             file=sys.stderr,
         )
+    if args.zip:
+        package_result = package_directory(delivery_dir, delivery_zip_path(args))
+        print(json.dumps({"event": "delivery_packaged", **package_result}, ensure_ascii=False))
     return 3 if 3 in (works_code, comments_code) else 0
 
 

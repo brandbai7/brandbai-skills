@@ -1,10 +1,10 @@
 ---
 name: brandbai-douyin-download
-description: Download public Douyin account works, video or image-post media, covers, available audio, metadata, and retrievable comments through a visible signed-in Chrome session. Use for 抖音达人、KOC、KOL、明星艺人等主页作品批量下载、全部可见置顶加最近 N 条作品、单作品或批量一级评论下载、二级回复实验采集、DataTool 类普通版导出，以及为后续分析保留可回溯原始数据。默认只完成下载、采集与质量核验，不自动生成语义标签或商业结论。
+description: Download public Douyin account, search-result, or explicitly selected works through a visible signed-in Chrome session, including video or image-post media, covers, available audio, release captions, metadata, and retrievable comments. Use for 抖音达人主页置顶加最近 N 条、搜索结果批量下载、插件作品清单 Excel 接力、任意作品多选、单作品作品包、批量一级评论、实验性二级回复、可选 ZIP、DataTool 类普通版导出，以及为后续分析保留可回溯原始数据。默认只完成下载、采集与质量核验，不自动生成语义标签或商业结论。
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.6"
+  version: "0.3.0"
   category: content-commerce
 ---
 
@@ -21,8 +21,8 @@ metadata:
 先把自然语言需求整理为以下四项，再选择运行模式：
 
 1. 下载目标：达人、KOC、KOL、明星艺人等公开账号主页，或一个以上明确作品 URL。
-2. 作品范围：单作品、明确作品列表，或主页全部当前可见置顶作品加最近 N 条非置顶作品。
-3. 下载内容：作品清单与基础数据、视频或图文、封面、可用原声、一级评论，以及明确要求时的实验性二级回复。
+2. 作品范围：单作品、明确作品列表、插件作品清单、搜索页当前选择，或主页全部当前可见置顶作品加最近 N 条非置顶作品。
+3. 下载内容：作品清单与基础数据、视频或图文、封面、可用原声、发布文案、一级评论，以及明确要求时的实验性二级回复。
 4. 交付预设：普通下载版，或保留全部原始数据和完整性状态的分析准备版。
 
 当前统一入口提供三个运行模式：
@@ -33,15 +33,18 @@ metadata:
 
 不要把视频、图文、评论分别拆成不同 Skill；它们共享同一登录资料夹、作品范围、断点状态和交付合同。
 
+当输入来自插件、搜索页或任意多选时，先阅读 [作品选择合同](references/selection-contract.md)。优先使用插件导出的 `作品清单.xlsx` 固定作品 ID；不要重新搜索后假设结果顺序不变。
+
 ## 收集必要输入
 
 运行前确认：
 
-1. 抖音账号主页 URL，或一个以上明确作品 URL。
-2. 最近非置顶作品数量 N；主页全部当前可见置顶作品不计入 N。
+1. 账号主页、搜索页、一个以上明确作品 URL，或 BrandBAI 插件导出的作品清单。
+2. 选择口径：置顶＋最近 N 条、搜索页当前观察、明确 ID，或选择文件内的作品集合。
 3. 独立 Chrome 登录资料夹和新的输出目录。两者不得互相嵌套。
 4. 是否只采一级评论。除非用户明确要求实验能力，否则不要开启二级回复。
 5. 隐私模式。默认使用稳定化名；只有得到明确授权和合法业务需要时才保留原始评论者名称。
+6. 素材范围：`primary`、`cover`、`audio`、`caption` 的任意组合；`caption` 是发布文案，不是口播转写。
 
 ## 遵守采集边界
 
@@ -70,6 +73,49 @@ python -m pip install -r requirements-browser.txt
 
 任何正式运行都先加 `--dry-run`，核对达人、N、输出目录和隐私模式。确认后去掉该参数。
 
+### 从插件作品清单继续
+
+当前 Chrome 插件导出的 `作品清单.xlsx` 可直接作为输入，包括达人主页手选和搜索结果手选：
+
+```powershell
+python scripts/run_foundation.py all `
+  --selection-file "<插件导出的作品清单.xlsx>" `
+  --assets "primary,cover,audio,caption" `
+  --profile-dir "<私有登录资料夹>" `
+  --out "<BrandBAI普通版交付目录>" `
+  --zip `
+  --dry-run
+```
+
+去掉 `--dry-run` 后，Skill 会在同一个可见 Chrome 会话中补齐所选作品的网页元数据，再按同一作品集合采集评论。只需要作品数据与素材时增加 `--skip-comments`；只需要数据时同时使用 `--assets none --skip-comments`。
+
+### 下载明确单作品或作品列表
+
+```powershell
+python scripts/run_foundation.py all `
+  --video "<作品URL或带 modal_id 的链接>" `
+  --video "<另一个视频或图文URL>" `
+  --profile-dir "<私有登录资料夹>" `
+  --out "<交付目录>" `
+  --dry-run
+```
+
+### 下载搜索页当前结果
+
+优先使用插件作品清单。没有清单时可直接观察搜索页，并用 `--limit` 限定当前已加载作品数量：
+
+```powershell
+python scripts/run_foundation.py works `
+  --source-page "<抖音搜索结果URL>" `
+  --limit 20 `
+  --assets "primary,cover,audio,caption" `
+  --profile-dir "<私有登录资料夹>" `
+  --out "<作品输出目录>" `
+  --dry-run
+```
+
+搜索页结果是本次页面观察快照，不代表平台全部搜索结果。需要固定特定作品时重复使用 `--selected-id`，或改用选择文件。
+
 ### 采集主页作品
 
 ```powershell
@@ -82,7 +128,7 @@ python scripts/run_foundation.py works `
   --dry-run
 ```
 
-必须保持选择规则：全部当前可见置顶作品，加最近 N 条非置顶作品。视频保存视频、封面和可用原声；图文保存全部可用图片、封面和可用原声。公开原声不存在时记录 `not_available`，不要伪装成下载失败。
+主页默认保持选择规则：全部当前可见置顶作品，加最近 N 条非置顶作品。视频保存最高可用已观察视频、封面、可用原声和发布文案；图文保存全部可用图片、封面、可用原声和发布文案。公开原声不存在时记录 `not_available`，不要伪装成下载失败。
 
 主页发现的滚动预算必须随 N 自动增加；登录等待后若首屏元数据不足，应刷新一次再继续滚动。实际发现的近期非置顶作品少于 N 时，作品任务只能标记为 `partial_selection_shortfall`，不得因为已发现作品均下载成功而写成 `complete`。
 
@@ -175,6 +221,8 @@ python scripts/run_long_job.py status `
 - `04_采集说明.md`
 - `data/作品采集/` 与 `data/评论采集/`
 
+增加 `--zip` 时，在交付目录同级生成 ZIP64 兼容压缩包；视频、音频、图片和 Excel 不重复高强度压缩。ZIP 只包含交付目录，不得包含登录资料夹、QA 预览或任务目录。
+
 统一入口的 `all` 模式会使用随 Skill 提供的 Python 脚本直接生成两份 Excel，不依赖某个模型宿主内置的电子表格工具。也可在采集完成后单独运行 `scripts/build_foundation_workbooks.py`。生成结构必须遵守 [导出格式](references/export-format.md)。
 
 普通版只呈现作品、素材、评论和采集质量，不添加 D1、语义标签、达人画像、商品匹配或商业结论。
@@ -188,6 +236,8 @@ python scripts/run_long_job.py status `
 - `videos.csv`、`run_manifest.json` 与 `collection_report.md`；
 - `browser_session_trace.jsonl` 与 `browser_runtime_trace.jsonl`；
 - 作品选择范围、采集时间、隐私模式、评论显示量与实际保存量、分页终止和部分完成原因。
+
+插件或搜索选择同时保留来源页面类型、搜索词、来源排序和选择顺序，供后续账号分析按稳定作品 ID 接力。
 
 分析准备版只保证来源、字段和完成状态可回溯，不在下载阶段填充 D1、SEM、UE、REL、MIG、人设、匹配或归因结论。
 
@@ -219,6 +269,7 @@ python scripts/run_long_job.py status `
 
 ```powershell
 python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
+python -m unittest test_selection_contract.py test_package_delivery.py
 ```
 
 这些测试只使用本地模拟数据，不打开抖音、不启动 Chrome，也不产生付费请求。
