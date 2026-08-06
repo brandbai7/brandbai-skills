@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -49,6 +50,49 @@ def frontmatter(path: Path) -> dict:
     if not isinstance(value, dict):
         raise ValueError("frontmatter must be a mapping")
     return value
+
+
+def validate_xlsx_asset(path: Path) -> list[str]:
+    failures: list[str] = []
+    relative = path.relative_to(ROOT)
+    try:
+        skill_relative = path.relative_to(SKILLS_ROOT)
+    except ValueError:
+        return [f"Forbidden generated file: {relative}"]
+    if len(skill_relative.parts) < 3 or skill_relative.parts[1] != "assets":
+        return [f"XLSX is only allowed as a Skill asset: {relative}"]
+    if "template" not in path.stem.lower() and "模板" not in path.stem:
+        failures.append(f"XLSX asset must be explicitly named as a template: {relative}")
+    if path.stat().st_size > 1_000_000:
+        failures.append(f"XLSX template is unexpectedly large: {relative}")
+        return failures
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+            required = {"[Content_Types].xml", "_rels/.rels", "xl/workbook.xml"}
+            if not required <= names:
+                failures.append(f"XLSX template is not a complete workbook: {relative}")
+                return failures
+            forbidden_members = [
+                name for name in names
+                if name == "xl/vbaProject.bin"
+                or name == "xl/connections.xml"
+                or name.startswith("xl/externalLinks/")
+                or name.startswith("xl/embeddings/")
+            ]
+            if forbidden_members:
+                failures.append(f"XLSX template contains active or external content: {relative}")
+            xml_text = "".join(
+                archive.read(name).decode("utf-8", errors="ignore")
+                for name in names if name.endswith(".xml")
+            )
+            for pattern in FORBIDDEN_PATH_PATTERNS:
+                if pattern.search(xml_text):
+                    failures.append(f"Local absolute path found in XLSX template: {relative}")
+                    break
+    except (OSError, zipfile.BadZipFile):
+        failures.append(f"XLSX template cannot be opened: {relative}")
+    return failures
 
 
 def main() -> int:
@@ -105,7 +149,10 @@ def main() -> int:
             continue
         if not path.is_file() or ".git" in path.parts:
             continue
-        if path.suffix.lower() in {".pyc", ".sqlite3", ".xlsx", ".jsonl"}:
+        if path.suffix.lower() == ".xlsx":
+            failures.extend(validate_xlsx_asset(path))
+            continue
+        if path.suffix.lower() in {".pyc", ".sqlite3", ".jsonl"}:
             failures.append(f"Forbidden generated file: {path.relative_to(ROOT)}")
             continue
         if path.stat().st_size > 2_000_000:

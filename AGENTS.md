@@ -40,6 +40,8 @@ python scripts/validate_repo.py
 python -m unittest scripts/test_build_skill_release.py
 cd skills/brandbai-douyin-download/scripts
 python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
+cd ../../brandbai-douyin-account-analysis/scripts
+python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 ```
 
 Update the commands when a new skill adds its own tests.

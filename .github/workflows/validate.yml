@@ -35,3 +35,6 @@ jobs:
           test_run_foundation.py
           test_run_long_job.py
           test_build_foundation_workbooks.py
+      - name: Run Douyin account analysis unit tests
+        working-directory: skills/brandbai-douyin-account-analysis/scripts
+        run: python -m unittest test_analysis_dataset.py test_analysis_delivery.py

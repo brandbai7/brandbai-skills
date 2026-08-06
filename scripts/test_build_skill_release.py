@@ -10,6 +10,7 @@ from scripts.build_skill_release import ARCHIVE_NAME, CHECKSUM_NAME, ReleaseBuil
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "brandbai-douyin-download"
+ANALYSIS_SKILL_DIR = ROOT / "skills" / "brandbai-douyin-account-analysis"
 
 
 @contextmanager
@@ -45,6 +46,26 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/run_long_job.py", names)
                 self.assertNotIn("scripts/build_foundation_workbooks.mjs", names)
                 self.assertFalse(any(name.startswith("brandbai-douyin-download/") for name in names))
+
+    def test_builds_analysis_skill_with_d1_template(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                ANALYSIS_SKILL_DIR,
+                temp,
+                "brandbai-douyin-account-analysis-v0.2.0",
+            )
+            archive_path = temp / "brandbai-douyin-account-analysis.zip"
+            checksum_path = temp / "brandbai-douyin-account-analysis.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.2.0")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("assets/02_D1评论语义证据包模板.xlsx", names)
+                self.assertIn("scripts/build_d1_workbook.py", names)
+                self.assertIn("scripts/validate_analysis_delivery.py", names)
+                self.assertFalse(any(name.startswith("brandbai-douyin-account-analysis/") for name in names))
 
     def test_rejects_tag_version_mismatch(self):
         with workspace_temp() as temp:

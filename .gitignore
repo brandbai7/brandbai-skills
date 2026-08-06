@@ -11,6 +11,7 @@ media/
 dist/
 *.sqlite3
 *.xlsx
+!skills/brandbai-douyin-account-analysis/assets/02_D1评论语义证据包模板.xlsx
 *.jsonl
 *.log
 _test_artifacts/

@@ -14,6 +14,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.2.6 | DataTool 式抖音下载总入口：作品清单、视频、图文、封面、可用原声和可检索评论，支持长任务轮询与断点续跑 | Community beta · Noncommercial |
+| [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
 
@@ -41,6 +42,11 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 ```text
 使用 brandbai-douyin-download，下载这个抖音账号全部可见置顶作品和最近 5 条作品，
 包括视频、图文、封面、可用原声和全部可检索一级评论，生成 BrandBAI 普通版交付。
+```
+
+```text
+使用 brandbai-douyin-account-analysis，分析这份抖音采集包。纳入全部置顶作品和置顶之外
+最近最多 30 条作品，默认不做音频转写、不上传媒体，输出账号深度分析和 D1 评论语义证据包。
 ```
 
 ### WorkBuddy 一键安装
@@ -72,10 +78,11 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 ## Roadmap
 
 1. BrandBAI Download：抖音作品、媒体和评论下载。
-2. BrandBAI User Semantics：评论与用户语义证据。
-3. BrandBAI Influence Intelligence：KOC、KOL、达人、明星艺人等影响力对象洞察与匹配。
-4. BrandBAI Product Value：商品价值、P0 与卖点感知化。
-5. BrandBAI Content & Performance：内容诊断、千川测试与复盘。
+2. BrandBAI Douyin Account Analysis：抖音账号作品基线、视频表达、用户接收与候选机制。
+3. BrandBAI User Semantics：评论与用户语义证据。
+4. BrandBAI Influence Intelligence：KOC、KOL、达人、明星艺人等影响力对象洞察与匹配。
+5. BrandBAI Product Value：商品价值、P0 与卖点感知化。
+6. BrandBAI Content & Performance：内容诊断、千川测试与复盘。
 
 详细能力边界与现有方法资产的迁移规则见 [`SKILL_SYSTEM.md`](SKILL_SYSTEM.md)。每个新 Skill 都按一个顶层用户任务组织子能力，独立触发、独立验证、独立版本化，避免把每个提示词拆成一个 Skill，也避免把所有方法论塞进一个万能提示词。
 
@@ -87,6 +94,8 @@ python scripts/validate_repo.py
 python -m unittest scripts/test_build_skill_release.py
 cd skills/brandbai-douyin-download/scripts
 python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
+cd ../../brandbai-douyin-account-analysis/scripts
+python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 ```
 
 提交新 Skill 前请阅读 [`AGENTS.md`](AGENTS.md)。不要提交登录资料、Cookie、客户数据、真实评论样本、输出目录或本地绝对路径。
