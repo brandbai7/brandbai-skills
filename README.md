@@ -18,6 +18,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.1.0 | 已真页验证单笔记图文、标题正文、互动快照和一级评论；账号与搜索批量模式保留可回溯采集合同 | Alpha · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.0 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、FABE、P0/P1/P2、表达边界与资料缺口 | Prototype · Noncommercial |
+| [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.0 | 继承有效商品价值，逐项扫描六条翻译路径与十二类感知槽位，形成画面、动作、声音、字幕、道具等原子呈现及验证计划 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
 
@@ -71,6 +72,12 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 使用 brandbai-product-value，分析这份商品资料。先确认当前商品和 SKU，区分商品事实、
 品牌战略、动态权益、用户语言和分析推导，建立 P0/P1/P2 与证据边界，并输出资料缺口。
 不要生成卖点画面、脚本或达人匹配结论。
+```
+
+```text
+使用 brandbai-value-expression，读取这份商品价值底座。保持 P0/P1/P2 和证据边界不变，
+逐项扫描数字化、感官化、差异化、情境化、证据化和人格化，输出卖点可视化呈现卡与
+第一轮验证计划。不要重新选择核心价值，也不要直接生成完整脚本。
 ```
 
 ### WorkBuddy 一键安装
@@ -132,6 +139,8 @@ cd ../../brandbai-xiaohongshu-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-product-value/scripts
 python -B test_product_value_delivery.py
+cd ../../brandbai-value-expression/scripts
+python -X utf8 -B test_value_expression_delivery.py
 ```
 
 提交新 Skill 前请阅读 [`AGENTS.md`](AGENTS.md)。不要提交登录资料、Cookie、客户数据、真实评论样本、输出目录或本地绝对路径。

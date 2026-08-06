@@ -13,6 +13,7 @@ SKILL_DIR = ROOT / "skills" / "brandbai-douyin-download"
 ANALYSIS_SKILL_DIR = ROOT / "skills" / "brandbai-douyin-account-analysis"
 TMALL_SKILL_DIR = ROOT / "skills" / "brandbai-tmall-download"
 PRODUCT_VALUE_SKILL_DIR = ROOT / "skills" / "brandbai-product-value"
+VALUE_EXPRESSION_SKILL_DIR = ROOT / "skills" / "brandbai-value-expression"
 
 
 @contextmanager
@@ -110,6 +111,29 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/build_product_value_report.py", names)
                 self.assertIn("scripts/validate_product_value_delivery.py", names)
                 self.assertFalse(any(name.startswith("brandbai-product-value/") for name in names))
+
+    def test_builds_value_expression_skill_with_method_and_validator(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                VALUE_EXPRESSION_SKILL_DIR,
+                temp,
+                "brandbai-value-expression-v0.1.0",
+            )
+            archive_path = temp / "brandbai-value-expression.zip"
+            checksum_path = temp / "brandbai-value-expression.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.1.0")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("agents/openai.yaml", names)
+                self.assertIn("references/expression-method.md", names)
+                self.assertIn("assets/01_卖点可视化呈现模板.md", names)
+                self.assertIn("scripts/init_value_expression_delivery.py", names)
+                self.assertIn("scripts/build_value_expression_report.py", names)
+                self.assertIn("scripts/validate_value_expression_delivery.py", names)
+                self.assertFalse(any(name.startswith("brandbai-value-expression/") for name in names))
 
     def test_rejects_tag_version_mismatch(self):
         with workspace_temp() as temp:

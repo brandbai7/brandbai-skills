@@ -15,14 +15,14 @@ BrandBAI Skills 面向内容电商，把既有专家方法、确定性脚本、�
 
 ## Capability families
 
-| Planned Skill | Main job | Example sub-capabilities |
+| Skill | Main job | Example sub-capabilities |
 | --- | --- | --- |
 | `brandbai-douyin-download` | 下载公开抖音作品、媒体和评论 | 主页、搜索结果、插件自选、视频、图文、封面、原声、发布文案、评论、普通版与分析准备版 |
 | `brandbai-tmall-download` | 下载公开天猫商品事实与用户评价 | 详情页、主图、详情图、SKU、规格参数、价格快照、评价、商品事实交接包 |
 | `brandbai-xiaohongshu-download` | 下载公开小红书笔记、素材、搜索快照和评论 | 单笔记、账号置顶加最近 N 条、关键词搜索前 N 条、图文、视频、评论、普通版与分析准备版 |
 | `brandbai-douyin-account-analysis` | 分析抖音影响力账号的内容表达与用户接收 | 作品基线、视频表达、评论语义、语义对齐、候选机制、证据包 |
 | `brandbai-product-value` | 建立可回溯的商品事实与商品价值底座 | 资料路由、FC/SC、商品身份、识别锚、FABE、P0/P1/P2、证据边界、资料缺口、版本交接 |
-| `brandbai-value-expression` | 把已确认商品价值转成可感知的卖点呈现 | 商品、动作、对象状态、场景、证据等呈现载体及组合验收 |
+| `brandbai-value-expression` | 把已确认商品价值转成可感知的卖点呈现 | 六条翻译路径、十二类感知槽位、画面/动作/声音/字幕/道具五轨、场景与商品承接、单变量验证 |
 | `brandbai-influence-product-fit` | 判断影响力对象与商品价值是否匹配 | 双上游读取、用户与场景交集、内容承载、风险边界、候选比较 |
 | `brandbai-user-semantics` | 从用户原声形成可回溯选择逻辑 | 单品、多品牌迁移、品类问题、价值命题、SEM/UE/REL/MIG |
 | `brandbai-influence-intelligence` | 分析影响力对象的长期资产 | KOC/KOL/达人/明星艺人等对象深析、身份结构、内容机制与用户关系 |
