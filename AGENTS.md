@@ -44,6 +44,8 @@ cd ../../brandbai-douyin-account-analysis/scripts
 python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
+cd ../../brandbai-xiaohongshu-download/scripts
+python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
 ```
 
 Update the commands when a new skill adds its own tests.
