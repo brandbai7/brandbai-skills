@@ -1,11 +1,10 @@
 ---
 name: brandbai-product-value
-description: >-
-  Build an evidence-backed product value foundation from product links, product pages, product cards, briefs, packaging, manuals, parameter sheets, SKU files, reports, certifications, user feedback or mixed product materials. Use for 商品资料整理、商品事实建账、商品价值分析、P0候选与P0/P1/P2分层、商品表达边界、资料缺口、增量资料合并和下游卖点呈现或达人匹配前置。This Skill stops at product value; it does not create selling-point visuals, content ideas, scripts, creator matching or commercial attribution.
+description: Build an evidence-backed product value foundation from product links, product pages, product cards, briefs, packaging, manuals, parameter sheets, SKU files, reports, certifications, user feedback or mixed product materials. Use for 商品资料整理、商品事实建账、商品价值分析、P0候选与P0/P1/P2分层、商品表达边界、资料缺口、增量资料合并和下游卖点呈现或达人匹配前置。This Skill stops at product value; it does not create selling-point visuals, content ideas, scripts, creator matching or commercial attribution.
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.0"
+  version: "0.1.1"
   category: content-commerce
 ---
 
