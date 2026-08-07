@@ -70,6 +70,14 @@ class CollectorCoreTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["keyword"], "洗脸巾")
         self.assertEqual(result["state"], "complete_first_n_visible_results")
 
+    def test_search_deduplicates_note_id_before_limit(self) -> None:
+        result = freeze_search_results(
+            [{"note_id": "a", "rank": 1}, {"note_id": "a", "rank": 2}, {"note_id": "b", "rank": 3}],
+            keyword="测试", tab="全部", filters=["综合"], limit=2, captured_at="2026-08-07T00:00:00+00:00",
+        )
+        self.assertEqual([row["note_id"] for row in result["results"]], ["a", "b"])
+        self.assertEqual([row["rank"] for row in result["results"]], [1, 3])
+
     def test_reply_shortfall_is_partial(self) -> None:
         state = comment_completion_state(
             exhausted=True, limit_reached=False, declared_reply_count=5, saved_reply_count=2, replies_requested=True,

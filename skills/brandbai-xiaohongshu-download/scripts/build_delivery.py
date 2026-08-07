@@ -90,10 +90,11 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     note_book = Workbook()
     note_book.remove(note_book.active)
     _write_sheet(note_book, "笔记总览", [
-        "笔记ID", "主页ID", "主页位次", "选择原因", "标题", "正文", "作者ID", "作者", "类型", "发布时间原文", "地区原文",
+        "笔记ID", "主页ID", "主页位次", "搜索快照ID", "搜索位次", "搜索关键词", "选择原因", "标题", "正文", "作者ID", "作者", "类型", "发布时间原文", "地区原文",
         "点赞", "收藏", "评论", "分享", "是否置顶", "规范链接", "采集时间", "完成状态",
     ], [[
-        row.get("note_id"), row.get("profile_id"), row.get("profile_rank"), row.get("selection_reason"),
+        row.get("note_id"), row.get("profile_id"), row.get("profile_rank"), row.get("search_snapshot_id"),
+        row.get("search_rank"), row.get("search_keyword"), row.get("selection_reason"),
         row.get("title"), row.get("body"), row.get("author_id"), row.get("author_name"), row.get("note_type"),
         row.get("published_at_text"), row.get("region_text"),
         (row.get("metrics") or {}).get("likes"), (row.get("metrics") or {}).get("collects"),
@@ -206,6 +207,7 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
 - 搜索快照数：{len(searches)}
 - 运行状态：{run_manifest.get('state', 'unknown')}
 - 主页选择状态：{profile_selection.get('state', 'not_applicable')}
+- 搜索选择状态：{run_manifest.get('search_selection_state', 'not_applicable')}
 - 主页选择范围：可见置顶 {profile_selection.get('pinned_count', 0)} 篇 + 最近非置顶 {profile_selection.get('recent_selected', 0)}/{profile_selection.get('recent_requested', 0)} 篇
 - 构建时间：{utc_now()}
 

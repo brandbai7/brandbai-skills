@@ -28,6 +28,7 @@ class BuildDeliveryTests(unittest.TestCase):
                 "canonical_url": "https://www.xiaohongshu.com/explore/note-1", "collected_at": "2026-08-07T00:00:00Z",
                 "completion_state": "complete_observed_note",
                 "profile_id": "profile-1", "profile_rank": 1, "selection_reason": "pinned",
+                "search_snapshot_id": "search-1", "search_rank": 1, "search_keyword": "测试",
             }])
             write_jsonl(out / "data" / "comments.jsonl", [{
                 "comment_id": "comment-1", "comment_id_type": "platform", "note_id": "note-1", "level": 1,
@@ -78,6 +79,10 @@ class BuildDeliveryTests(unittest.TestCase):
                 self.assertIn("主页选择", workbook.sheetnames)
                 self.assertEqual(workbook["账号信息"]["B3"].value, "profile-1")
                 self.assertEqual(workbook["主页选择"]["D2"].value, "pinned")
+                headers = [cell.value for cell in workbook["笔记总览"][1]]
+                self.assertIn("搜索快照ID", headers)
+                self.assertIn("搜索位次", headers)
+                self.assertIn("搜索关键词", headers)
             finally:
                 workbook.close()
         finally:

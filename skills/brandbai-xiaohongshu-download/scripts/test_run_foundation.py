@@ -88,6 +88,31 @@ class RunFoundationTests(unittest.TestCase):
             if base.exists():
                 shutil.rmtree(base)
 
+    def test_search_dry_run_records_first_n_visible_contract(self) -> None:
+        base = Path(__file__).resolve().parent / ".xhs_search_dry_test_runtime"
+        if base.exists():
+            shutil.rmtree(base)
+        base.mkdir()
+        try:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main([
+                    "all", "--search", "合成关键词", "--search-limit", "5", "--search-tab", "视频",
+                    "--profile-dir", str(base / "private-profile"), "--out", str(base / "delivery"),
+                    "--assets", "video,cover", "--dry-run",
+                ])
+            self.assertEqual(code, 0)
+            plan = json.loads(output.getvalue())
+            self.assertEqual(plan["search"]["keyword"], "合成关键词")
+            self.assertEqual(plan["search"]["tab"], "视频")
+            self.assertEqual(plan["search"]["filters"], ["综合"])
+            self.assertEqual(plan["search"]["first_visible_results"], 5)
+            self.assertEqual(plan["notes"], [])
+            self.assertFalse((base / "delivery").exists())
+        finally:
+            if base.exists():
+                shutil.rmtree(base)
+
 
 if __name__ == "__main__":
     unittest.main()

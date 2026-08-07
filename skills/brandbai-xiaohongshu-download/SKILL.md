@@ -4,7 +4,7 @@ description: Collect public Xiaohongshu notes through a visible signed-in Chrome
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.0"
+  version: "0.3.0"
   category: content-commerce
 ---
 
@@ -76,6 +76,22 @@ python scripts/run_foundation.py note `
 
 确认主页 ID、选择规则和输出位置后去掉 `--dry-run` 真跑。需要同时采集一级评论时把模式由 `note` 改为 `all`。运行会先冻结 `data/profile_selection.json`，再逐条进入已选笔记；断点续跑会重新发现主页以刷新只存在于当前页面的临时导航上下文。
 
+关键词搜索先做 Dry Run。下面会冻结“洗脸巾”综合搜索页当前可见顺序中的前 5 条真正笔记结果；页面穿插的“大家都在搜”不会占用笔记位次，其查询词会单独保存：
+
+```powershell
+python scripts/run_foundation.py all `
+  --search "洗脸巾" `
+  --search-limit 5 `
+  --search-tab "全部" `
+  --profile-dir "<独立私有Chrome资料夹>" `
+  --out "<交付目录>" `
+  --assets "images,video,cover" `
+  --comment-limit 0 `
+  --dry-run
+```
+
+确认关键词、标签页、前 N 条范围和输出位置后去掉 `--dry-run` 真跑。`--search-tab` 支持 `全部`、`图文`、`视频`；`0.3.0` 只开放平台默认的 `综合` 排序。运行先把不含临时令牌的快照写入 `data/search_snapshots.jsonl`，再逐条采集笔记、素材和可见评论。
+
 私有 Chrome 资料夹必须和交付目录、仓库分开。首次需要登录或访问确认时可增加 `--login-wait 120`，在可见 Chrome 中由用户手动完成；Skill 不读取或复制现有 Chrome Cookie。
 
 ## 首版采集合同
@@ -111,13 +127,13 @@ python scripts/run_foundation.py note `
 
 ## 当前实现阶段
 
-`0.2.0` 保留 `0.1.0` 已真页验证的单笔记能力，并把账号主页“全部当前可见置顶＋最近 N 条非置顶”纳入稳定入口。主页选择会保存账号可见字段、发现数、位次、置顶状态、选择原因、规范链接和选择完整性；页面临时令牌不会进入 JSON、Excel、说明或 GitHub。页面总评论数包含可见回复但本轮未请求回复时，一级评论可以完成，回复必须单独写 `not_requested`，不能伪装成回复 0。
+`0.3.0` 保留单笔记与账号主页能力，并把关键词搜索前 N 条纳入稳定入口。已在真实登录搜索页验证 `全部` 与 `视频` 标签：真正笔记结果按稳定笔记 ID 去重和排序，“大家都在搜”单独保存，搜索结果可继续进入笔记详情。搜索临时导航令牌只在当次浏览器内存中使用，不进入 JSON、Excel、说明或 GitHub。页面总评论数包含可见回复但本轮未请求回复时，一级评论可以完成，回复必须单独写 `not_requested`，不能伪装成回复 0。
 
 以下仍保持实验或合同状态：
 
 - Live Photo 动态资源和普通视频若页面只暴露 `blob:` 播放地址，记录 `not_observed`，不声明视频文件下载成功。
 - `--include-replies` 为实验能力，只有逐楼展开并核对声明回复数后才能标记回复完整。
-- 关键词搜索前 N 条已冻结字段与选择合同，但尚未纳入 `run_foundation.py` 稳定入口。
+- 搜索筛选目前只开放默认 `综合` 排序；时间、范围等更多筛选待逐项真页核验后再开放。
 - 仅有不带当前页面导航上下文的规范链接，在未登录新资料夹中可能无法打开；这时应使用当前可见页面复制的完整链接，或先在该私有资料夹中正常登录。
 
 ## 验证修改
