@@ -66,6 +66,8 @@ def _style(workbook: Any) -> None:
             letter = column[0].column_letter
             lengths = [len(str(cell.value or "")) for cell in column[:200]]
             sheet.column_dimensions[letter].width = min(max(max(lengths, default=8) + 2, 10), 48)
+        if sheet.max_column == 2:
+            sheet.column_dimensions["B"].width = min(max(sheet.column_dimensions["B"].width or 10, 64), 72)
 
 
 def build_delivery(out_value: str | Path) -> dict[str, Any]:
@@ -81,21 +83,51 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     assets = _load_jsonl(data / "assets.jsonl")
     searches = _load_jsonl(data / "search_snapshots.jsonl")
     run_manifest = _load_json(data / "run_manifest.json", {})
+    profile_selection = _load_json(data / "profile_selection.json", {})
     if not notes and not comments and not searches:
         raise DeliveryError("No Xiaohongshu collection data was found")
 
     note_book = Workbook()
     note_book.remove(note_book.active)
     _write_sheet(note_book, "笔记总览", [
-        "笔记ID", "标题", "正文", "作者ID", "作者", "类型", "发布时间原文", "地区原文", "点赞", "收藏", "评论", "分享",
-        "是否置顶", "规范链接", "采集时间", "完成状态",
+        "笔记ID", "主页ID", "主页位次", "选择原因", "标题", "正文", "作者ID", "作者", "类型", "发布时间原文", "地区原文",
+        "点赞", "收藏", "评论", "分享", "是否置顶", "规范链接", "采集时间", "完成状态",
     ], [[
-        row.get("note_id"), row.get("title"), row.get("body"), row.get("author_id"), row.get("author_name"),
-        row.get("note_type"), row.get("published_at_text"), row.get("region_text"),
+        row.get("note_id"), row.get("profile_id"), row.get("profile_rank"), row.get("selection_reason"),
+        row.get("title"), row.get("body"), row.get("author_id"), row.get("author_name"), row.get("note_type"),
+        row.get("published_at_text"), row.get("region_text"),
         (row.get("metrics") or {}).get("likes"), (row.get("metrics") or {}).get("collects"),
         (row.get("metrics") or {}).get("comments"), (row.get("metrics") or {}).get("shares"),
         row.get("is_pinned"), row.get("canonical_url"), row.get("collected_at"), row.get("completion_state"),
     ] for row in notes])
+    if profile_selection:
+        profile = profile_selection.get("profile") or {}
+        metrics = profile.get("metrics") or {}
+        _write_sheet(note_book, "账号信息", ["字段", "值"], [
+            ["主页选择ID", profile_selection.get("profile_selection_id")],
+            ["主页ID", profile_selection.get("profile_id")],
+            ["账号名称", profile.get("display_name")],
+            ["小红书号", profile.get("xiaohongshu_id")],
+            ["地区原文", profile.get("region_text")],
+            ["账号简介", profile.get("description")],
+            ["关注原文", metrics.get("following")],
+            ["粉丝原文", metrics.get("followers")],
+            ["获赞与收藏原文", metrics.get("likes_and_collects")],
+            ["规范主页链接", profile_selection.get("canonical_url")],
+            ["采集时间", profile_selection.get("captured_at")],
+            ["选择状态", profile_selection.get("state")],
+            ["发现笔记数", profile_selection.get("discovered_count")],
+            ["可见置顶数", profile_selection.get("pinned_count")],
+            ["近期请求数", profile_selection.get("recent_requested")],
+            ["近期选中数", profile_selection.get("recent_selected")],
+            ["最终选中数", len(profile_selection.get("selected") or [])],
+        ])
+        _write_sheet(note_book, "主页选择", [
+            "笔记ID", "主页位次", "是否置顶", "选择原因", "页面标题", "页面作者", "规范链接", "封面来源URL",
+        ], [[
+            row.get("note_id"), row.get("rank"), row.get("is_pinned"), row.get("selection_reason"),
+            row.get("title"), row.get("author_name"), row.get("canonical_url"), row.get("cover_url"),
+        ] for row in profile_selection.get("selected") or []])
     topic_rows = []
     for note in notes:
         for order, topic in enumerate(note.get("topics") or [], start=1):
@@ -173,20 +205,25 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
 - 评论与回复记录：{len(comments)}
 - 搜索快照数：{len(searches)}
 - 运行状态：{run_manifest.get('state', 'unknown')}
+- 主页选择状态：{profile_selection.get('state', 'not_applicable')}
+- 主页选择范围：可见置顶 {profile_selection.get('pinned_count', 0)} 篇 + 最近非置顶 {profile_selection.get('recent_selected', 0)}/{profile_selection.get('recent_requested', 0)} 篇
 - 构建时间：{utc_now()}
 
 ## 重要边界
 
-1. 搜索结果仅对应指定关键词、标签页、筛选和采集时点的页面可见顺序，不代表平台全量结果。
-2. 评论完成只表示页面当前可返回内容收到终止信号；回复未逐楼展开时会保留部分完成状态。
-3. 笔记与评论中的身份、购买、效果和体验主张未经本下载阶段核验。
-4. 本包只做下载、结构化和质量说明，不自动生成用户语义、账号画像、内容机制、商品匹配或商业归因。
-5. 登录资料、Cookie、请求头、验证码和本地任务缓存不进入交付包。
+1. 主页范围只对应采集时点页面可见置顶和最近非置顶笔记；置顶为额外项，不占最近 N 篇名额。
+2. 搜索结果仅对应指定关键词、标签页、筛选和采集时点的页面可见顺序，不代表平台全量结果。
+3. 评论完成只表示页面当前可返回内容收到终止信号；回复未逐楼展开时会保留部分完成状态。
+4. 笔记与评论中的身份、购买、效果和体验主张未经本下载阶段核验。
+5. 本包只做下载、结构化和质量说明，不自动生成用户语义、账号画像、内容机制、商品匹配或商业归因。
+6. 登录资料、Cookie、请求头、验证码、页面临时令牌和本地任务缓存不进入交付包。
 """
     (out / "05_采集说明.md").write_text(description, encoding="utf-8")
     summary = {
         "built_at": utc_now(), "notes": len(notes), "comments": len(comments), "search_snapshots": len(searches),
         "run_state": run_manifest.get("state", "unknown"),
+        "profile_selection": bool(profile_selection),
+        "profile_selected_notes": len(profile_selection.get("selected") or []),
     }
     atomic_write_json(data / "delivery_manifest.json", summary)
     return summary

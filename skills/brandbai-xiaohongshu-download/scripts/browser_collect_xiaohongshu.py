@@ -24,11 +24,14 @@ from collector_core import (
     atomic_write_json,
     canonical_note_id,
     canonical_note_url,
+    canonical_profile_id,
+    canonical_profile_url,
     comment_completion_state,
     derived_id,
     normalize_note_targets,
     safe_filename,
     sanitize_media_url,
+    select_profile_notes,
     stable_pseudonym,
     utc_now,
 )
@@ -144,6 +147,62 @@ COMMENTS_SCRIPT = r"""
 """
 
 
+PROFILE_SCRIPT = r"""
+() => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const profileMatch = location.pathname.match(/\/user\/profile\/([^/?#]+)/);
+  const profileId = profileMatch?.[1] || '';
+  const redIdText = clean(document.querySelector('.user-redId')?.textContent);
+  const regionText = clean(document.querySelector('.user-IP')?.textContent).replace(/^IP属地：?\s*/, '');
+  const metrics = {};
+  for (const node of [...document.querySelectorAll('.info-part .shows')]) {
+    const text = clean(node.parentElement?.innerText || node.parentElement?.textContent || node.innerText || node.textContent);
+    const match = text.match(/^(.+?)\s*(关注|粉丝|获赞与收藏)$/);
+    if (!match) continue;
+    const key = match[2] === '关注' ? 'following' : (match[2] === '粉丝' ? 'followers' : 'likes_and_collects');
+    metrics[key] = match[1];
+  }
+  const notes = [];
+  const seen = new Set();
+  for (const anchor of [...document.querySelectorAll('a[href*="/explore/"]')]) {
+    const href = anchor.getAttribute('href') || '';
+    const noteMatch = href.match(/\/explore\/([^/?#]+)/);
+    if (!noteMatch || seen.has(noteMatch[1])) continue;
+    seen.add(noteMatch[1]);
+    const root = anchor.parentElement || anchor;
+    const detailLink = [...root.querySelectorAll('a[href]')].find((item) => {
+      const value = item.getAttribute('href') || '';
+      return value.includes('/' + noteMatch[1]) && value.includes('xsec_');
+    });
+    const title = clean(root.querySelector('.title')?.innerText || root.querySelector('.title')?.textContent);
+    const author = clean(root.querySelector('.author .name')?.textContent || root.querySelector('.name')?.textContent);
+    const cover = root.querySelector('img[data-xhs-img], img');
+    const cardText = clean(root.innerText || root.textContent);
+    notes.push({
+      note_id: noteMatch[1],
+      rank: notes.length + 1,
+      is_pinned: Boolean(root.querySelector('.top-wrapper')) || /^置顶(?:\s|$)/.test(cardText),
+      title,
+      author_name: author,
+      cover_url: cover?.currentSrc || cover?.src || '',
+      navigation_url: detailLink?.href || anchor.href,
+    });
+  }
+  return {
+    profile: {
+      profile_id: profileId,
+      display_name: clean(document.querySelector('.user-name')?.textContent),
+      xiaohongshu_id: redIdText.replace(/^小红书号：?\s*/, ''),
+      region_text: regionText,
+      description: clean(document.querySelector('.user-desc')?.innerText || document.querySelector('.user-desc')?.textContent),
+      metrics,
+    },
+    notes,
+  };
+}
+"""
+
+
 def find_chrome_executable(explicit: str | None = None) -> str:
     if explicit:
         path = Path(explicit).expanduser()
@@ -181,6 +240,92 @@ def normalize_assets(value: str) -> list[str]:
     if "none" in parts and len(parts) > 1:
         raise CollectionError("assets=none cannot be combined with other asset types")
     return [] if parts == ["none"] else parts
+
+
+def _public_profile_selection(selection: dict[str, Any]) -> dict[str, Any]:
+    public = {key: value for key, value in selection.items() if key != "selected"}
+    public_rows: list[dict[str, Any]] = []
+    for record in selection.get("selected") or []:
+        note_id = str(record.get("note_id") or "")
+        cover_url = ""
+        if record.get("cover_url"):
+            try:
+                cover_url, _ = sanitize_media_url(str(record["cover_url"]))
+            except CollectionError:
+                cover_url = ""
+        public_rows.append({
+            "note_id": note_id,
+            "rank": int(record.get("rank") or 0),
+            "is_pinned": bool(record.get("is_pinned")),
+            "selection_reason": str(record.get("selection_reason") or ""),
+            "title": str(record.get("title") or ""),
+            "author_name": str(record.get("author_name") or ""),
+            "cover_url": cover_url,
+            "canonical_url": canonical_note_url(note_id),
+        })
+    public["selected"] = public_rows
+    return public
+
+
+def _discover_profile_notes(
+    page: Any,
+    navigation_url: str,
+    *,
+    recent: int,
+    max_scroll_actions: int,
+    login_wait: int,
+) -> dict[str, Any]:
+    page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
+    page.wait_for_timeout(3_500)
+    if not page.locator('a[href*="/explore/"]').count() and login_wait > 0:
+        print(f"Visible Chrome is ready. Complete login or access confirmation within {login_wait} seconds.")
+        page.wait_for_timeout(login_wait * 1_000)
+        page.reload(wait_until="domcontentloaded", timeout=120_000)
+        page.wait_for_timeout(3_000)
+    for label in ["滑动验证", "安全验证", "请完成验证", "访问频繁"]:
+        if page.get_by_text(label, exact=False).count():
+            raise CollectionError("Xiaohongshu requires manual verification in the visible Chrome window")
+
+    records_by_id: dict[str, dict[str, Any]] = {}
+    profile: dict[str, Any] = {}
+    no_growth = 0
+    scroll_actions = 0
+    while scroll_actions <= max_scroll_actions:
+        raw = page.evaluate(PROFILE_SCRIPT) or {}
+        profile = dict(raw.get("profile") or profile)
+        before = len(records_by_id)
+        for record in raw.get("notes") or []:
+            note_id = str(record.get("note_id") or "").strip()
+            if note_id and note_id not in records_by_id:
+                records_by_id[note_id] = dict(record)
+        discovered = list(records_by_id.values())
+        selection = select_profile_notes(discovered, recent)
+        if selection["state"] == "complete_visible_pinned_plus_recent_n":
+            break
+        no_growth = no_growth + 1 if len(records_by_id) == before else 0
+        if no_growth >= 3 or scroll_actions >= max_scroll_actions:
+            break
+        page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'})")
+        page.wait_for_timeout(800)
+        scroll_actions += 1
+
+    if not records_by_id:
+        raise CollectionError("No visible Xiaohongshu profile notes were found")
+    selection = select_profile_notes(records_by_id.values(), recent)
+    profile_id = str(profile.get("profile_id") or canonical_profile_id(navigation_url))
+    captured_at = utc_now()
+    selection.update({
+        "schema_version": "1.0",
+        "profile_selection_id": derived_id("profile-selection", profile_id, recent, captured_at),
+        "profile_id": profile_id,
+        "canonical_url": canonical_profile_url(profile_id),
+        "profile": profile,
+        "discovered_count": len(records_by_id),
+        "scroll_actions": scroll_actions,
+        "captured_at": captured_at,
+        "completion_basis": "enough_recent_notes" if selection["state"].startswith("complete") else "scroll_or_growth_budget_exhausted",
+    })
+    return selection
 
 
 def _read_jsonl_ids(path: Path, field: str) -> set[str]:
@@ -453,6 +598,7 @@ def _collect_one_note(
     login_wait: int,
     max_asset_bytes: int,
     resume: bool,
+    selection_context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     note_id = canonical_note_id(navigation_url)
     raw = _load_note(page, navigation_url, login_wait)
@@ -472,7 +618,10 @@ def _collect_one_note(
         "topics": list(raw.get("topics") or []),
         "mentions": list(raw.get("mentions") or []),
         "metrics": dict(raw.get("metrics") or {}),
-        "is_pinned": False,
+        "profile_id": str((selection_context or {}).get("profile_id") or ""),
+        "profile_rank": int((selection_context or {}).get("rank") or 0),
+        "selection_reason": str((selection_context or {}).get("selection_reason") or "direct_note"),
+        "is_pinned": bool((selection_context or {}).get("is_pinned")),
         "canonical_url": canonical_note_url(note_id),
         "collected_at": utc_now(),
         "completion_state": "complete_visible_note",
@@ -583,7 +732,10 @@ def _collect_one_note(
 
 def collect(
     *,
-    note_targets: list[str],
+    note_targets: list[str] | None = None,
+    profile_target: str | None = None,
+    recent: int = 5,
+    max_profile_scroll_actions: int = 80,
     profile_dir: Path,
     out: Path,
     mode: str,
@@ -602,16 +754,20 @@ def collect(
     except ImportError as exc:
         raise CollectionError("Playwright is missing; install requirements-browser.txt first") from exc
 
-    targets = normalize_note_targets(note_targets)
+    if bool(note_targets) == bool(profile_target):
+        raise CollectionError("Choose exactly one source: note targets or one profile target")
+    targets = normalize_note_targets(note_targets or []) if note_targets else []
     out.mkdir(parents=True, exist_ok=True)
     profile_dir.mkdir(parents=True, exist_ok=True)
     note_ids = [canonical_note_id(value) for value in targets]
     manifest: dict[str, Any] = {
         "schema_version": "1.0",
         "collector": "brandbai-xiaohongshu-download",
-        "collector_version": "0.1.0",
+        "collector_version": "0.2.0",
         "mode": mode,
+        "target_kind": "profile" if profile_target else "notes",
         "requested_note_ids": note_ids,
+        "profile_selection_state": "not_applicable",
         "requested_assets": assets,
         "privacy_mode": "comment_display_authors_retained" if retain_author_display else "comment_authors_pseudonymized",
         "note_states": {},
@@ -635,6 +791,35 @@ def collect(
         )
         page = context.pages[0] if context.pages else context.new_page()
         try:
+            selection_by_id: dict[str, dict[str, Any]] = {}
+            if profile_target:
+                selection = _discover_profile_notes(
+                    page,
+                    profile_target,
+                    recent=max(0, recent),
+                    max_scroll_actions=max(0, max_profile_scroll_actions),
+                    login_wait=max(0, login_wait),
+                )
+                public_selection = _public_profile_selection(selection)
+                atomic_write_json(out / "data" / "profile_selection.json", public_selection)
+                manifest["profile_selection_state"] = selection["state"]
+                manifest["profile_selection"] = {
+                    "profile_selection_id": selection["profile_selection_id"],
+                    "profile_id": selection["profile_id"],
+                    "canonical_url": selection["canonical_url"],
+                    "pinned_count": selection["pinned_count"],
+                    "recent_requested": selection["recent_requested"],
+                    "recent_selected": selection["recent_selected"],
+                    "selected_count": len(selection["selected"]),
+                    "captured_at": selection["captured_at"],
+                }
+                targets = [str(record.get("navigation_url") or canonical_note_url(str(record["note_id"]))) for record in selection["selected"]]
+                manifest["requested_note_ids"] = [str(record["note_id"]) for record in selection["selected"]]
+                selection_by_id = {
+                    str(record["note_id"]): {**record, "profile_id": selection["profile_id"]}
+                    for record in selection["selected"]
+                }
+                atomic_write_json(manifest_path, manifest)
             for target_index, target in enumerate(targets):
                 note_id = canonical_note_id(target)
                 try:
@@ -652,6 +837,7 @@ def collect(
                         login_wait=max(0, login_wait),
                         max_asset_bytes=max(1, max_asset_mb) * 1024 * 1024,
                         resume=resume or target_index > 0,
+                        selection_context=selection_by_id.get(note_id),
                     )
                     manifest["note_states"][note_id] = note["completion_state"]
                     if comments:
@@ -665,6 +851,8 @@ def collect(
         finally:
             context.close()
     states = list(manifest["note_states"].values())
+    if profile_target:
+        states.insert(0, manifest["profile_selection_state"])
     if mode in {"comments", "all"}:
         states.extend(manifest["comment_states"].values())
     manifest["state"] = "complete" if states and all(str(value).startswith("complete") for value in states) else "partial"
@@ -676,7 +864,11 @@ def collect(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect visible Xiaohongshu note facts, media and comments")
     parser.add_argument("mode", choices=["note", "comments", "all"])
-    parser.add_argument("--note", action="append", required=True, help="Repeat for more note URLs or note ids")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--note", action="append", help="Repeat for more note URLs or note ids")
+    source.add_argument("--profile", help="One Xiaohongshu profile URL or profile id")
+    parser.add_argument("--recent", type=int, default=5, help="Recent non-pinned notes; all visible pinned notes are additional")
+    parser.add_argument("--max-profile-scroll-actions", type=int, default=80)
     parser.add_argument("--profile-dir", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--assets", default="images,cover", help="images,video,cover,none")
@@ -696,6 +888,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = collect(
             note_targets=args.note,
+            profile_target=args.profile,
+            recent=max(0, args.recent),
+            max_profile_scroll_actions=max(0, args.max_profile_scroll_actions),
             profile_dir=args.profile_dir,
             out=args.out,
             mode=args.mode,

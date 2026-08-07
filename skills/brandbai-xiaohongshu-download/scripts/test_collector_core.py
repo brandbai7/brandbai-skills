@@ -6,6 +6,8 @@ from collector_core import (
     CollectionError,
     canonical_note_id,
     canonical_note_url,
+    canonical_profile_id,
+    canonical_profile_url,
     comment_completion_state,
     freeze_search_results,
     select_profile_notes,
@@ -27,6 +29,15 @@ class CollectorCoreTests(unittest.TestCase):
         self.assertEqual(canonical_note_id(source), "0123456789abcdef01234567")
         self.assertEqual(canonical_note_url(source), "https://www.xiaohongshu.com/explore/0123456789abcdef01234567")
 
+    def test_profile_url_normalizes_without_token(self) -> None:
+        source = "https://www.xiaohongshu.com/user/profile/profile-1?xsec_token=secret"
+        self.assertEqual(canonical_profile_id(source), "profile-1")
+        self.assertEqual(canonical_profile_url(source), "https://www.xiaohongshu.com/user/profile/profile-1")
+
+    def test_note_id_from_profile_detail_url(self) -> None:
+        source = "https://www.xiaohongshu.com/user/profile/profile-1/note-1?xsec_token=secret"
+        self.assertEqual(canonical_note_id(source), "note-1")
+
     def test_media_url_is_allowlisted_and_query_redacted(self) -> None:
         clean, redacted = sanitize_media_url("http://sns-webpic-qc.xhscdn.com/path/a.webp?token=secret#x")
         self.assertEqual(clean, "https://sns-webpic-qc.xhscdn.com/path/a.webp")
@@ -44,6 +55,10 @@ class CollectorCoreTests(unittest.TestCase):
         ]
         result = select_profile_notes(records, 2)
         self.assertEqual([row["note_id"] for row in result["selected"]], ["p1", "p2", "n1", "n2"])
+        self.assertEqual(
+            [row["selection_reason"] for row in result["selected"]],
+            ["pinned", "pinned", "recent_non_pinned", "recent_non_pinned"],
+        )
         self.assertEqual(result["state"], "complete_visible_pinned_plus_recent_n")
 
     def test_search_preserves_rank_and_context(self) -> None:
