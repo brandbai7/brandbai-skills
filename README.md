@@ -17,6 +17,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.1.1 | 天猫／淘宝明确商品链接的详情、主图、详情图、可见视频、规格、SKU 快照与页面可见评价，保留平台折叠和快照边界 | Prototype · Noncommercial |
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.1.0 | 已真页验证单笔记图文、标题正文、互动快照和一级评论；账号与搜索批量模式保留可回溯采集合同 | Alpha · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
+| [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.0 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、FABE、P0/P1/P2、表达边界与资料缺口 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
 
@@ -66,6 +67,12 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 和页面当前可返回的一级评论，生成 BrandBAI 普通版 Excel；不要生成用户语义或内容结论。
 ```
 
+```text
+使用 brandbai-product-value，分析这份商品资料。先确认当前商品和 SKU，区分商品事实、
+品牌战略、动态权益、用户语言和分析推导，建立 P0/P1/P2 与证据边界，并输出资料缺口。
+不要生成卖点画面、脚本或达人匹配结论。
+```
+
 ### WorkBuddy 一键安装
 
 腾讯 WorkBuddy 用户可点击下面的链接唤起自定义 Skill 安装：
@@ -100,10 +107,12 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 2. BrandBAI Tmall Download：天猫详情页、主图、规格、评价与商品事实下载。
 3. BrandBAI Xiaohongshu Download：笔记、素材、搜索快照与可见评论下载。
 4. BrandBAI Douyin Account Analysis：抖音账号作品基线、视频表达、用户接收与候选机制。
-5. BrandBAI User Semantics：评论与用户语义证据。
-6. BrandBAI Influence Intelligence：KOC、KOL、达人、明星艺人等影响力对象洞察与匹配。
-7. BrandBAI Product Value：商品价值、P0 与卖点感知化。
-8. BrandBAI Content & Performance：内容诊断、千川测试与复盘。
+5. BrandBAI Product Value：商品事实、商品价值、P0/P1/P2、证据边界与资料缺口。
+6. BrandBAI Value Expression：把已确认价值转成用户看得见、听得懂、感受得到的卖点呈现。
+7. BrandBAI Influence–Product Fit：连接影响力对象与商品价值，形成有证据边界的匹配判断。
+8. BrandBAI User Semantics：评论与用户语义证据。
+9. BrandBAI Influence Intelligence：KOC、KOL、达人、明星艺人等影响力对象洞察。
+10. BrandBAI Content & Performance：内容诊断、千川测试与复盘。
 
 详细能力边界与现有方法资产的迁移规则见 [`SKILL_SYSTEM.md`](SKILL_SYSTEM.md)。每个新 Skill 都按一个顶层用户任务组织子能力，独立触发、独立验证、独立版本化，避免把每个提示词拆成一个 Skill，也避免把所有方法论塞进一个万能提示词。
 
@@ -121,6 +130,8 @@ cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-xiaohongshu-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
+cd ../../brandbai-product-value/scripts
+python -B test_product_value_delivery.py
 ```
 
 提交新 Skill 前请阅读 [`AGENTS.md`](AGENTS.md)。不要提交登录资料、Cookie、客户数据、真实评论样本、输出目录或本地绝对路径。

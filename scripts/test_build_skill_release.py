@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "brandbai-douyin-download"
 ANALYSIS_SKILL_DIR = ROOT / "skills" / "brandbai-douyin-account-analysis"
 TMALL_SKILL_DIR = ROOT / "skills" / "brandbai-tmall-download"
+PRODUCT_VALUE_SKILL_DIR = ROOT / "skills" / "brandbai-product-value"
 
 
 @contextmanager
@@ -86,6 +87,29 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/build_delivery.py", names)
                 self.assertIn("references/collection-contract.md", names)
                 self.assertFalse(any(name.startswith("brandbai-tmall-download/") for name in names))
+
+    def test_builds_product_value_skill_with_contracts_and_validator(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                PRODUCT_VALUE_SKILL_DIR,
+                temp,
+                "brandbai-product-value-v0.1.0",
+            )
+            archive_path = temp / "brandbai-product-value.zip"
+            checksum_path = temp / "brandbai-product-value.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.1.0")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("agents/openai.yaml", names)
+                self.assertIn("references/input-output-contract.md", names)
+                self.assertIn("assets/01_商品价值底座模板.md", names)
+                self.assertIn("scripts/init_product_value_delivery.py", names)
+                self.assertIn("scripts/build_product_value_report.py", names)
+                self.assertIn("scripts/validate_product_value_delivery.py", names)
+                self.assertFalse(any(name.startswith("brandbai-product-value/") for name in names))
 
     def test_rejects_tag_version_mismatch(self):
         with workspace_temp() as temp:
