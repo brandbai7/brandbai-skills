@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI 小红书下载"
+  short_description: "批量采集小红书笔记、素材、搜索快照与可见评论数据及状态"
+  default_prompt: "使用 $brandbai-xiaohongshu-download，按明确范围采集小红书笔记、素材、搜索快照和可见评论，并生成可回溯普通版交付。"

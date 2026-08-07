@@ -19,6 +19,7 @@ BrandBAI Skills 面向内容电商，把既有专家方法、确定性脚本、�
 | --- | --- | --- |
 | `brandbai-douyin-download` | 下载公开抖音作品、媒体和评论 | 主页、搜索结果、插件自选、视频、图文、封面、原声、发布文案、评论、普通版与分析准备版 |
 | `brandbai-tmall-download` | 下载公开天猫商品事实与用户评价 | 详情页、主图、详情图、SKU、规格参数、价格快照、评价、商品事实交接包 |
+| `brandbai-xiaohongshu-download` | 下载公开小红书笔记、素材、搜索快照和评论 | 单笔记、账号置顶加最近 N 条、关键词搜索前 N 条、图文、视频、评论、普通版与分析准备版 |
 | `brandbai-product-value` | 建立商品事实、价值与感知资产 | 资料路由、FC/SC、P0、卖点可视化、S1/S2/S3、外部双文档 |
 | `brandbai-user-semantics` | 从用户原声形成可回溯选择逻辑 | 单品、多品牌迁移、品类问题、价值命题、SEM/UE/REL/MIG |
 | `brandbai-influence-intelligence` | 分析影响力对象及商业匹配 | KOC/KOL/达人/明星艺人等对象深析、品牌商品匹配、合作前置、候选比较 |
@@ -73,3 +74,5 @@ brandbai-douyin-download
 商品侧采用独立上游：`brandbai-tmall-download` 只负责商品页面、素材、规格与评价的可回溯采集，再把稳定商品 ID、字段来源和完整性状态交给 `brandbai-product-value`；下载阶段不直接生成 P0、卖点优先级或内容结论。
 
 `brandbai-douyin-download` 当前只负责下载、采集与质量核验。后续 Skill 可以读取其标准化原始数据，但不得把下载成功自动写成语义结论、影响力结论或商业归因。
+
+`brandbai-xiaohongshu-download` 采用相同阶段边界，同时额外保留关键词、标签页、筛选、结果位次、相关查询和采集时点，避免把搜索结果脱离原始搜索语境。`0.1.0` 的稳定执行入口先覆盖单笔记图文、字段和一级评论；账号与关键词搜索批量模式继续沿用合同，但在真页验证前不得标为稳定。
