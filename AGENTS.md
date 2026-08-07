@@ -43,7 +43,7 @@ python -m unittest test_download_creator_works.py test_selection_contract.py tes
 cd ../../brandbai-douyin-account-analysis/scripts
 python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 cd ../../brandbai-tmall-download/scripts
-python -m unittest test_collector_core.py test_build_delivery.py test_run_foundation.py
+python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 ```
 
 Update the commands when a new skill adds its own tests.
