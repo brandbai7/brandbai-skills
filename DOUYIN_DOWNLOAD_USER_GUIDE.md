@@ -38,14 +38,14 @@
 
 ### 方法 A：WorkBuddy 一键安装
 
-[点击安装最新版 BrandBAI 抖音下载 Skill](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Flatest%2Fdownload%2Fbrandbai-douyin-download.zip&channelType=github)
+[点击安装 BrandBAI 抖音下载 Skill v0.3.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fv0.3.0%2Fbrandbai-douyin-download.zip&channelType=github)
 
 如果点击后没有自动唤起 WorkBuddy，请使用下面的手动安装包。
 
 ### 方法 B：下载 ZIP 手动安装
 
-- [下载最新版安装包](https://github.com/brandbai7/brandbai-skills/releases/latest/download/brandbai-douyin-download.zip)
-- [查看最新 Release](https://github.com/brandbai7/brandbai-skills/releases/latest)
+- [下载 v0.3.0 安装包](https://github.com/brandbai7/brandbai-skills/releases/download/v0.3.0/brandbai-douyin-download.zip)
+- [查看 Douyin Download v0.3.0 Release](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.3.0)
 
 在宿主的“自定义 Skill”“导入 Skill”或类似入口选择 ZIP。安装包根目录已经包含 `SKILL.md`，不要把压缩包里的单个脚本拆散安装。
 
