@@ -4,7 +4,7 @@ description: Collect public Xiaohongshu notes through a visible signed-in Chrome
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.0"
+  version: "0.2.0"
   category: content-commerce
 ---
 
@@ -62,6 +62,20 @@ python scripts/run_foundation.py all `
 
 确认笔记 ID、素材范围、评论上限、隐私模式和输出位置后，去掉 `--dry-run` 真跑。`--comment-limit 0` 表示继续滚动，直到页面出现终止信号或达到声明评论数量；默认只保存一级评论。只有明确需要实验性回复展开时才增加 `--include-replies`。
 
+账号主页先做 Dry Run，默认选择全部当前可见置顶，再额外选择最近 5 条非置顶；`--recent` 可以调整 N：
+
+```powershell
+python scripts/run_foundation.py note `
+  --profile "<小红书账号主页完整链接>" `
+  --recent 5 `
+  --profile-dir "<独立私有Chrome资料夹>" `
+  --out "<交付目录>" `
+  --assets "images,cover" `
+  --dry-run
+```
+
+确认主页 ID、选择规则和输出位置后去掉 `--dry-run` 真跑。需要同时采集一级评论时把模式由 `note` 改为 `all`。运行会先冻结 `data/profile_selection.json`，再逐条进入已选笔记；断点续跑会重新发现主页以刷新只存在于当前页面的临时导航上下文。
+
 私有 Chrome 资料夹必须和交付目录、仓库分开。首次需要登录或访问确认时可增加 `--login-wait 120`，在可见 Chrome 中由用户手动完成；Skill 不读取或复制现有 Chrome Cookie。
 
 ## 首版采集合同
@@ -97,13 +111,13 @@ python scripts/run_foundation.py all `
 
 ## 当前实现阶段
 
-`0.1.0` 已在 Windows Chrome 完成单笔记真页验证：可保存标题、正文、作者稳定化名、发布时间与地区原文、话题、互动快照、按顺序图文素材和一级评论，并生成三份普通版 Excel。页面总评论数包含可见回复但本轮未请求回复时，一级评论可以完成，回复必须单独写 `not_requested`，不能伪装成回复 0。
+`0.2.0` 保留 `0.1.0` 已真页验证的单笔记能力，并把账号主页“全部当前可见置顶＋最近 N 条非置顶”纳入稳定入口。主页选择会保存账号可见字段、发现数、位次、置顶状态、选择原因、规范链接和选择完整性；页面临时令牌不会进入 JSON、Excel、说明或 GitHub。页面总评论数包含可见回复但本轮未请求回复时，一级评论可以完成，回复必须单独写 `not_requested`，不能伪装成回复 0。
 
 以下仍保持实验或合同状态：
 
 - Live Photo 动态资源和普通视频若页面只暴露 `blob:` 播放地址，记录 `not_observed`，不声明视频文件下载成功。
 - `--include-replies` 为实验能力，只有逐楼展开并核对声明回复数后才能标记回复完整。
-- 账号主页“全部当前可见置顶＋最近 N 条”和关键词搜索前 N 条已冻结字段与选择合同，但尚未纳入 `run_foundation.py` 稳定入口。
+- 关键词搜索前 N 条已冻结字段与选择合同，但尚未纳入 `run_foundation.py` 稳定入口。
 - 仅有不带当前页面导航上下文的规范链接，在未登录新资料夹中可能无法打开；这时应使用当前可见页面复制的完整链接，或先在该私有资料夹中正常登录。
 
 ## 验证修改

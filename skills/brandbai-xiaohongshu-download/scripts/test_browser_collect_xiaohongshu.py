@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import unittest
 
-from browser_collect_xiaohongshu import _normalize_comment_rows, normalize_assets
+from browser_collect_xiaohongshu import PROFILE_SCRIPT, _normalize_comment_rows, _public_profile_selection, normalize_assets
 from collector_core import CollectionError
 
 
@@ -39,6 +40,29 @@ class BrowserCollectorContractTests(unittest.TestCase):
         self.assertEqual(normalize_assets("images,cover,images"), ["images", "cover"])
         with self.assertRaises(CollectionError):
             normalize_assets("images,unknown")
+
+    def test_public_profile_selection_drops_transient_navigation_context(self) -> None:
+        public = _public_profile_selection({
+            "profile_selection_id": "selection-1",
+            "profile_id": "profile-1",
+            "selected": [{
+                "note_id": "note-1",
+                "rank": 1,
+                "is_pinned": True,
+                "selection_reason": "pinned",
+                "title": "合成标题",
+                "author_name": "合成作者",
+                "cover_url": "https://sns-webpic-qc.xhscdn.com/a.webp?token=cover-secret",
+                "navigation_url": "https://www.xiaohongshu.com/user/profile/profile-1/note-1?xsec_token=secret",
+            }],
+        })
+        serialized = json.dumps(public, ensure_ascii=False)
+        self.assertNotIn("navigation_url", serialized)
+        self.assertNotIn("secret", serialized)
+        self.assertEqual(public["selected"][0]["canonical_url"], "https://www.xiaohongshu.com/explore/note-1")
+
+    def test_profile_metrics_read_number_and_label_from_shared_parent(self) -> None:
+        self.assertIn("node.parentElement?.innerText", PROFILE_SCRIPT)
 
 
 if __name__ == "__main__":

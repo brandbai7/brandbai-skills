@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from build_delivery import build_delivery
+from openpyxl import load_workbook
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -26,6 +27,7 @@ class BuildDeliveryTests(unittest.TestCase):
                 "metrics": {"likes": 12, "collects": 3, "comments": 1, "shares": 0}, "is_pinned": False,
                 "canonical_url": "https://www.xiaohongshu.com/explore/note-1", "collected_at": "2026-08-07T00:00:00Z",
                 "completion_state": "complete_observed_note",
+                "profile_id": "profile-1", "profile_rank": 1, "selection_reason": "pinned",
             }])
             write_jsonl(out / "data" / "comments.jsonl", [{
                 "comment_id": "comment-1", "comment_id_type": "platform", "note_id": "note-1", "level": 1,
@@ -39,6 +41,29 @@ class BuildDeliveryTests(unittest.TestCase):
                 "related_queries": ["相关词"],
             }])
             (out / "data" / "run_manifest.json").write_text(json.dumps({"state": "complete"}), encoding="utf-8")
+            (out / "data" / "profile_selection.json").write_text(json.dumps({
+                "profile_selection_id": "selection-1",
+                "profile_id": "profile-1",
+                "canonical_url": "https://www.xiaohongshu.com/user/profile/profile-1",
+                "captured_at": "2026-08-07T00:00:00Z",
+                "state": "complete_visible_pinned_plus_recent_n",
+                "discovered_count": 6,
+                "pinned_count": 1,
+                "recent_requested": 5,
+                "recent_selected": 5,
+                "profile": {
+                    "display_name": "合成账号",
+                    "xiaohongshu_id": "synthetic-id",
+                    "region_text": "测试地区",
+                    "description": "仅用于测试",
+                    "metrics": {"following": "1", "followers": "2", "likes_and_collects": "3"},
+                },
+                "selected": [{
+                    "note_id": "note-1", "rank": 1, "is_pinned": True, "selection_reason": "pinned",
+                    "title": "合成笔记", "author_name": "测试作者",
+                    "canonical_url": "https://www.xiaohongshu.com/explore/note-1", "cover_url": "",
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
 
             summary = build_delivery(out)
             self.assertEqual(summary["notes"], 1)
@@ -46,6 +71,15 @@ class BuildDeliveryTests(unittest.TestCase):
             self.assertTrue((out / "02_评论明细.xlsx").is_file())
             self.assertTrue((out / "03_搜索快照.xlsx").is_file())
             self.assertTrue((out / "05_采集说明.md").is_file())
+            self.assertTrue(summary["profile_selection"])
+            workbook = load_workbook(out / "01_笔记清单.xlsx", read_only=True, data_only=False)
+            try:
+                self.assertIn("账号信息", workbook.sheetnames)
+                self.assertIn("主页选择", workbook.sheetnames)
+                self.assertEqual(workbook["账号信息"]["B3"].value, "profile-1")
+                self.assertEqual(workbook["主页选择"]["D2"].value, "pinned")
+            finally:
+                workbook.close()
         finally:
             if out.exists():
                 shutil.rmtree(out)

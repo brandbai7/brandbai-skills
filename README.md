@@ -15,7 +15,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | --- | --- | --- | --- |
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.3.0 | DataTool 式抖音下载总入口：达人、搜索结果、插件自选或明确作品的视频图文、封面、原声、发布文案和评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.1.1 | 天猫／淘宝明确商品链接的详情、主图、详情图、可见视频、规格、SKU 快照与页面可见评价，保留平台折叠和快照边界 | Prototype · Noncommercial |
-| [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.1.0 | 已真页验证单笔记图文、标题正文、互动快照和一级评论；账号与搜索批量模式保留可回溯采集合同 | Alpha · Noncommercial |
+| [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.2.0 | 已真页验证单笔记图文、标题正文、互动快照和一级评论；账号主页支持全部当前可见置顶加最近 N 条，搜索批量模式保留采集合同 | Alpha · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.0 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、FABE、P0/P1/P2、表达边界与资料缺口 | Prototype · Noncommercial |
 

@@ -2,9 +2,15 @@
 
 ## 笔记
 
-必需字段：`note_id`、`canonical_url`、`note_type`、`title`、`body`、`author_id`、`author_name`、`published_at_text`、`region_text`、`topics`、`mentions`、`metrics`、`is_pinned`、`collected_at`、`completion_state`。
+必需字段：`note_id`、`canonical_url`、`note_type`、`title`、`body`、`author_id`、`author_name`、`published_at_text`、`region_text`、`topics`、`mentions`、`metrics`、`profile_id`、`profile_rank`、`selection_reason`、`is_pinned`、`collected_at`、`completion_state`。
 
 `note_type` 取值：`image`、`video`、`live_photo`、`unknown`。正文、话题和提及必须分栏；页面只显示编辑时间时保留原文，不伪造发布时间。
+
+## 账号主页选择
+
+`profile_selection_id`、`profile_id`、`canonical_url`、`profile`、`captured_at`、`discovered_count`、`pinned_count`、`recent_requested`、`recent_selected`、`state`、`completion_basis`、`selected`。
+
+`selected` 每项保存 `note_id`、`rank`、`is_pinned`、`selection_reason`、`title`、`author_name`、`canonical_url` 和无查询参数 `cover_url`。`selection_reason` 取 `pinned` 或 `recent_non_pinned`。不得保存页面临时导航链接或令牌。
 
 ## 素材
 

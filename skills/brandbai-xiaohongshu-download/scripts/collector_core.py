@@ -35,6 +35,10 @@ def canonical_note_id(value: str) -> str:
             index = parts.index(marker)
             if index + 1 < len(parts) and parts[index + 1]:
                 return parts[index + 1]
+    if "profile" in parts:
+        index = parts.index("profile")
+        if index + 2 < len(parts) and parts[index + 2]:
+            return parts[index + 2]
     query = parse_qs(parsed.query)
     for key in ("note_id", "id"):
         if query.get(key):
@@ -46,6 +50,24 @@ def canonical_note_id(value: str) -> str:
 
 def canonical_note_url(value: str) -> str:
     return f"https://www.xiaohongshu.com/explore/{canonical_note_id(value)}"
+
+
+def canonical_profile_id(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.hostname and parsed.hostname.lower() not in ALLOWED_HOSTS:
+        raise ValueError("Only xiaohongshu.com URLs are accepted")
+    parts = [part for part in parsed.path.split("/") if part]
+    if "profile" in parts:
+        index = parts.index("profile")
+        if index + 1 < len(parts) and parts[index + 1]:
+            return parts[index + 1]
+    if not parsed.scheme and value.strip() and "/" not in value.strip():
+        return value.strip()
+    raise ValueError("Cannot determine Xiaohongshu profile ID")
+
+
+def canonical_profile_url(value: str) -> str:
+    return f"https://www.xiaohongshu.com/user/profile/{canonical_profile_id(value)}"
 
 
 def normalize_note_targets(values: Iterable[str]) -> list[str]:
@@ -105,7 +127,11 @@ def select_profile_notes(records: Iterable[dict[str, Any]], recent: int) -> dict
         deduped.append(dict(record))
     pinned = [row for row in deduped if bool(row.get("is_pinned"))]
     normal = [row for row in deduped if not bool(row.get("is_pinned"))]
-    selected = pinned + normal[:recent]
+    selected = []
+    for row in pinned:
+        selected.append({**row, "selection_reason": "pinned"})
+    for row in normal[:recent]:
+        selected.append({**row, "selection_reason": "recent_non_pinned"})
     enough = len(normal) >= recent
     return {
         "selected": selected,

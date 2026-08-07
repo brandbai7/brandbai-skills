@@ -58,6 +58,36 @@ class RunFoundationTests(unittest.TestCase):
             if base.exists():
                 shutil.rmtree(base)
 
+    def test_profile_dry_run_redacts_token_and_records_policy(self) -> None:
+        base = Path(__file__).resolve().parent / ".xhs_profile_dry_test_runtime"
+        if base.exists():
+            shutil.rmtree(base)
+        base.mkdir()
+        try:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main([
+                    "note",
+                    "--profile", "https://www.xiaohongshu.com/user/profile/profile-1?xsec_token=secret",
+                    "--recent", "5",
+                    "--profile-dir", str(base / "private-profile"),
+                    "--out", str(base / "delivery"),
+                    "--assets", "none",
+                    "--dry-run",
+                ])
+            self.assertEqual(code, 0)
+            text = output.getvalue()
+            self.assertNotIn("secret", text)
+            plan = json.loads(text)
+            self.assertEqual(plan["profile"]["profile_id"], "profile-1")
+            self.assertEqual(plan["profile"]["canonical_url"], "https://www.xiaohongshu.com/user/profile/profile-1")
+            self.assertEqual(plan["profile"]["recent_non_pinned"], 5)
+            self.assertEqual(plan["navigation_context"], "used_in_memory_only")
+            self.assertFalse((base / "delivery").exists())
+        finally:
+            if base.exists():
+                shutil.rmtree(base)
+
 
 if __name__ == "__main__":
     unittest.main()
