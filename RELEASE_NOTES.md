@@ -1,3 +1,15 @@
+# BrandBAI Value Expression 0.1.1
+
+这是面向 SkillHub 等宿主的元数据兼容性修订版。将 `description` 从 YAML 折叠块改为语义不变的单行文本，避免只提取到 `>-`；同步 Skill 运行版本与独立安装包。能力、输入输出合同、证据边界和商品价值继承规则不变。
+
+---
+
+# BrandBAI Product Value 0.1.1
+
+这是面向 SkillHub 等宿主的元数据兼容性修订版。将 `description` 从 YAML 折叠块改为语义不变的单行文本，避免只提取到 `>-`；同步 Skill 运行版本与独立安装包。能力、FABE、P0/P1/P2、证据边界及资料缺口合同不变。
+
+---
+
 # BrandBAI Value Expression 0.1.0
 
 这是 BrandBAI 卖点呈现的首个公开原型版本。它只读取当前有效的商品价值底座，把已经确认的 P0/P1/P2 翻译成用户看得见、听得懂、感受得到的原子呈现，不重新选择价值，不直接生成完整脚本。

@@ -1,11 +1,10 @@
 ---
 name: brandbai-value-expression
-description: >-
-  Translate a current BrandBAI product-value foundation into evidence-linked selling-point perception assets. Use for 卖点可视化、卖点感知化、品牌语言转用户语言、六路卖点翻译、画面动作声音字幕道具协同、详情页现有呈现盘点、VIS感知原子、内容对象调用接口和首轮单变量验证计划. Requires a valid product-value delivery and preserves its product, SKU, facts, P0/P1/P2 and boundaries; does not reselect value, create full scripts, choose creators or claim untested assets are effective.
+description: Translate a current BrandBAI product-value foundation into evidence-linked selling-point perception assets. Use for 卖点可视化、卖点感知化、品牌语言转用户语言、六路卖点翻译、画面动作声音字幕道具协同、详情页现有呈现盘点、VIS感知原子、内容对象调用接口和首轮单变量验证计划. Requires a valid product-value delivery and preserves its product, SKU, facts, P0/P1/P2 and boundaries; does not reselect value, create full scripts, choose creators or claim untested assets are effective.
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.0"
+  version: "0.1.1"
   category: content-commerce
 ---
 

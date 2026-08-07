@@ -94,13 +94,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 PRODUCT_VALUE_SKILL_DIR,
                 temp,
-                "brandbai-product-value-v0.1.0",
+                "brandbai-product-value-v0.1.1",
             )
             archive_path = temp / "brandbai-product-value.zip"
             checksum_path = temp / "brandbai-product-value.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.1.0")
+            self.assertEqual(result["version"], "0.1.1")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -117,13 +117,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 VALUE_EXPRESSION_SKILL_DIR,
                 temp,
-                "brandbai-value-expression-v0.1.0",
+                "brandbai-value-expression-v0.1.1",
             )
             archive_path = temp / "brandbai-value-expression.zip"
             checksum_path = temp / "brandbai-value-expression.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.1.0")
+            self.assertEqual(result["version"], "0.1.1")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
