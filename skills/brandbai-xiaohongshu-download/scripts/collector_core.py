@@ -152,13 +152,18 @@ def freeze_search_results(
     snapshot_id = derived_id("search", keyword, tab, json.dumps(filters, ensure_ascii=False), captured)
     ranked: list[dict[str, Any]] = []
     seen_positions: set[int] = set()
+    seen_note_ids: set[str] = set()
     for index, record in enumerate(records, start=1):
         if len(ranked) >= limit:
             break
+        note_id = str(record.get("note_id") or "").strip()
+        if not note_id or note_id in seen_note_ids:
+            continue
         rank = int(record.get("rank") or index)
         if rank in seen_positions:
             raise ValueError("duplicate search rank")
         seen_positions.add(rank)
+        seen_note_ids.add(note_id)
         row = dict(record)
         row.update({
             "search_snapshot_id": snapshot_id,

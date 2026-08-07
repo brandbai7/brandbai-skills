@@ -25,8 +25,13 @@ def build_parser() -> argparse.ArgumentParser:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--note", action="append", help="Repeat for more note URLs or note ids")
     source.add_argument("--profile", help="One Xiaohongshu profile URL or profile id")
+    source.add_argument("--search", help="One Xiaohongshu search keyword")
     parser.add_argument("--recent", type=int, default=5, help="Recent non-pinned notes; pinned notes are additional")
     parser.add_argument("--max-profile-scroll-actions", type=int, default=80)
+    parser.add_argument("--search-limit", type=int, default=10, help="First N source-visible search-result notes")
+    parser.add_argument("--search-tab", choices=["全部", "图文", "视频"], default="全部")
+    parser.add_argument("--search-filter", action="append", default=None, help="v0.3.0 supports 综合 only")
+    parser.add_argument("--max-search-scroll-actions", type=int, default=80)
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--assets", default="images,cover")
@@ -60,6 +65,12 @@ def main(argv: list[str] | None = None) -> int:
                 "recent_non_pinned": max(0, args.recent),
                 "pinned_policy": "all_currently_visible_pinned_additional",
             } if args.profile else None),
+            "search": ({
+                "keyword": args.search,
+                "tab": args.search_tab,
+                "filters": args.search_filter or ["综合"],
+                "first_visible_results": max(1, args.search_limit),
+            } if args.search else None),
             "navigation_context": "used_in_memory_only" if any("xsec_" in value for value in targets + ([args.profile] if args.profile else [])) else "canonical_url",
             "assets": assets,
             "comment_limit": max(0, args.comment_limit),
@@ -76,8 +87,13 @@ def main(argv: list[str] | None = None) -> int:
         result = collect(
             note_targets=targets,
             profile_target=args.profile,
+            search_query=args.search,
             recent=max(0, args.recent),
             max_profile_scroll_actions=max(0, args.max_profile_scroll_actions),
+            search_limit=max(1, args.search_limit),
+            search_tab=args.search_tab,
+            search_filters=args.search_filter or ["综合"],
+            max_search_scroll_actions=max(0, args.max_search_scroll_actions),
             profile_dir=profile,
             out=out,
             mode=args.mode,

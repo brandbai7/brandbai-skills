@@ -17,7 +17,7 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from collector_core import (
     CollectionError,
@@ -28,6 +28,7 @@ from collector_core import (
     canonical_profile_url,
     comment_completion_state,
     derived_id,
+    freeze_search_results,
     normalize_note_targets,
     safe_filename,
     sanitize_media_url,
@@ -203,6 +204,60 @@ PROFILE_SCRIPT = r"""
 """
 
 
+SEARCH_SCRIPT = r"""
+() => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const results = [];
+  const seen = new Set();
+  const cards = [...document.querySelectorAll('section.note-item')]
+    .sort((left, right) => Number(left.dataset.index || 0) - Number(right.dataset.index || 0));
+  for (const card of cards) {
+    const anchor = card.querySelector('a[href*="/search_result/"]');
+    const href = anchor?.getAttribute('href') || '';
+    const match = href.match(/\/search_result\/([^/?#]+)/);
+    if (!match || seen.has(match[1])) continue;
+    seen.add(match[1]);
+    const title = clean(card.querySelector('.title')?.innerText || card.querySelector('.title')?.textContent);
+    const authorLink = card.querySelector('a[href*="/user/profile/"]');
+    const authorMatch = (authorLink?.getAttribute('href') || '').match(/\/user\/profile\/([^/?#]+)/);
+    const cover = [...card.querySelectorAll('img')].find((image) =>
+      /^https?:\/\//i.test(image.currentSrc || image.src || '') && !/avatar/i.test(image.className || '')
+    );
+    const cardText = clean(card.innerText || card.textContent);
+    results.push({
+      note_id: match[1],
+      rank: results.length + 1,
+      title,
+      author: clean(card.querySelector('.name')?.textContent),
+      author_platform_id: authorMatch?.[1] || '',
+      published_at_text: clean(card.querySelector('.time')?.textContent),
+      like_count_text: clean(card.querySelector('.count')?.textContent),
+      note_type: card.querySelector('.play-icon, use[href="#play-s"], use[xlink\\:href="#play-s"]') ? 'video' : 'image',
+      promoted_state: /(?:广告|赞助|推广)/.test(cardText) ? 'observed_visible_mark' : 'not_observed',
+      cover_url: cover?.currentSrc || cover?.src || '',
+      navigation_url: anchor.href,
+    });
+  }
+  const relatedQueries = [];
+  const relatedSeen = new Set();
+  for (const node of [...document.querySelectorAll('.query-note-item .item-text')]) {
+    const value = clean(node.textContent);
+    if (value && !relatedSeen.has(value)) {
+      relatedSeen.add(value);
+      relatedQueries.push(value);
+    }
+  }
+  return {
+    keyword: clean(document.querySelector('input[placeholder="搜索小红书"]')?.value),
+    tab: clean(document.querySelector('.channel.active')?.textContent) || '全部',
+    filters: [...document.querySelectorAll('button.tab.active')].map((item) => clean(item.textContent)).filter(Boolean),
+    results,
+    related_queries: relatedQueries,
+  };
+}
+"""
+
+
 def find_chrome_executable(explicit: str | None = None) -> str:
     if explicit:
         path = Path(explicit).expanduser()
@@ -265,6 +320,122 @@ def _public_profile_selection(selection: dict[str, Any]) -> dict[str, Any]:
         })
     public["selected"] = public_rows
     return public
+
+
+def _public_search_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    public = {key: value for key, value in snapshot.items() if key != "results"}
+    public_rows: list[dict[str, Any]] = []
+    for record in snapshot.get("results") or []:
+        note_id = str(record.get("note_id") or "")
+        cover_url = ""
+        if record.get("cover_url"):
+            try:
+                cover_url, _ = sanitize_media_url(str(record["cover_url"]))
+            except CollectionError:
+                cover_url = ""
+        public_rows.append({
+            "search_snapshot_id": str(record.get("search_snapshot_id") or snapshot.get("search_snapshot_id") or ""),
+            "note_id": note_id,
+            "rank": int(record.get("rank") or 0),
+            "title": str(record.get("title") or ""),
+            "author": str(record.get("author") or ""),
+            "author_platform_id": str(record.get("author_platform_id") or ""),
+            "published_at_text": str(record.get("published_at_text") or ""),
+            "like_count_text": str(record.get("like_count_text") or ""),
+            "note_type": str(record.get("note_type") or "unknown"),
+            "promoted_state": str(record.get("promoted_state") or "not_observed"),
+            "cover_url": cover_url,
+            "canonical_url": canonical_note_url(note_id),
+        })
+    public["results"] = public_rows
+    return public
+
+
+def _discover_search_results(
+    page: Any,
+    keyword: str,
+    *,
+    tab: str,
+    filters: list[str],
+    limit: int,
+    max_scroll_actions: int,
+    login_wait: int,
+) -> dict[str, Any]:
+    query = str(keyword or "").strip()
+    if not query:
+        raise CollectionError("Search keyword must not be empty")
+    if tab not in {"全部", "图文", "视频"}:
+        raise CollectionError("Search tab must be one of: 全部, 图文, 视频")
+    requested_filters = filters or ["综合"]
+    if requested_filters != ["综合"]:
+        raise CollectionError("v0.3.0 currently supports the default 综合 search ordering only")
+    navigation_url = "https://www.xiaohongshu.com/search_result?" + urlencode({
+        "keyword": query,
+        "source": "web_search_result_notes",
+    })
+    page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
+    page.wait_for_timeout(3_500)
+    if not page.locator('a[href*="/search_result/"]').count() and login_wait > 0:
+        print(f"Visible Chrome is ready. Complete login or access confirmation within {login_wait} seconds.")
+        page.wait_for_timeout(login_wait * 1_000)
+        page.reload(wait_until="domcontentloaded", timeout=120_000)
+        page.wait_for_timeout(3_000)
+    for label in ["滑动验证", "安全验证", "请完成验证", "访问频繁"]:
+        if page.get_by_text(label, exact=False).count():
+            raise CollectionError("Xiaohongshu requires manual verification in the visible Chrome window")
+    if tab != "全部":
+        candidates = page.locator("div.channel", has_text=tab)
+        if not candidates.count():
+            raise CollectionError(f"The requested search tab is not visible: {tab}")
+        candidates.first.click()
+        page.wait_for_timeout(2_500)
+
+    records_by_id: dict[str, dict[str, Any]] = {}
+    related_queries: list[str] = []
+    no_growth = 0
+    scroll_actions = 0
+    observed_tab = tab
+    observed_filters: list[str] = []
+    while scroll_actions <= max_scroll_actions:
+        raw = page.evaluate(SEARCH_SCRIPT) or {}
+        observed_tab = str(raw.get("tab") or observed_tab)
+        observed_filters = [str(value) for value in raw.get("filters") or [] if str(value)]
+        before = len(records_by_id)
+        for record in raw.get("results") or []:
+            note_id = str(record.get("note_id") or "").strip()
+            if note_id and note_id not in records_by_id:
+                row = dict(record)
+                row["rank"] = len(records_by_id) + 1
+                records_by_id[note_id] = row
+        for value in raw.get("related_queries") or []:
+            text = str(value or "").strip()
+            if text and text not in related_queries:
+                related_queries.append(text)
+        if len(records_by_id) >= limit:
+            break
+        no_growth = no_growth + 1 if len(records_by_id) == before else 0
+        if no_growth >= 3 or scroll_actions >= max_scroll_actions:
+            break
+        page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'})")
+        page.wait_for_timeout(900)
+        scroll_actions += 1
+    if not records_by_id:
+        raise CollectionError("No visible Xiaohongshu search-result notes were found")
+    if observed_tab != tab:
+        raise CollectionError(f"Search tab activation could not be verified: requested {tab}, observed {observed_tab}")
+    if "综合" not in observed_filters:
+        raise CollectionError("Default 综合 search ordering could not be verified")
+    snapshot = freeze_search_results(
+        records_by_id.values(), keyword=query, tab=observed_tab, filters=["综合"], limit=limit,
+        related_queries=related_queries, captured_at=utc_now(),
+    )
+    snapshot.update({
+        "schema_version": "1.0",
+        "discovered_count": len(records_by_id),
+        "scroll_actions": scroll_actions,
+        "completion_basis": "requested_first_n_visible_results" if snapshot["state"].startswith("complete") else "scroll_or_growth_budget_exhausted",
+    })
+    return snapshot
 
 
 def _discover_profile_notes(
@@ -620,6 +791,9 @@ def _collect_one_note(
         "metrics": dict(raw.get("metrics") or {}),
         "profile_id": str((selection_context or {}).get("profile_id") or ""),
         "profile_rank": int((selection_context or {}).get("rank") or 0),
+        "search_snapshot_id": str((selection_context or {}).get("search_snapshot_id") or ""),
+        "search_rank": int((selection_context or {}).get("rank") or 0) if (selection_context or {}).get("search_snapshot_id") else 0,
+        "search_keyword": str((selection_context or {}).get("keyword") or ""),
         "selection_reason": str((selection_context or {}).get("selection_reason") or "direct_note"),
         "is_pinned": bool((selection_context or {}).get("is_pinned")),
         "canonical_url": canonical_note_url(note_id),
@@ -734,8 +908,13 @@ def collect(
     *,
     note_targets: list[str] | None = None,
     profile_target: str | None = None,
+    search_query: str | None = None,
     recent: int = 5,
     max_profile_scroll_actions: int = 80,
+    search_limit: int = 10,
+    search_tab: str = "全部",
+    search_filters: list[str] | None = None,
+    max_search_scroll_actions: int = 80,
     profile_dir: Path,
     out: Path,
     mode: str,
@@ -754,8 +933,8 @@ def collect(
     except ImportError as exc:
         raise CollectionError("Playwright is missing; install requirements-browser.txt first") from exc
 
-    if bool(note_targets) == bool(profile_target):
-        raise CollectionError("Choose exactly one source: note targets or one profile target")
+    if sum(bool(value) for value in [note_targets, profile_target, search_query]) != 1:
+        raise CollectionError("Choose exactly one source: note targets, one profile target, or one search keyword")
     targets = normalize_note_targets(note_targets or []) if note_targets else []
     out.mkdir(parents=True, exist_ok=True)
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -763,11 +942,12 @@ def collect(
     manifest: dict[str, Any] = {
         "schema_version": "1.0",
         "collector": "brandbai-xiaohongshu-download",
-        "collector_version": "0.2.0",
+        "collector_version": "0.3.0",
         "mode": mode,
-        "target_kind": "profile" if profile_target else "notes",
+        "target_kind": "search" if search_query else ("profile" if profile_target else "notes"),
         "requested_note_ids": note_ids,
         "profile_selection_state": "not_applicable",
+        "search_selection_state": "not_applicable",
         "requested_assets": assets,
         "privacy_mode": "comment_display_authors_retained" if retain_author_display else "comment_authors_pseudonymized",
         "note_states": {},
@@ -820,6 +1000,46 @@ def collect(
                     for record in selection["selected"]
                 }
                 atomic_write_json(manifest_path, manifest)
+            elif search_query:
+                snapshot = _discover_search_results(
+                    page,
+                    search_query,
+                    tab=search_tab,
+                    filters=list(search_filters or ["综合"]),
+                    limit=max(1, search_limit),
+                    max_scroll_actions=max(0, max_search_scroll_actions),
+                    login_wait=max(0, login_wait),
+                )
+                public_snapshot = _public_search_snapshot(snapshot)
+                search_path = out / "data" / "search_snapshots.jsonl"
+                if not resume and search_path.exists():
+                    search_path.unlink()
+                _append_jsonl(search_path, [public_snapshot])
+                manifest["search_selection_state"] = snapshot["state"]
+                manifest["search_selection"] = {
+                    "search_snapshot_id": snapshot["search_snapshot_id"],
+                    "keyword": snapshot["keyword"],
+                    "tab": snapshot["tab"],
+                    "filters": snapshot["filters"],
+                    "requested": snapshot["requested"],
+                    "saved": snapshot["saved"],
+                    "captured_at": snapshot["captured_at"],
+                }
+                targets = [
+                    str(record.get("navigation_url") or canonical_note_url(str(record["note_id"])))
+                    for record in snapshot["results"]
+                ]
+                manifest["requested_note_ids"] = [str(record["note_id"]) for record in snapshot["results"]]
+                selection_by_id = {
+                    str(record["note_id"]): {
+                        **record,
+                        "selection_reason": "search_result",
+                        "search_snapshot_id": snapshot["search_snapshot_id"],
+                        "keyword": snapshot["keyword"],
+                    }
+                    for record in snapshot["results"]
+                }
+                atomic_write_json(manifest_path, manifest)
             for target_index, target in enumerate(targets):
                 note_id = canonical_note_id(target)
                 try:
@@ -853,6 +1073,8 @@ def collect(
     states = list(manifest["note_states"].values())
     if profile_target:
         states.insert(0, manifest["profile_selection_state"])
+    if search_query:
+        states.insert(0, manifest["search_selection_state"])
     if mode in {"comments", "all"}:
         states.extend(manifest["comment_states"].values())
     manifest["state"] = "complete" if states and all(str(value).startswith("complete") for value in states) else "partial"
@@ -867,8 +1089,13 @@ def build_parser() -> argparse.ArgumentParser:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--note", action="append", help="Repeat for more note URLs or note ids")
     source.add_argument("--profile", help="One Xiaohongshu profile URL or profile id")
+    source.add_argument("--search", help="One Xiaohongshu search keyword")
     parser.add_argument("--recent", type=int, default=5, help="Recent non-pinned notes; all visible pinned notes are additional")
     parser.add_argument("--max-profile-scroll-actions", type=int, default=80)
+    parser.add_argument("--search-limit", type=int, default=10, help="First N source-visible search-result notes")
+    parser.add_argument("--search-tab", choices=["全部", "图文", "视频"], default="全部")
+    parser.add_argument("--search-filter", action="append", default=None, help="v0.3.0 supports 综合 only")
+    parser.add_argument("--max-search-scroll-actions", type=int, default=80)
     parser.add_argument("--profile-dir", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--assets", default="images,cover", help="images,video,cover,none")
@@ -889,8 +1116,13 @@ def main(argv: list[str] | None = None) -> int:
         result = collect(
             note_targets=args.note,
             profile_target=args.profile,
+            search_query=args.search,
             recent=max(0, args.recent),
             max_profile_scroll_actions=max(0, args.max_profile_scroll_actions),
+            search_limit=max(1, args.search_limit),
+            search_tab=args.search_tab,
+            search_filters=args.search_filter or ["综合"],
+            max_search_scroll_actions=max(0, args.max_search_scroll_actions),
             profile_dir=args.profile_dir,
             out=args.out,
             mode=args.mode,
