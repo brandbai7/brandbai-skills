@@ -4,7 +4,7 @@ description: Collect public Tmall or Taobao item pages through a visible signed-
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.0"
+  version: "0.1.1"
   category: content-commerce
 ---
 
@@ -159,7 +159,7 @@ python scripts/run_foundation.py all `
 在 `scripts/` 目录运行：
 
 ```powershell
-python -m unittest test_collector_core.py test_build_delivery.py test_run_foundation.py
+python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 ```
 
 这些测试只使用合成商品与评价，不打开天猫、不启动 Chrome，也不产生付费请求。

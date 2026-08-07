@@ -73,12 +73,12 @@ class BuildSkillReleaseTests(unittest.TestCase):
 
     def test_builds_tmall_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(TMALL_SKILL_DIR, temp, "brandbai-tmall-download-v0.1.0")
+            result = build_release(TMALL_SKILL_DIR, temp, "brandbai-tmall-download-v0.1.1")
             archive_path = temp / "brandbai-tmall-download.zip"
             checksum_path = temp / "brandbai-tmall-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.1.0")
+            self.assertEqual(result["version"], "0.1.1")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)

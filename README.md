@@ -14,7 +14,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.3.0 | DataTool 式抖音下载总入口：达人、搜索结果、插件自选或明确作品的视频图文、封面、原声、发布文案和评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
-| [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.1.0 | 天猫／淘宝明确商品链接的详情、主图、详情图、可见视频、规格、SKU 快照与页面可见评价，保留平台折叠和快照边界 | Prototype · Noncommercial |
+| [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.1.1 | 天猫／淘宝明确商品链接的详情、主图、详情图、可见视频、规格、SKU 快照与页面可见评价，保留平台折叠和快照边界 | Prototype · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
@@ -111,7 +111,7 @@ python -m unittest test_download_creator_works.py test_selection_contract.py tes
 cd ../../brandbai-douyin-account-analysis/scripts
 python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 cd ../../brandbai-tmall-download/scripts
-python -m unittest test_collector_core.py test_build_delivery.py test_run_foundation.py
+python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 ```
 
 提交新 Skill 前请阅读 [`AGENTS.md`](AGENTS.md)。不要提交登录资料、Cookie、客户数据、真实评论样本、输出目录或本地绝对路径。

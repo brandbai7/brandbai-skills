@@ -412,8 +412,7 @@ def _open_review_panel(page: Any) -> Any | None:
     return None
 
 
-def _review_rows_from_card(card: Any, item_id: str, *, retain_masked_author: bool) -> list[dict[str, Any]]:
-    raw = card.evaluate(REVIEW_CARD_SCRIPT)
+def _review_rows_from_raw(raw: dict[str, Any], item_id: str, *, retain_masked_author: bool) -> list[dict[str, Any]]:
     author = str(raw.get("username") or "")
     contents = [value for value in raw.get("contents") or [] if isinstance(value, dict) and str(value.get("text") or "").strip()]
     if not contents:
@@ -459,6 +458,14 @@ def _review_rows_from_card(card: Any, item_id: str, *, retain_masked_author: boo
     return rows
 
 
+def _review_rows_from_card(card: Any, item_id: str, *, retain_masked_author: bool) -> list[dict[str, Any]]:
+    return _review_rows_from_raw(
+        card.evaluate(REVIEW_CARD_SCRIPT),
+        item_id,
+        retain_masked_author=retain_masked_author,
+    )
+
+
 def collect_reviews(
     page: Any,
     context: Any,
@@ -474,9 +481,10 @@ def collect_reviews(
 ) -> dict[str, Any]:
     item_id = extract_item_id(source_url)
     canonical_url = canonical_item_url(source_url)
+    navigation_url = navigation_item_url(source_url)
     if extract_item_id(page.url) != item_id if "item.htm" in page.url else True:
-        page.goto(canonical_url, wait_until="domcontentloaded", timeout=120_000)
-        page.wait_for_timeout(2_500)
+        page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
+        page.wait_for_timeout(3_500)
     review_dir = out / "data" / "评价采集" / item_id
     review_dir.mkdir(parents=True, exist_ok=True)
     rows_path = review_dir / "reviews.jsonl"
@@ -506,8 +514,15 @@ def collect_reviews(
         while scroll_actions <= max_scroll_actions:
             before = len(saved_ids)
             cards = root.locator('[class*="Comment--"]')
-            for index in range(cards.count()):
-                for row in _review_rows_from_card(cards.nth(index), item_id, retain_masked_author=retain_masked_author):
+            # Parse the newest cards in one browser call. Tmall keeps prior cards in the
+            # DOM, so re-reading every historical card on every scroll made long review
+            # lists progressively slower. A 250-card overlap is deliberately larger than
+            # one lazy-load batch; saved_ids still provides exact de-duplication on resume.
+            raw_cards = cards.evaluate_all(
+                f"(cards) => cards.slice(Math.max(0, cards.length - 250)).map({REVIEW_CARD_SCRIPT})"
+            )
+            for raw_card in raw_cards:
+                for row in _review_rows_from_raw(raw_card, item_id, retain_masked_author=retain_masked_author):
                     if row["review_id"] in saved_ids:
                         continue
                     if limit > 0 and len(saved_ids) >= limit:
@@ -536,8 +551,6 @@ def collect_reviews(
                     handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                     handle.flush()
                     saved_ids.add(row["review_id"])
-                if limit_reached:
-                    break
             if limit_reached:
                 break
             state = root.evaluate("(el) => ({top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight})")
