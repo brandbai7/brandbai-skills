@@ -84,11 +84,22 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 腾讯 WorkBuddy 用户可点击下面的链接唤起自定义 Skill 安装：
 
-[在 WorkBuddy 安装 brandbai-douyin-download](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Flatest%2Fdownload%2Fbrandbai-douyin-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-douyin-download v0.3.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fv0.3.0%2Fbrandbai-douyin-download.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-tmall-download](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Flatest%2Fdownload%2Fbrandbai-tmall-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-tmall-download v0.1.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.1.1%2Fbrandbai-tmall-download.zip&channelType=github)
 
-如果宿主不支持网页唤起，也可以从 [最新 GitHub Release](https://github.com/brandbai7/brandbai-skills/releases/latest) 下载 `brandbai-douyin-download.zip` 手动安装。压缩包根目录直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。
+[在 WorkBuddy 安装 brandbai-product-value v0.1.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.0%2Fbrandbai-product-value.zip&channelType=github)
+
+[在 WorkBuddy 安装 brandbai-value-expression v0.1.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.0%2Fbrandbai-value-expression.zip&channelType=github)
+
+同一仓库会分别发布多个 Skill，因此安装链接固定到各自版本，不使用仓库级 `latest`。如果宿主不支持网页唤起，可从对应版本的 GitHub Release 手动下载 ZIP：
+
+- [Douyin Download v0.3.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.3.0)
+- [Tmall Download v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.1.1)
+- [Product Value v0.1.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.0)
+- [Value Expression v0.1.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.0)
+
+每个压缩包根目录都直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。
 
 首次安装、环境检查、常用任务话术和转发说明见 [BrandBAI 抖音下载 Skill 安装与使用说明](DOUYIN_DOWNLOAD_USER_GUIDE.md)。
 
