@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+      - "brandbai-*-v*"
 
 permissions:
   contents: write
@@ -19,17 +20,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build standalone Skill package
-        run: >-
-          python scripts/build_skill_release.py
-          --skill-dir skills/brandbai-douyin-download
-          --dist dist
-          --tag "${GITHUB_REF_NAME}"
+      - name: Select released Skill
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == v* ]]; then
+            skill_name="brandbai-douyin-download"
+            notes_file="RELEASE_NOTES.md"
+          else
+            skill_name="${GITHUB_REF_NAME%-v*}"
+            notes_file="skills/${skill_name}/references/release-notes.md"
+          fi
+          test -d "skills/${skill_name}"
+          test -f "${notes_file}"
+          echo "SKILL_NAME=${skill_name}" >> "${GITHUB_ENV}"
+          echo "NOTES_FILE=${notes_file}" >> "${GITHUB_ENV}"
+      - name: Build all standalone Skill packages
+        shell: bash
+        run: |
+          mkdir -p dist
+          for skill_dir in skills/*; do
+            test -d "${skill_dir}" || continue
+            skill_name="$(basename "${skill_dir}")"
+            if [[ "${skill_name}" == "${SKILL_NAME}" ]]; then
+              python scripts/build_skill_release.py --skill-dir "${skill_dir}" --dist dist --tag "${GITHUB_REF_NAME}"
+            else
+              python scripts/build_skill_release.py --skill-dir "${skill_dir}" --dist dist
+            fi
+          done
       - name: Publish GitHub Release
         run: >-
           gh release create "${GITHUB_REF_NAME}"
-          dist/brandbai-douyin-download.zip
-          dist/brandbai-douyin-download.zip.sha256
+          dist/*.zip
+          dist/*.sha256
           --verify-tag
-          --title "BrandBAI Douyin Download ${GITHUB_REF_NAME}"
-          --notes-file RELEASE_NOTES.md
+          --title "BrandBAI Skills ${GITHUB_REF_NAME}"
+          --notes-file "${NOTES_FILE}"

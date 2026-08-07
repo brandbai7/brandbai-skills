@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI 天猫商品资料下载"
+  short_description: "采集天猫商品详情、商品素材、规格、SKU 与页面可见评价"
+  default_prompt: "使用 $brandbai-tmall-download 采集天猫商品详情、素材、规格 SKU 与可见评价并生成可回溯交付包。"
