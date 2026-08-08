@@ -47,6 +47,9 @@
 └── data/
     ├── product_manifest.json
     ├── source_inventory.jsonl
+    ├── source_audit_card_ledger.jsonl
+    ├── source_audit_cards/
+    │   └── SF-xxx.svg
     ├── source_observation.jsonl
     ├── source_ledger.jsonl
     ├── fact_ledger.jsonl
@@ -86,6 +89,17 @@ size_bytes, sha256, status
 
 `relative_path` 必须保留输入目录内的真实相对路径，`sha256` 用于识别文件内容。清单非空后不得覆盖或按视觉顺序重编号。直接 URL 来源不进入本地文件清单。
 
+### source_audit_card_ledger.jsonl 与 source_audit_cards/
+
+清单建立后，由 `build_source_audit_cards.py` 为每张图片生成一张不可覆盖的 SVG 视觉审计卡，并登记：
+
+```text
+source_file_id, relative_path, source_sha256, media_type,
+audit_card_path, audit_card_sha256, status
+```
+
+图片状态必须是 `ready`；非图片状态为 `not_applicable`。审计卡必须同时可见显示 `source_file_id`、真实相对路径和原文件 SHA-256，并内嵌清单中同一文件的原图字节。校验器会复算卡片哈希、读取元数据并验证内嵌图片哈希。审计卡台账或卡片目录非空后不得覆盖；原文件变化时新建交付目录并重新索引。
+
 ### source_observation.jsonl
 
 本地资料进入来源台账前，必须逐个打开准确文件并记录：
@@ -93,10 +107,15 @@ size_bytes, sha256, status
 ```text
 observation_id, source_file_id, relative_path, content_type,
 title, visible_heading, visible_text_excerpt,
-inspection_method, inspection_status, inspected_at
+inspection_method, inspection_status, inspected_at,
+audit_card_sha256, first_pass_sequence,
+second_pass_sequence, second_pass_heading, second_pass_excerpt,
+second_pass_status, second_pass_at
 ```
 
-`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_exact_file`，必须实际打开原图；文档/PDF可用 `document_text`，官方验证页可用 `official_url`。已标为 `inspected` 时，标题、可见标题、可见文字摘录和时间不得为空。禁止用文件名、页序、旧交付或批量 OCR 摘要代替逐文件内容核对。
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须独立、带时区，第二遍整体晚于第一遍整体。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
+
+不得把 SVG 审计卡当文本读取；必须实际渲染并视觉查看其中原图。禁止用文件名、页序、旧交付、缩略图、批量 OCR 摘要或一次看多张后统一回填，代替逐图核对。图片中的报告编号、日期、批次、证书编号和检测方法等精确小字，不得抄录到观察记录。
 
 ### source_ledger.jsonl
 
@@ -126,7 +145,7 @@ sku_scope, time_scope, status, boundary
 evidence_detail_confidence, exact_fields_verified, verification_locator
 ```
 
-`evidence_detail_confidence` 允许 `high`、`medium`、`low`。详情页截图和图片中的证据细节最高只能是 `medium`，`exact_fields_verified` 必须为 `false`，并省略报告编号、日期、批次、证书编号和检测方法等小字精确字段；仍可记录清楚可见的机构、检测项目、结果或页面主张。只有报告原件/PDF可定位文本或官方验证页，才允许 `high` 与 `exact_fields_verified=true`，并必须填写可复核的 `verification_locator`。
+`evidence_detail_confidence` 允许 `high`、`medium`、`low`。详情页截图和图片中的证据细节最高只能是 `medium`，`exact_fields_verified` 必须为 `false`，并省略报告编号、日期、批次、证书编号和检测方法等小字精确字段；这项禁令适用于事实的全部字段，而不仅是 statement。仍可记录清楚可见的机构、检测项目、结果或页面主张。只有报告原件/PDF可定位文本或官方验证页，才允许 `high` 与 `exact_fields_verified=true`，并必须填写可复核的 `verification_locator`。任何精确证据值进入 FABE、价值、P0 决策、缺口、限制或普通版前，都必须先由这种原件级事实核验。
 
 `DYN.time_scope` 使用含年份的完整日期或日期区间。以 `product_manifest.updated_at` 所在时区判断 `upcoming/active/expired`，并确保事实状态、边界、缺口和 limitations 不互相矛盾。
 
@@ -184,7 +203,7 @@ decided_at, valid_until, supersedes
 
 状态允许：`P0-CANDIDATE`、`P0-HYPOTHESIS`、`P0-SELECTED`、`P0-VALIDATING`、`P0-BOUNDARY-VALIDATED`、`P0-REOPEN`、`P0-REPLACED`、`P0-STOPPED`。
 
-`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。
+`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题。
 
 ### gap_ledger.jsonl
 

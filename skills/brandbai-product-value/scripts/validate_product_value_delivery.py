@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import html
 import json
 import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from build_source_audit_cards import DISPLAY_WIDTH, image_dimensions
 from product_value_common import (
     ANALYSIS_STATUSES,
     DELIVERY_STATUSES,
@@ -62,6 +66,15 @@ SOURCE_INVENTORY_FIELDS = {
     "sha256",
     "status",
 }
+AUDIT_CARD_FIELDS = {
+    "source_file_id",
+    "relative_path",
+    "source_sha256",
+    "media_type",
+    "audit_card_path",
+    "audit_card_sha256",
+    "status",
+}
 SOURCE_OBSERVATION_FIELDS = {
     "observation_id",
     "source_file_id",
@@ -73,6 +86,13 @@ SOURCE_OBSERVATION_FIELDS = {
     "inspection_method",
     "inspection_status",
     "inspected_at",
+    "audit_card_sha256",
+    "first_pass_sequence",
+    "second_pass_sequence",
+    "second_pass_heading",
+    "second_pass_excerpt",
+    "second_pass_status",
+    "second_pass_at",
 }
 SOURCE_FIELDS = {
     "source_id",
@@ -148,6 +168,10 @@ RISKY_INFERENCE_RULES = (
     (re.compile(r"不产生咀嚼噪音|没有咀嚼噪音|无强烈气味"), "资料未证明咀嚼噪音或气味体验"),
     (re.compile(r"不需(?:要)?冰箱|无需特殊(?:保存|贮存)条件|常温放一年都没事|长期存放和食用"), "不得扩大或冲突于页面储存条件"),
     (re.compile(r"非根茎"), "不得把加工后形态误写成原料并非根茎"),
+    (re.compile(r"出现次数最多|覆盖(?:的)?页面最广|页面篇幅(?:最多|最大)|出现频次(?:最高|最多)"), "页面出现次数、覆盖页数或篇幅不能决定 P0"),
+    (re.compile(r"坚持食用|长期坚持"), "没有用户或使用研究时，不得把页面事实扩大为持续使用结论"),
+    (re.compile(r"(?:食品)?加工过程安全性|吃得放心|放心吃"), "单项检测或页面安心文案不得扩大为整体食品安全判断"),
+    (re.compile(r"全部强制标注项目"), "仅凭商品页成分表不能判断其已完整覆盖全部法定强制项目"),
 )
 EXPIRY_WORDS_RE = re.compile(r"已过期|已经过期|时效性过期")
 DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
@@ -159,18 +183,46 @@ ALL_SKU_RE = re.compile(r"(?:全\s*SKU|所有\s*SKU|all[_\s-]*skus?)", re.IGNORE
 QUANTIFIED_STEAM_DRY_RE = re.compile(
     r"(?:九|[一二三四五六七八九十两0-9]+)\s*蒸\s*(?:九|[一二三四五六七八九十两0-9]+)\s*晒"
 )
-EXACT_EVIDENCE_FIELD_RE = re.compile(
-    r"报告(?:编号|号)|发布日期|签发日期|报告日期|检测日期|证书编号|批次号|生产批号|证书日期"
+REPORT_VALUE_RE = re.compile(
+    r"(?:报告(?:编号|号)|证书编号|批次号|生产批号)\s*[:：]?\s*([A-Z0-9][A-Z0-9._/-]{5,})",
+    re.IGNORECASE,
+)
+DATE_VALUE_RE = re.compile(
+    r"(?:发布日期|签发日期|报告日期|检测日期|证书日期)\s*[:：]?\s*(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})",
+    re.IGNORECASE,
+)
+METHOD_VALUE_RE = re.compile(
+    r"检测方法\s*[:：]?\s*([A-Z]{1,8}\s*\d[A-Z0-9 ._/-]{3,})",
+    re.IGNORECASE,
 )
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
-    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|sku_status=partial",
+    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|sku_status=partial|\b(?:high|medium|low) confidence\b|exact fields unverified|\bdietary\b",
     re.IGNORECASE,
 )
-OBSERVATION_METHODS = {"visual_exact_file", "document_text", "official_url"}
+OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url"}
 OBSERVATION_STATUSES = {"inspected", "unreadable", "not_applicable"}
 COMPETITOR_SOURCE_TYPES = {"competitor_page", "industry_report", "competitor_dataset"}
+AGGREGATE_USER_RE = re.compile(r"(?:很多|大多数|多数|普遍).{0,8}(?:人|用户|消费者)")
+
+
+def exact_evidence_values(value: Any) -> set[str]:
+    text = str(value or "")
+    matches = set(REPORT_VALUE_RE.findall(text))
+    matches.update(DATE_VALUE_RE.findall(text))
+    matches.update(item.strip() for item in METHOD_VALUE_RE.findall(text))
+    return {item for item in matches if item}
+
+
+def record_text(record: dict[str, Any]) -> str:
+    values: list[str] = []
+    for value in record.values():
+        if isinstance(value, list):
+            values.extend(str(item) for item in value)
+        elif isinstance(value, (str, int, float)):
+            values.append(str(value))
+    return " ".join(values)
 
 
 def parse_reference_date(value: Any) -> date | None:
@@ -178,6 +230,14 @@ def parse_reference_date(value: Any) -> date | None:
         return datetime.fromisoformat(str(value)).date()
     except (TypeError, ValueError):
         return None
+
+
+def parse_datetime(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else None
 
 
 def classify_time_scope(value: Any, reference: date | None) -> str | None:
@@ -254,7 +314,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     warnings: list[str] = []
 
     for name, path in paths.items():
-        if not path.is_file():
+        if name == "audit_cards_dir":
+            if not path.is_dir():
+                errors.append(f"缺少必需目录 {name}: {path}")
+        elif not path.is_file():
             errors.append(f"缺少必需文件 {name}: {path}")
     if errors:
         return {
@@ -268,6 +331,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     try:
         manifest = read_json(paths["manifest"])
         source_inventory = read_jsonl(paths["source_inventory"])
+        audit_card_ledger = read_jsonl(paths["audit_card_ledger"])
         source_observations = read_jsonl(paths["source_observations"])
         sources = read_jsonl(paths["sources"])
         facts = read_jsonl(paths["facts"])
@@ -288,6 +352,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     counts = {
         "source_files": len(source_inventory),
+        "audit_cards": sum(1 for item in audit_card_ledger if item.get("status") == "ready"),
         "source_observations": len(source_observations),
         "sources": len(sources),
         "facts": len(facts),
@@ -335,6 +400,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     ledger_specs = (
         ("source_inventory", source_inventory, "source_file_id", SOURCE_INVENTORY_FIELDS, r"SF-\d{3,}"),
+        ("source_audit_card_ledger", audit_card_ledger, "source_file_id", AUDIT_CARD_FIELDS, r"SF-\d{3,}"),
         ("source_observation", source_observations, "observation_id", SOURCE_OBSERVATION_FIELDS, r"OBS-\d{3,}"),
         ("source_ledger", sources, "source_id", SOURCE_FIELDS, r"SRC-\d{3,}"),
         ("fact_ledger", facts, "fact_id", FACT_FIELDS, r"(?:F|STRAT|DYN|U|EX|H)-\d{3,}"),
@@ -370,8 +436,93 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if item.get("status") != "indexed":
             errors.append(f"{source_file_id} 的 status 必须是 indexed")
 
+    audit_cards_by_file_id = {item.get("source_file_id"): item for item in audit_card_ledger}
+    data_dir = paths["manifest"].parent.resolve()
+    for card in audit_card_ledger:
+        source_file_id = str(card.get("source_file_id", ""))
+        if source_file_id not in source_files_by_id:
+            errors.append(f"审计卡台账引用了不存在的 source_file_id: {source_file_id}")
+    for source_file_id, indexed in source_files_by_id.items():
+        card = audit_cards_by_file_id.get(source_file_id)
+        if card is None:
+            errors.append(f"{source_file_id} 缺少来源审计卡台账记录")
+            continue
+        for key in ("relative_path", "media_type"):
+            if card.get(key) != indexed.get(key):
+                errors.append(f"{source_file_id} 的审计卡台账 {key} 与来源清单不一致")
+        if card.get("source_sha256") != indexed.get("sha256"):
+            errors.append(f"{source_file_id} 的审计卡台账 source_sha256 与来源清单不一致")
+        media_type = str(indexed.get("media_type", ""))
+        if media_type.startswith("image/"):
+            if card.get("status") != "ready":
+                errors.append(f"{source_file_id} 是图片来源，审计卡状态必须是 ready")
+                continue
+            relative_card = str(card.get("audit_card_path", ""))
+            candidate = (data_dir / Path(relative_card)).resolve()
+            if not relative_card or candidate == data_dir or data_dir not in candidate.parents:
+                errors.append(f"{source_file_id} 的 audit_card_path 必须位于交付 data 目录内")
+                continue
+            if not candidate.is_file():
+                errors.append(f"{source_file_id} 的审计卡文件不存在: {relative_card}")
+                continue
+            card_bytes = candidate.read_bytes()
+            card_sha256 = hashlib.sha256(card_bytes).hexdigest()
+            if card_sha256 != card.get("audit_card_sha256"):
+                errors.append(f"{source_file_id} 的审计卡 SHA-256 与台账不一致")
+            try:
+                card_text = card_bytes.decode("utf-8")
+                metadata_match = re.search(
+                    r'<metadata id="brandbai-source-audit">(.*?)</metadata>',
+                    card_text,
+                    re.DOTALL,
+                )
+                if not metadata_match:
+                    raise ValueError("缺少审计元数据")
+                metadata = json.loads(html.unescape(metadata_match.group(1)))
+                payload_match = re.search(r'href="data:[^;\"]+;base64,([^\"]+)"', card_text)
+                if not payload_match:
+                    raise ValueError("缺少内嵌原图")
+                embedded = base64.b64decode(payload_match.group(1), validate=True)
+            except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+                errors.append(f"{source_file_id} 的审计卡无法复核: {exc}")
+            else:
+                for key, expected in (
+                    ("source_file_id", source_file_id),
+                    ("relative_path", indexed.get("relative_path")),
+                    ("source_sha256", indexed.get("sha256")),
+                    ("media_type", indexed.get("media_type")),
+                ):
+                    if metadata.get(key) != expected:
+                        errors.append(f"{source_file_id} 的审计卡元数据 {key} 与来源清单不一致")
+                if hashlib.sha256(embedded).hexdigest() != indexed.get("sha256"):
+                    errors.append(f"{source_file_id} 审计卡内嵌图片与来源文件 SHA-256 不一致")
+                source_width, source_height = image_dimensions(media_type, embedded)
+                expected_display_height = (source_height * DISPLAY_WIDTH + source_width - 1) // source_width
+                expected_dimensions = {
+                    "source_width": source_width,
+                    "source_height": source_height,
+                    "display_width": DISPLAY_WIDTH,
+                    "display_height": expected_display_height,
+                    "card_height": 460 + expected_display_height,
+                }
+                for key, expected in expected_dimensions.items():
+                    if metadata.get(key) != expected:
+                        errors.append(f"{source_file_id} 的审计卡尺寸元数据 {key} 与内嵌原图不一致")
+                root_match = re.search(
+                    r'<svg[^>]*\bheight="(\d+)"[^>]*\bviewBox="0 0 1400 (\d+)"',
+                    card_text,
+                )
+                if not root_match or any(int(item) != expected_dimensions["card_height"] for item in root_match.groups()):
+                    errors.append(f"{source_file_id} 的审计卡画布高度未按原图比例生成")
+        else:
+            if card.get("status") != "not_applicable":
+                errors.append(f"{source_file_id} 不是图片来源，审计卡状态应为 not_applicable")
+            if card.get("audit_card_path") or card.get("audit_card_sha256"):
+                errors.append(f"{source_file_id} 不是图片来源，不应生成视觉审计卡")
+
     observations_by_id = {item.get("observation_id"): item for item in source_observations}
     observations_by_file_id: dict[str, list[dict[str, Any]]] = {}
+    image_observations: list[dict[str, Any]] = []
     for observation in source_observations:
         observation_id = str(observation.get("observation_id", ""))
         source_file_id = str(observation.get("source_file_id", ""))
@@ -391,14 +542,90 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 if not str(observation.get(key, "")).strip():
                     errors.append(f"{observation_id} 已标记 inspected，但 {key} 为空")
         if indexed and str(indexed.get("media_type", "")).startswith("image/"):
-            if observation.get("inspection_status") == "inspected" and observation.get("inspection_method") != "visual_exact_file":
-                errors.append(f"{observation_id} 是图片来源，必须逐个打开原文件并使用 visual_exact_file")
+            image_observations.append(observation)
+            card = audit_cards_by_file_id.get(source_file_id, {})
+            if observation.get("inspection_status") != "inspected":
+                errors.append(f"{observation_id} 是图片来源，必须完成带身份审计卡的逐图核对")
+            if observation.get("inspection_method") != "visual_stamped_card":
+                errors.append(f"{observation_id} 是图片来源，必须打开带文件名与哈希的审计卡并使用 visual_stamped_card")
+            if not observation.get("audit_card_sha256") or observation.get("audit_card_sha256") != card.get("audit_card_sha256"):
+                errors.append(f"{observation_id} 的 audit_card_sha256 与 {source_file_id} 审计卡不一致")
+            first_sequence = observation.get("first_pass_sequence")
+            second_sequence = observation.get("second_pass_sequence")
+            if not isinstance(first_sequence, int) or isinstance(first_sequence, bool) or first_sequence < 1:
+                errors.append(f"{observation_id} 的 first_pass_sequence 必须是正整数")
+            if not isinstance(second_sequence, int) or isinstance(second_sequence, bool) or second_sequence < 1:
+                errors.append(f"{observation_id} 的 second_pass_sequence 必须是正整数")
+            if observation.get("second_pass_status") != "match":
+                errors.append(f"{observation_id} 的逆序复核必须标记 second_pass_status=match")
+            for key in ("second_pass_heading", "second_pass_excerpt", "second_pass_at"):
+                if not str(observation.get(key, "")).strip():
+                    errors.append(f"{observation_id} 已完成图片初检，但 {key} 为空")
+            if str(observation.get("second_pass_heading", "")).strip() != str(observation.get("visible_heading", "")).strip():
+                errors.append(f"{observation_id} 的正序与逆序标题核对不一致")
+            if str(observation.get("second_pass_excerpt", "")).strip() != str(observation.get("visible_text_excerpt", "")).strip():
+                errors.append(f"{observation_id} 的正序与逆序摘录核对不一致")
+            first_at = parse_datetime(observation.get("inspected_at"))
+            second_at = parse_datetime(observation.get("second_pass_at"))
+            if first_at is None or second_at is None:
+                errors.append(f"{observation_id} 的两次核对时间必须是完整 ISO 时间")
+            elif second_at <= first_at:
+                errors.append(f"{observation_id} 的逆序复核时间必须晚于正序初检")
+            if exact_evidence_values(
+                f"{observation.get('visible_heading', '')} {observation.get('visible_text_excerpt', '')} "
+                f"{observation.get('second_pass_heading', '')} {observation.get('second_pass_excerpt', '')}"
+            ):
+                errors.append(f"{observation_id} 是页面图片，不得在逐图观察中抄录报告编号、日期或检测方法等精确小字")
+        elif indexed:
+            if observation.get("audit_card_sha256"):
+                errors.append(f"{observation_id} 不是图片来源，audit_card_sha256 应为空")
+            if observation.get("first_pass_sequence") != 0 or observation.get("second_pass_sequence") != 0:
+                errors.append(f"{observation_id} 不是图片来源，两次图片核对序号都应为 0")
+            if observation.get("second_pass_status") != "not_applicable":
+                errors.append(f"{observation_id} 不是图片来源，second_pass_status 应为 not_applicable")
+            if any(str(observation.get(key, "")).strip() for key in ("second_pass_heading", "second_pass_excerpt", "second_pass_at")):
+                errors.append(f"{observation_id} 不是图片来源，不应填写图片逆序复核内容")
     for source_file_id, records in observations_by_file_id.items():
         if len(records) > 1:
             errors.append(f"{source_file_id} 存在多条逐文件核对记录；每个原文件只能保留一条当前记录")
     for source_file_id in source_files_by_id:
         if source_file_id not in observations_by_file_id:
             errors.append(f"{source_file_id} 尚无逐文件核对记录；清单中的每个文件都必须先检查或明确标记不可读")
+
+    if image_observations:
+        expected_sequences = list(range(1, len(image_observations) + 1))
+        first_sequences = sorted(
+            item.get("first_pass_sequence")
+            for item in image_observations
+            if isinstance(item.get("first_pass_sequence"), int) and not isinstance(item.get("first_pass_sequence"), bool)
+        )
+        second_sequences = sorted(
+            item.get("second_pass_sequence")
+            for item in image_observations
+            if isinstance(item.get("second_pass_sequence"), int) and not isinstance(item.get("second_pass_sequence"), bool)
+        )
+        if first_sequences != expected_sequences:
+            errors.append("图片正序初检序号必须从 1 连续编号，且每张图片只出现一次")
+        if second_sequences != expected_sequences:
+            errors.append("图片逆序复核序号必须从 1 连续编号，且每张图片只出现一次")
+        for observation in image_observations:
+            first_sequence = observation.get("first_pass_sequence")
+            second_sequence = observation.get("second_pass_sequence")
+            if isinstance(first_sequence, int) and isinstance(second_sequence, int):
+                expected_reverse = len(image_observations) + 1 - first_sequence
+                if second_sequence != expected_reverse:
+                    errors.append(f"{observation.get('observation_id')} 未按正序的反向顺序完成第二遍复核")
+        first_times = [parse_datetime(item.get("inspected_at")) for item in image_observations]
+        second_times = [parse_datetime(item.get("second_pass_at")) for item in image_observations]
+        valid_first_times = [item for item in first_times if item is not None]
+        valid_second_times = [item for item in second_times if item is not None]
+        if len(set(valid_first_times)) != len(image_observations):
+            errors.append("每张图片的正序初检时间必须独立记录，不能批量填入同一时间")
+        if len(set(valid_second_times)) != len(image_observations):
+            errors.append("每张图片的逆序复核时间必须独立记录，不能批量填入同一时间")
+        if len(valid_first_times) == len(image_observations) and len(valid_second_times) == len(image_observations):
+            if min(valid_second_times) <= max(valid_first_times):
+                errors.append("必须先完成全部图片的正序初检，再开始逆序复核")
 
     for source in sources:
         source_id = str(source.get("source_id", ""))
@@ -422,9 +649,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 if str(source.get("title", "")).strip() != str(observation.get("title", "")).strip():
                     errors.append(f"{source_id} 的 title 必须与 {observation_id} 的逐文件核对标题完全一致")
             if indexed and str(indexed.get("media_type", "")).startswith("image/"):
-                source_text = " ".join(str(source.get(key, "")) for key in ("title", "notes"))
-                if EXACT_EVIDENCE_FIELD_RE.search(source_text):
-                    errors.append(f"{source_id} 是页面图片，不得在来源标题或备注中自证报告编号、日期、批次等精确字段")
+                if exact_evidence_values(record_text(source)):
+                    errors.append(f"{source_id} 是页面图片，不得在来源台账中抄录报告编号、日期、批次或检测方法等精确字段")
         elif not URL_RE.match(locator):
             errors.append(f"{source_id} 是本地来源时必须绑定 source_file_id；仅 URL 来源可留空")
         elif observation_id:
@@ -441,6 +667,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     fabe_by_value: dict[str, list[dict[str, Any]]] = {}
     snapshot_date = parse_reference_date(manifest.get("updated_at"))
     dyn_expected_states: dict[str, str] = {}
+    allowed_exact_values: set[str] = set()
 
     for fact in facts:
         fact_id = str(fact.get("fact_id", ""))
@@ -486,12 +713,16 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                     errors.append(f"{fact_id} 设置 exact_fields_verified=true 时必须填写 verification_locator")
                 elif source_is_official_url and not URL_RE.match(verification_locator):
                     errors.append(f"{fact_id} 来自官方验证页时 verification_locator 必须是完整 URL")
-            exact_text = f"{fact.get('statement', '')} {fact.get('locator', '')}"
-            if EXACT_EVIDENCE_FIELD_RE.search(exact_text):
+            exact_values = exact_evidence_values(record_text(fact))
+            if exact_values:
                 if page_image:
-                    errors.append(f"{fact_id} 来自页面图片，不得抄录报告编号、日期、批次等小字精确字段")
+                    errors.append(f"{fact_id} 来自页面图片，不得在任何字段抄录报告编号、日期、批次或检测方法等精确小字")
                 elif not (confidence == "high" and exact_fields_verified is True and verification_locator):
-                    errors.append(f"{fact_id} 含报告编号、日期、批次等精确字段，必须有原件或官方验证页定位")
+                    errors.append(f"{fact_id} 含精确证据值，必须有原件或官方验证页定位")
+                else:
+                    allowed_exact_values.update(exact_values)
+        elif exact_evidence_values(record_text(fact)):
+            errors.append(f"{fact_id} 含报告编号、报告日期或检测方法等精确证据值，必须改为原件级 F-EVIDENCE 并完成核验")
         if QUANTIFIED_STEAM_DRY_RE.search(str(fact.get("statement", ""))):
             source = sources_by_id.get(source_id, {})
             source_text = " ".join(
@@ -627,6 +858,30 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if ABSOLUTE_COMPETITION_RE.search(text):
             if not any(source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources):
                 errors.append(f"{location} 存在越界表达：缺少竞品或行业对照，不能写最强、唯一、独有或领先")
+        if AGGREGATE_USER_RE.search(text) and not any(fact.get("fact_type") == "U" for fact in facts):
+            errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称很多或多数用户存在该问题")
+
+    exact_value_surfaces = (
+        ("fabe_ledger", fabe),
+        ("anchor_ledger", anchors),
+        ("value_ledger", values),
+        ("gap_ledger", gaps),
+    )
+    for surface_name, records in exact_value_surfaces:
+        for record in records:
+            unexpected = exact_evidence_values(record_text(record)).difference(allowed_exact_values)
+            if unexpected:
+                errors.append(
+                    f"{surface_name} 的 {next(iter(unexpected))} 未由原件级 F-EVIDENCE 事实核验，不得进入结构化结论"
+                )
+    decision_unexpected = exact_evidence_values(record_text(decision)).difference(allowed_exact_values)
+    if decision_unexpected:
+        errors.append(f"p0_decision.json 的 {next(iter(decision_unexpected))} 未由原件级 F-EVIDENCE 事实核验")
+    limitation_unexpected = exact_evidence_values(" ".join(str(item) for item in (manifest.get("limitations") or []))).difference(
+        allowed_exact_values
+    )
+    if limitation_unexpected:
+        errors.append(f"limitations 的 {next(iter(limitation_unexpected))} 未由原件级 F-EVIDENCE 事实核验")
 
     p0_values = [item for item in values if item.get("layer") == "P0"]
     if len(p0_values) > 1:
@@ -727,6 +982,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 含删除内部 ID 后残留的箭头或空括号")
         if PUBLIC_JARGON_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
+        unexpected = exact_evidence_values(text).difference(allowed_exact_values)
+        if unexpected:
+            errors.append(
+                f"{paths[report_key].name} 含未由原件级 F-EVIDENCE 核验的精确证据值: {next(iter(unexpected))}"
+            )
 
     return {
         "status": "passed" if not errors else "failed",

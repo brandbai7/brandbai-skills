@@ -125,6 +125,11 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "exact_fields_verified": "精确字段已核验",
         "source_inventory.jsonl": "来源文件清单",
         "sku_status=partial": "SKU 状态为部分确认",
+        "high confidence": "原件级证据",
+        "medium confidence": "页面截图级证据",
+        "low confidence": "低可信度证据",
+        "exact fields unverified": "精确字段未核验",
+        "dietary": "饮食",
     }
     for source, target in replacements.items():
         text = text.replace(source, target)
@@ -181,6 +186,7 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
         "paths": paths,
         "manifest": read_json(paths["manifest"]),
         "source_inventory": read_jsonl(paths["source_inventory"]),
+        "audit_card_ledger": read_jsonl(paths["audit_card_ledger"]),
         "source_observations": read_jsonl(paths["source_observations"]),
         "sources": read_jsonl(paths["sources"]),
         "facts": read_jsonl(paths["facts"]),
@@ -503,6 +509,7 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
         "delivery": str(delivery.resolve()),
         "counts": {
             "source_files": len(data["source_inventory"]),
+            "audit_cards": sum(1 for item in data["audit_card_ledger"] if item.get("status") == "ready"),
             "source_observations": len(data["source_observations"]),
             "sources": len(data["sources"]),
             "facts": len(data["facts"]),
