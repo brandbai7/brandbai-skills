@@ -12,6 +12,7 @@ from product_value_common import (
     INPUT_MODES,
     SCHEMA_VERSION,
     SKILL_VERSION,
+    SKU_STATUSES,
     now_iso,
     product_value_id,
     write_json,
@@ -26,6 +27,8 @@ def build_plan(
     category: str,
     sku: str,
     input_mode: str,
+    sku_status: str = "unverified",
+    sku_basis: str = "初始化输入，待来源核对",
 ) -> dict[str, Any]:
     return {
         "action": "initialize_product_value_delivery",
@@ -36,6 +39,8 @@ def build_plan(
         "product": product,
         "category": category,
         "sku": sku,
+        "sku_status": sku_status,
+        "sku_basis": sku_basis,
         "input_mode": input_mode,
         "will_create": [
             "01_商品价值底座.md",
@@ -59,9 +64,15 @@ def init_delivery(
     category: str,
     sku: str,
     input_mode: str,
+    sku_status: str = "unverified",
+    sku_basis: str = "初始化输入，待来源核对",
 ) -> dict[str, Any]:
     if input_mode not in INPUT_MODES:
         raise ValueError(f"不支持的 input_mode: {input_mode}")
+    if sku_status not in SKU_STATUSES:
+        raise ValueError(f"不支持的 sku_status: {sku_status}")
+    if not sku_basis.strip():
+        raise ValueError("sku_basis 不得为空")
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"目标目录不是空目录，拒绝覆盖: {out}")
 
@@ -76,6 +87,8 @@ def init_delivery(
         "product": product.strip(),
         "category": category.strip(),
         "sku": sku.strip(),
+        "sku_status": sku_status,
+        "sku_basis": sku_basis.strip(),
         "identity_id": "ID-001",
         "input_mode": input_mode,
         "package_version": "1.0",
@@ -128,6 +141,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--product", required=True)
     parser.add_argument("--category", required=True)
     parser.add_argument("--sku", required=True)
+    parser.add_argument("--sku-status", choices=("confirmed", "partial", "unverified"), default="unverified")
+    parser.add_argument("--sku-basis", default="初始化输入，待来源核对")
     parser.add_argument("--input-mode", choices=sorted(INPUT_MODES), default="mixed")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -135,11 +150,29 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    plan = build_plan(args.out, args.brand, args.product, args.category, args.sku, args.input_mode)
+    plan = build_plan(
+        args.out,
+        args.brand,
+        args.product,
+        args.category,
+        args.sku,
+        args.input_mode,
+        args.sku_status,
+        args.sku_basis,
+    )
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
-    manifest = init_delivery(args.out, args.brand, args.product, args.category, args.sku, args.input_mode)
+    manifest = init_delivery(
+        args.out,
+        args.brand,
+        args.product,
+        args.category,
+        args.sku,
+        args.input_mode,
+        args.sku_status,
+        args.sku_basis,
+    )
     print(json.dumps({"status": "initialized", "target": str(args.out.resolve()), "manifest": manifest}, ensure_ascii=False, indent=2))
     return 0
 

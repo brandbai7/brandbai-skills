@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +14,13 @@ from product_value_common import (
     DELIVERY_STATUSES,
     FACT_TYPES,
     FC_LEVELS,
+    GAP_PRIORITIES,
     INPUT_MODES,
     P0_STATUSES,
     PKG_LEVELS,
     READINESS_LEVELS,
     SC_LEVELS,
+    SKU_STATUSES,
     VALUE_LAYERS,
     delivery_paths,
     read_json,
@@ -33,6 +36,8 @@ MANIFEST_FIELDS = {
     "product",
     "category",
     "sku",
+    "sku_status",
+    "sku_basis",
     "identity_id",
     "input_mode",
     "package_version",
@@ -93,6 +98,79 @@ DECISION_FIELDS = {
     "supersedes",
 }
 GAP_FIELDS = {"gap_id", "category", "missing", "impact", "minimum_needed", "priority", "state"}
+
+RISKY_INFERENCE_RULES = (
+    (re.compile(r"SGS.{0,8}(?:安全)?认证|安全认证", re.IGNORECASE), "检测报告不能自动改写为安全认证"),
+    (re.compile(r"(?:确保|保证).{0,12}(?:原料)?品质"), "检测或选材信号不能写成确保品质"),
+    (re.compile(r"敏感人群.{0,8}(?:安心|适合|友好)"), "不得从无硫熏或配料信息推导敏感人群适用性"),
+    (re.compile(r"控脂人群.{0,8}(?:安心|适合|友好)"), "零脂肪标示不能自动推导控脂人群适用性"),
+    (re.compile(r"(?:滋养|滋补)(?:收益|功效|效果)"), "食品商品价值不得预设未经资料支持的滋养收益或功效"),
+    (re.compile(r"第三方(?:安全)?检测背书"), "页面展示的检测报告应写成支持该页面主张，不写成笼统背书"),
+)
+EXPIRY_WORDS_RE = re.compile(r"已过期|已经过期|时效性过期")
+DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
+INTERNAL_ID_RE = re.compile(
+    r"\b(?:PV-[0-9a-f]{12}|(?:SRC|ID|ANCHOR|FABE|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,})\b"
+)
+
+
+def parse_reference_date(value: Any) -> date | None:
+    try:
+        return datetime.fromisoformat(str(value)).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def classify_time_scope(value: Any, reference: date | None) -> str | None:
+    """Classify a fully dated DYN scope at the delivery snapshot date."""
+
+    if reference is None:
+        return None
+    dates: list[date] = []
+    for year, month, day in DATE_RE.findall(str(value)):
+        try:
+            dates.append(date(int(year), int(month), int(day)))
+        except ValueError:
+            return None
+    if not dates:
+        return None
+    start = dates[0]
+    end = dates[-1]
+    if reference < start:
+        return "upcoming"
+    if reference > end:
+        return "expired"
+    return "active"
+
+
+def iter_analysis_texts(
+    facts: list[dict[str, Any]],
+    fabe: list[dict[str, Any]],
+    anchors: list[dict[str, Any]],
+    values: list[dict[str, Any]],
+    decision: dict[str, Any],
+) -> list[tuple[str, str]]:
+    texts: list[tuple[str, str]] = []
+    for item in facts:
+        if item.get("fact_type") == "H":
+            texts.extend((f"{item.get('fact_id')}.{key}", str(item.get(key, ""))) for key in ("statement", "boundary"))
+    for item in fabe:
+        texts.extend(
+            (f"{item.get('fabe_id')}.{key}", str(item.get(key, "")))
+            for key in ("advantage", "benefit", "user_language", "boundary")
+        )
+    for item in anchors:
+        texts.append((f"{item.get('anchor_id')}.statement", str(item.get("statement", ""))))
+    for item in values:
+        texts.extend(
+            (f"{item.get('value_id')}.{key}", str(item.get(key, "")))
+            for key in ("user_task", "value_statement", "user_perception_goal")
+        )
+    texts.extend(
+        (f"p0_decision.{key}", str(decision.get(key, "")))
+        for key in ("rationale", "current_execution_axis")
+    )
+    return texts
 
 
 def missing_fields(record: dict[str, Any], required: set[str]) -> list[str]:
@@ -175,6 +253,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("analysis_status 不在允许范围")
     if manifest.get("delivery_status") not in DELIVERY_STATUSES:
         errors.append("delivery_status 不在允许范围")
+    if manifest.get("sku_status") not in SKU_STATUSES:
+        errors.append("sku_status 必须是 confirmed/partial/unverified")
+    if not str(manifest.get("sku_basis", "")).strip():
+        errors.append("sku_basis 不得为空；标题片段不能单独作为 SKU 确认依据")
+    if manifest.get("sku_status") == "confirmed":
+        sku_basis = str(manifest.get("sku_basis", ""))
+        if not re.search(r"SKU\s*选择|规格(?:栏|表|选择)|包装|商品信息|成交单元|订单", sku_basis, re.IGNORECASE):
+            errors.append("sku_status=confirmed 时，sku_basis 必须来自 SKU 选择器、包装、规格表、商品信息区或订单成交单元")
     if manifest.get("analysis_status") == "draft":
         errors.append("analysis_status=draft，不得作为正式交付")
     if not isinstance(manifest.get("limitations"), list):
@@ -204,6 +290,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     value_ids = {item.get("value_id") for item in values}
     values_by_id = {item.get("value_id"): item for item in values}
     fabe_by_value: dict[str, list[dict[str, Any]]] = {}
+    snapshot_date = parse_reference_date(manifest.get("updated_at"))
+    dyn_expected_states: dict[str, str] = {}
 
     for fact in facts:
         fact_id = str(fact.get("fact_id", ""))
@@ -221,6 +309,21 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{fact_id} 引用了不存在的 source_id: {source_id}")
         if fact_type == "DYN" and not str(fact.get("time_scope", "")).strip():
             errors.append(f"{fact_id} 是动态交易事实，必须填写 time_scope")
+        if fact_type == "DYN":
+            expected = classify_time_scope(fact.get("time_scope"), snapshot_date)
+            if expected is None:
+                warnings.append(f"{fact_id} 的 time_scope 无法按完整日期自动核验，须人工确认年份和时区")
+            else:
+                dyn_expected_states[fact_id] = expected
+                status = str(fact.get("status", "")).strip().lower()
+                if expected == "active" and status in {"expired", "stale", "inactive"}:
+                    errors.append(f"{fact_id} 在交付更新时间仍处活动期，但 status={status}")
+                if expected == "expired" and status in {"active", "confirmed", "current"}:
+                    errors.append(f"{fact_id} 在交付更新时间已经结束，但 status={status}")
+                if expected == "upcoming" and status in {"active", "confirmed", "current", "expired", "stale"}:
+                    errors.append(f"{fact_id} 在交付更新时间尚未开始，但 status={status}")
+                if expected == "active" and EXPIRY_WORDS_RE.search(str(fact.get("boundary", ""))):
+                    errors.append(f"{fact_id} 在交付更新时间仍处活动期，但 boundary 写成已过期")
         if not str(fact.get("statement", "")).strip():
             errors.append(f"{fact_id} 的 statement 为空")
         if not str(fact.get("boundary", "")).strip():
@@ -288,6 +391,25 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if value.get("layer") != "deferred" and not fabe_by_value.get(value_id):
             errors.append(f"{value_id} 缺少 FABE 完整推导链")
 
+    for gap in gaps:
+        gap_id = str(gap.get("gap_id", ""))
+        if gap.get("priority") not in GAP_PRIORITIES:
+            errors.append(f"{gap_id} 的 priority 必须是 P0/P1/P2/P3")
+        combined = " ".join(str(gap.get(key, "")) for key in ("missing", "impact", "minimum_needed"))
+        for fact_id, expected in dyn_expected_states.items():
+            if expected == "active" and fact_id in combined and EXPIRY_WORDS_RE.search(combined):
+                errors.append(f"{gap_id} 把仍处活动期的 {fact_id} 写成已过期")
+
+    limitation_text = " ".join(str(item) for item in (manifest.get("limitations") or []))
+    for fact_id, expected in dyn_expected_states.items():
+        if expected == "active" and (fact_id in limitation_text or "DYN" in limitation_text) and EXPIRY_WORDS_RE.search(limitation_text):
+            errors.append(f"limitations 把仍处活动期的 {fact_id} 写成已过期")
+
+    for location, text in iter_analysis_texts(facts, fabe, anchors, values, decision):
+        for pattern, explanation in RISKY_INFERENCE_RULES:
+            if pattern.search(text):
+                errors.append(f"{location} 存在越界表达：{explanation}")
+
     p0_values = [item for item in values if item.get("layer") == "P0"]
     if len(p0_values) > 1:
         errors.append("当前 layer=P0 的价值超过一个；未推荐候选应保留在其他层或 deferred")
@@ -334,6 +456,16 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"analysis_status={analysis_status} 时至少需要一个事实或推导")
         if not values:
             errors.append(f"analysis_status={analysis_status} 时至少需要一个可用价值")
+        if manifest.get("sku_status") in {"partial", "unverified"}:
+            has_open_sku_gap = any(
+                gap.get("state") == "open"
+                and re.search(r"SKU|规格|成交单元|商品身份", f"{gap.get('category', '')} {gap.get('missing', '')}", re.IGNORECASE)
+                for gap in gaps
+            )
+            if not has_open_sku_gap:
+                errors.append("SKU 未完全确认时，必须登记一个开放的 SKU/规格资料缺口")
+            if delivery_status == "ready":
+                errors.append("SKU 未完全确认时 delivery_status 不得为 ready")
     if analysis_status == "complete":
         if not recommended_id:
             errors.append("analysis_status=complete 时必须有当前推荐 P0")
@@ -359,8 +491,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 仍包含模板占位符")
         if re.search(r"[A-Za-z]:\\(?:Users|Documents|Desktop)\\", text, re.IGNORECASE):
             errors.append(f"{paths[report_key].name} 暴露了本地绝对路径")
-        if re.search(r"\b(?:PV-[0-9a-f]{12}|(?:SRC|ANCHOR|FABE|V|F|H|EX|U|DYN|STRAT)-\d{3,})\b", text):
+        if INTERNAL_ID_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了内部资产 ID")
+        if re.search(r"[（(]\s*[,/;+、，;；:：]+|[,/;+、，;；:：]+\s*[)）]", text):
+            errors.append(f"{paths[report_key].name} 含隐藏内部 ID 后遗留的异常标点")
 
     return {
         "status": "passed" if not errors else "failed",

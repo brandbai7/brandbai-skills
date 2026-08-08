@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from product_value_common import bullet_lines, delivery_paths, md, read_json, read_jsonl, write_text
+from product_value_common import delivery_paths, md, read_json, read_jsonl, write_text
 
 
 STATUS_ZH = {
@@ -56,6 +57,8 @@ STATUS_ZH = {
     "dynamic_promotion_graphic": "动态活动信息图",
     "time_bound": "时点有效",
     "product_page_pdf": "商品详情页 PDF",
+    "promotion_banner": "活动信息图",
+    "detail_page_image": "商品详情页图片",
     "embedded_evidence_image": "内嵌证据图片",
     "certification_claim_graphic": "认证宣称图片",
     "F-PAGE": "页面事实",
@@ -67,6 +70,52 @@ STATUS_ZH = {
     "H": "分析推导",
 }
 
+INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SRC|ID|ANCHOR|FABE|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
+INTERNAL_ID_RE = re.compile(rf"\b{INTERNAL_ID}\b")
+INTERNAL_ID_GROUP_RE = re.compile(rf"\(\s*{INTERNAL_ID}(?:\s*[,/;+、，]\s*{INTERNAL_ID})*\s*\)")
+
+
+def public_text(value: Any, empty: str = "未提供") -> str:
+    """Hide internal IDs without leaving punctuation fragments in human reports."""
+
+    text = md(value, empty)
+    text = INTERNAL_ID_GROUP_RE.sub("", text)
+    text = INTERNAL_ID_RE.sub("", text)
+    text = re.sub(r"[（(]\s*[,/;+、，;；:：\s]*[)）]", "", text)
+    text = re.sub(r"([（(])\s*[,/;+、，;；:：]+\s*", r"\1", text)
+    text = re.sub(r"\s*[,/;+、，;；:：]+\s*([)）])", r"\1", text)
+    text = re.sub(r"基于\s*[,/;+、，;；:：]*\s*推导", "综合资料推导", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
+
+
+def public_bullet_lines(values: Any, empty: str = "暂无") -> str:
+    items: list[str] = []
+    for value in values:
+        item = public_text(value, "").strip()
+        if item:
+            items.append(item)
+    if not items:
+        return f"- {empty}"
+    return "\n".join(f"- {item}" for item in items)
+
+
+def gap_priority_label(value: Any) -> str:
+    return {
+        "P0": "最高 P0",
+        "P1": "高 P1",
+        "P2": "中 P2",
+        "P3": "低 P3",
+    }.get(str(value), label(value))
+
+
+def sku_status_label(value: Any) -> str:
+    return {
+        "confirmed": "已确认",
+        "partial": "部分确认",
+        "unverified": "待确认",
+    }.get(str(value), label(value))
+
 
 def label(value: Any) -> str:
     return STATUS_ZH.get(str(value), md(value))
@@ -77,7 +126,7 @@ def table(headers: list[str], rows: list[list[Any]], empty: str = "暂无记录"
         return f"_{empty}_"
     header = "| " + " | ".join(headers) + " |"
     divider = "|" + "|".join("---" for _ in headers) + "|"
-    body = ["| " + " | ".join(md(cell) for cell in row) + " |" for row in rows]
+    body = ["| " + " | ".join(public_text(cell) for cell in row) + " |" for row in rows]
     return "\n".join([header, divider, *body])
 
 
@@ -205,7 +254,7 @@ def build_report_01(data: dict[str, Any]) -> str:
     next_steps = [
         f"{item.get('missing')}；最低需要：{item.get('minimum_needed')}"
         for item in data["gaps"]
-        if item.get("priority") == "high" and item.get("state") == "open"
+        if item.get("priority") in {"P0", "P1"} and item.get("state") == "open"
     ][:5]
 
     return f"""# 商品价值底座｜{md(manifest.get('brand'))} {md(manifest.get('product'))}
@@ -214,15 +263,17 @@ def build_report_01(data: dict[str, Any]) -> str:
 
 ## 1｜一页结论
 
-- 当前商品：{md(manifest.get('brand'))} {md(manifest.get('product'))}
-- 当前 SKU/版本：{md(manifest.get('sku'))}
-- 品类：{md(manifest.get('category'))}
+- 当前商品：{public_text(manifest.get('brand'))} {public_text(manifest.get('product'))}
+- 当前 SKU/版本：{public_text(manifest.get('sku'))}
+- SKU 确认状态：{sku_status_label(manifest.get('sku_status'))}
+- SKU 确认依据：{public_text(manifest.get('sku_basis'))}
+- 品类：{public_text(manifest.get('category'))}
 - 分析状态：{label(manifest.get('analysis_status'))}
 - 下游状态：{label(manifest.get('delivery_status'))}
-- {p0_heading}：{md(p0_statement)}
+- {p0_heading}：{public_text(p0_statement)}
 - 当前 P0 状态：{label(decision.get('status'))}
-- 决策说明：{md(p0_note)}
-- 当前执行主轴：{md(decision.get('current_execution_axis'), '尚未确定')}
+- 决策说明：{public_text(p0_note)}
+- 当前执行主轴：{public_text(decision.get('current_execution_axis'), '尚未确定')}
 
 > “完成”只表示已对本次输入完成商品价值建模，不表示功效、竞争优势、用户心智或成交效果已获得独立验证。
 
@@ -264,7 +315,7 @@ P0 是优先记住和选择的核心价值，P1 帮助理解与完成选择，P2
 
 {table(['经营任务', '内容先完成什么', '优先调用的商品价值', '当前能否正式执行'], application_rows)}
 
-- 输出版本：{md(manifest.get('output_version'))}
+- 输出版本：{public_text(manifest.get('output_version'))}
 - 交付状态：{label(manifest.get('delivery_status'))}
 - 下游只能继承本底座中的事实、价值、P0 状态、适用范围和限制。
 - 下游不得把“优先验证假设”改写成“消费者已经认可”，也不得扩大功效、比较和适用范围。
@@ -274,15 +325,15 @@ P0 是优先记住和选择的核心价值，P1 帮助理解与完成选择，P2
 
 ### 仍需验证的问题
 
-{bullet_lines(decision.get('validation_questions') or [], '暂无；若尚未形成P0，应先补齐资料')}
+{public_bullet_lines(decision.get('validation_questions') or [], '暂无；若尚未形成P0，应先补齐资料')}
 
 ### 当前边界
 
-{bullet_lines(limitations, '暂无额外限制；仍须遵守原始证据范围')}
+{public_bullet_lines(limitations, '暂无额外限制；仍须遵守原始证据范围')}
 
 ### 优先补充资料
 
-{bullet_lines(next_steps, '暂无高优先级补充项')}
+{public_bullet_lines(next_steps, '暂无高优先级补充项')}
 """
 
 
@@ -313,7 +364,7 @@ def build_report_02(data: dict[str, Any]) -> str:
             item.get("missing"),
             item.get("impact"),
             item.get("minimum_needed"),
-            label(item.get("priority")),
+            gap_priority_label(item.get("priority")),
             label(item.get("state")),
         ]
         for item in data["gaps"]
@@ -340,9 +391,11 @@ def build_report_02(data: dict[str, Any]) -> str:
 
 ## 商品与版本
 
-- 商品：{md(manifest.get('brand'))} {md(manifest.get('product'))}
-- 品类：{md(manifest.get('category'))}
-- 当前 SKU/版本：{md(manifest.get('sku'))}
+- 商品：{public_text(manifest.get('brand'))} {public_text(manifest.get('product'))}
+- 品类：{public_text(manifest.get('category'))}
+- 当前 SKU/版本：{public_text(manifest.get('sku'))}
+- SKU 确认状态：{sku_status_label(manifest.get('sku_status'))}
+- SKU 确认依据：{public_text(manifest.get('sku_basis'))}
 - 输入形态：{label(manifest.get('input_mode'))}
 - 资料包版本：{md(manifest.get('package_version'))}
 - 输出版本：{md(manifest.get('output_version'))}
@@ -371,11 +424,11 @@ def build_report_02(data: dict[str, Any]) -> str:
 
 ## 当前可以做
 
-{bullet_lines(can_do, '资料不足，仅可补充和核对输入')}
+{public_bullet_lines(can_do, '资料不足，仅可补充和核对输入')}
 
 ## 当前不能做
 
-{bullet_lines(cannot_do)}
+{public_bullet_lines(cannot_do)}
 
 ## 增量资料与版本说明
 

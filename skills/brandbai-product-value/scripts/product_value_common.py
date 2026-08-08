@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.1.0"
-SKILL_VERSION = "0.1.1"
+SCHEMA_VERSION = "0.1.1"
+SKILL_VERSION = "0.1.2"
 
 INPUT_MODES = {
     "link",
@@ -29,9 +29,11 @@ SC_LEVELS = {"SC0", "SC1", "SC2", "SC3"}
 PKG_LEVELS = {"PKG-L0", "PKG-L1", "PKG-L2", "PKG-L3", "PKG-L4"}
 ANALYSIS_STATUSES = {"draft", "complete", "partial", "insufficient", "stale"}
 DELIVERY_STATUSES = {"ready", "conditional", "blocked", "stale"}
+SKU_STATUSES = {"confirmed", "partial", "unverified"}
 FACT_TYPES = {"F-PAGE", "F-EVIDENCE", "STRAT", "DYN", "U", "EX", "H"}
 VALUE_LAYERS = {"P0", "P1", "P2", "deferred"}
 READINESS_LEVELS = {"ready", "conditional", "blocked"}
+GAP_PRIORITIES = {"P0", "P1", "P2", "P3"}
 P0_STATUSES = {
     "P0-CANDIDATE",
     "P0-HYPOTHESIS",

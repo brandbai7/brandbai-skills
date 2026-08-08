@@ -65,11 +65,13 @@ Markdown 是普通阅读入口；`data/` 是证据、版本和下游 Skill 的�
 
 ```text
 schema_version, skill_version, product_value_id,
-brand, product, category, sku, identity_id,
+brand, product, category, sku, sku_status, sku_basis, identity_id,
 input_mode, package_version, output_version,
 fc, sc, pkg_level, analysis_status, delivery_status,
 limitations, created_at, updated_at
 ```
+
+`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
 
 ### source_ledger.jsonl
 
@@ -92,6 +94,8 @@ sku_scope, time_scope, status, boundary
 ```
 
 `fact_type` 允许：`F-PAGE`、`F-EVIDENCE`、`STRAT`、`DYN`、`U`、`EX`、`H`。
+
+`DYN.time_scope` 使用含年份的完整日期或日期区间。以 `product_manifest.updated_at` 所在时区判断 `upcoming/active/expired`，并确保事实状态、边界、缺口和 limitations 不互相矛盾。
 
 ### fabe_ledger.jsonl
 
@@ -153,6 +157,8 @@ decided_at, valid_until, supersedes
 gap_id, category, missing, impact,
 minimum_needed, priority, state
 ```
+
+`priority` 统一使用 `P0`、`P1`、`P2`、`P3`：P0 为阻碍当前交付或高风险表达的最高优先缺口，P1 为显著影响核心判断，P2 为影响增强使用，P3 为可选补充。缺少检测原件本身不自动成为 P0；只有当当前任务确实需要独立核验、高风险主张或处理来源冲突时才升级。
 
 ## 5. 稳定 ID
 

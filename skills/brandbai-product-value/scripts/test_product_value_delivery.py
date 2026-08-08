@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from build_product_value_report import build_delivery
@@ -18,12 +19,14 @@ def populate_valid_partial(delivery: Path) -> None:
     manifest = read_json(data / "product_manifest.json")
     manifest.update(
         {
+            "sku_status": "confirmed",
+            "sku_basis": "包装背面规格栏明确标示示例规格A",
             "fc": "FC2",
             "sc": "SC1",
             "pkg_level": "PKG-L2",
             "analysis_status": "partial",
             "delivery_status": "conditional",
-            "limitations": ["尚未获得独立检测资料，当前仅按包装信息建立价值假设。"],
+            "limitations": ["尚未获得独立检测资料，当前仅按包装信息建立价值假设（GAP-001）。"],
             "updated_at": timestamp,
         }
     )
@@ -50,6 +53,16 @@ def populate_valid_partial(delivery: Path) -> None:
                 "sku_scope": "示例规格A",
                 "status": "active",
                 "notes": "仅用于离线测试的纯虚构资料",
+            },
+            {
+                "source_id": "SRC-003",
+                "source_type": "promotion_banner",
+                "title": "虚构限时活动信息",
+                "locator": "活动图片",
+                "captured_at": timestamp,
+                "sku_scope": "示例规格A",
+                "status": "active",
+                "notes": "仅用于动态日期一致性测试",
             },
         ],
     )
@@ -89,6 +102,17 @@ def populate_valid_partial(delivery: Path) -> None:
                 "status": "conditional",
                 "boundary": "需通过用户使用验证，不能写成普遍体验结论。",
             },
+            {
+                "fact_id": "DYN-001",
+                "fact_type": "DYN",
+                "statement": "虚构活动在本次交付日期内有效。",
+                "source_id": "SRC-003",
+                "locator": "活动图片",
+                "sku_scope": "示例规格A",
+                "time_scope": f"{(datetime.now().astimezone().date() - timedelta(days=1)).isoformat()}~{(datetime.now().astimezone().date() + timedelta(days=1)).isoformat()}",
+                "status": "active",
+                "boundary": "仅在完整日期区间内有效。",
+            },
         ],
     )
     write_jsonl(
@@ -114,7 +138,7 @@ def populate_valid_partial(delivery: Path) -> None:
                 "feature_fact_ids": ["F-001"],
                 "advantage": "相比临时自行分装，商品已经按小袋形成拿取单元。",
                 "benefit": "外出前可以少做一步分装准备。",
-                "evidence": "包装正背面可直接核对独立小袋结构。",
+                "evidence": "包装正背面可直接核对独立小袋结构（SRC-001/F-001）。",
                 "evidence_fact_ids": ["F-001"],
                 "reference_frame": "临时自行分装的旧习惯",
                 "user_language": "出门直接拿一袋，不用再找盒子分装。",
@@ -229,7 +253,7 @@ def populate_valid_partial(delivery: Path) -> None:
                 "missing": "真实用户外出分装反馈和同类包装对照",
                 "impact": "P0 只能保持为优先验证假设",
                 "minimum_needed": "目标用户访谈或评论样本，以及主要替代商品包装信息",
-                "priority": "high",
+                "priority": "P0",
                 "state": "open",
             }
         ],
@@ -259,6 +283,11 @@ def test_partial_delivery(root: Path) -> None:
     assert "FABE价值证据链" in report
     assert "V-001" not in report
     assert "PV-" not in report
+    assert "SRC-001" not in report
+    assert "(,)" not in report
+    assert "(/)" not in report
+    assert "暂无高优先级补充项" not in report
+    assert "真实用户外出分装反馈" in report
 
     value_path = delivery / "data" / "value_ledger.jsonl"
     values = read_jsonl(value_path)
@@ -269,6 +298,34 @@ def test_partial_delivery(root: Path) -> None:
     assert any("F-999" in error for error in broken["errors"])
 
 
+def test_dynamic_and_semantic_guardrails(root: Path) -> None:
+    delivery = root / "guardrails"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+
+    fact_path = delivery / "data" / "fact_ledger.jsonl"
+    facts = read_jsonl(fact_path)
+    dyn = next(item for item in facts if item["fact_id"] == "DYN-001")
+    dyn["boundary"] = "该活动已过期。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    date_broken = validate_delivery(delivery)
+    assert date_broken["status"] == "failed"
+    assert any("仍处活动期" in error for error in date_broken["errors"])
+
+    dyn["boundary"] = "仅在完整日期区间内有效。"
+    write_jsonl(fact_path, facts)
+    value_path = delivery / "data" / "value_ledger.jsonl"
+    values = read_jsonl(value_path)
+    values[0]["value_statement"] = "获得传统滋养收益，并确保原料品质。"
+    write_jsonl(value_path, values)
+    build_delivery(delivery, write=True)
+    semantic_broken = validate_delivery(delivery)
+    assert semantic_broken["status"] == "failed"
+    assert any("越界表达" in error for error in semantic_broken["errors"])
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -276,6 +333,8 @@ def test_insufficient_delivery(root: Path) -> None:
     manifest = read_json(data / "product_manifest.json")
     manifest.update(
         {
+            "sku_status": "unverified",
+            "sku_basis": "当前只有商品名称，尚无包装或规格表",
             "analysis_status": "insufficient",
             "delivery_status": "blocked",
             "limitations": ["无法确认当前 SKU，不得形成价值结论。"],
@@ -292,7 +351,7 @@ def test_insufficient_delivery(root: Path) -> None:
                 "missing": "当前 SKU",
                 "impact": "无法隔离商品事实",
                 "minimum_needed": "当前商品链接、包装或 SKU 表",
-                "priority": "high",
+                "priority": "P0",
                 "state": "open",
             }
         ],
@@ -307,6 +366,7 @@ def main() -> int:
     root.mkdir()
     try:
         test_partial_delivery(root)
+        test_dynamic_and_semantic_guardrails(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
