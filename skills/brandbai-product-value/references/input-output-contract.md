@@ -47,6 +47,7 @@
 └── data/
     ├── product_manifest.json
     ├── source_inventory.jsonl
+    ├── source_observation.jsonl
     ├── source_ledger.jsonl
     ├── fact_ledger.jsonl
     ├── fabe_ledger.jsonl
@@ -85,16 +86,28 @@ size_bytes, sha256, status
 
 `relative_path` 必须保留输入目录内的真实相对路径，`sha256` 用于识别文件内容。清单非空后不得覆盖或按视觉顺序重编号。直接 URL 来源不进入本地文件清单。
 
+### source_observation.jsonl
+
+本地资料进入来源台账前，必须逐个打开准确文件并记录：
+
+```text
+observation_id, source_file_id, relative_path, content_type,
+title, visible_heading, visible_text_excerpt,
+inspection_method, inspection_status, inspected_at
+```
+
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_exact_file`，必须实际打开原图；文档/PDF可用 `document_text`，官方验证页可用 `official_url`。已标为 `inspected` 时，标题、可见标题、可见文字摘录和时间不得为空。禁止用文件名、页序、旧交付或批量 OCR 摘要代替逐文件内容核对。
+
 ### source_ledger.jsonl
 
 每行至少包含：
 
 ```text
-source_id, source_file_id, source_type, title, locator,
+source_id, source_file_id, observation_id, source_type, title, locator,
 captured_at, sku_scope, status, notes
 ```
 
-本地来源的 `source_file_id` 必须存在于 `source_inventory.jsonl`，且 `locator` 必须包含对应的真实 `relative_path`，再追加页码、工作表、图片区域或文件内位置。不得把阅读顺序重新写成并不存在的文件编号。直接 URL 来源可以将 `source_file_id` 留空，并在 `locator` 保留完整 URL。对外文档不需要暴露本地绝对路径。
+本地来源的 `source_file_id` 必须存在于 `source_inventory.jsonl`，`observation_id` 必须存在于 `source_observation.jsonl` 并绑定同一个文件，`title` 必须与核对记录完全一致；`locator` 必须包含对应的真实 `relative_path`，再追加页码、工作表、图片区域或文件内位置。不得把阅读顺序重新写成并不存在的文件编号。直接 URL 来源可以将两个本地绑定字段留空，并在 `locator` 保留完整 URL。对外文档不需要暴露本地绝对路径。
 
 ### fact_ledger.jsonl
 
@@ -110,10 +123,10 @@ sku_scope, time_scope, status, boundary
 `F-EVIDENCE` 另外必须包含：
 
 ```text
-evidence_detail_confidence, exact_fields_verified
+evidence_detail_confidence, exact_fields_verified, verification_locator
 ```
 
-`evidence_detail_confidence` 允许 `high`、`medium`、`low`。只有清晰可辨并完成二次核对时，才能把报告编号、日期、批次或证书编号等精确字段写入事实，此时必须为 `high` 且 `exact_fields_verified=true`；否则省略精确字段，只记录页面可确认的报告机构、检测项目、结果或主张。
+`evidence_detail_confidence` 允许 `high`、`medium`、`low`。详情页截图和图片中的证据细节最高只能是 `medium`，`exact_fields_verified` 必须为 `false`，并省略报告编号、日期、批次、证书编号和检测方法等小字精确字段；仍可记录清楚可见的机构、检测项目、结果或页面主张。只有报告原件/PDF可定位文本或官方验证页，才允许 `high` 与 `exact_fields_verified=true`，并必须填写可复核的 `verification_locator`。
 
 `DYN.time_scope` 使用含年份的完整日期或日期区间。以 `product_manifest.updated_at` 所在时区判断 `upcoming/active/expired`，并确保事实状态、边界、缺口和 limitations 不互相矛盾。
 
@@ -130,7 +143,7 @@ reference_frame, user_language,
 derivation_status, boundary
 ```
 
-`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；Advantage 与 Benefit 不得只把参数换一种说法。
+`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，不能用无关检测页支撑另一种体验利益。Advantage 与 Benefit 不得只把参数换一种说法。
 
 ### anchor_ledger.jsonl
 
@@ -164,12 +177,14 @@ cannot_prove, downstream_readiness
 
 ```text
 decision_id, candidate_value_ids, recommended_value_id,
-status, rationale, current_execution_axis,
+status, rationale, public_rationale, current_execution_axis,
 cannot_prove, validation_questions,
 decided_at, valid_until, supersedes
 ```
 
 状态允许：`P0-CANDIDATE`、`P0-HYPOTHESIS`、`P0-SELECTED`、`P0-VALIDATING`、`P0-BOUNDARY-VALIDATED`、`P0-REOPEN`、`P0-REPLACED`、`P0-STOPPED`。
+
+`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。
 
 ### gap_ledger.jsonl
 
@@ -189,6 +204,7 @@ minimum_needed, priority, state
 ```text
 PV-<12位十六进制>
 SF-001
+OBS-001
 SRC-001
 ID-001
 ANCHOR-001
