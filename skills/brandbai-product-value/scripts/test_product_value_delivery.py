@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from build_product_value_report import build_delivery
+from build_source_audit_cards import build_cards
 from index_product_sources import index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
@@ -22,16 +23,39 @@ def populate_valid_partial(delivery: Path) -> None:
     (source_dir / "商品包装.txt").write_text("独立小袋包装", encoding="utf-8")
     (source_dir / "品牌方向.txt").write_text("外出携带", encoding="utf-8")
     (source_dir / "活动信息.txt").write_text("虚构活动日期", encoding="utf-8")
+    (source_dir / "详情页主图.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400" fill="white"/><text x="30" y="80">独立小袋包装</text><text x="30" y="130">外出拿取更清楚</text></svg>',
+        encoding="utf-8",
+    )
+    (source_dir / "详情页工艺图.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="4000"><rect width="400" height="4000" fill="white"/><text x="30" y="80">虚构工艺说明</text><text x="30" y="3950">仅作图片审计测试</text></svg>',
+        encoding="utf-8",
+    )
     dry_run = index_sources(source_dir, delivery, write=False)
     assert dry_run["status"] == "dry_run"
     assert read_jsonl(data / "source_inventory.jsonl") == []
     assert read_jsonl(data / "source_observation.jsonl") == []
     indexed = index_sources(source_dir, delivery, write=True)
-    assert indexed["file_count"] == 3
+    assert indexed["file_count"] == 5
+    card_dry_run = build_cards(source_dir, delivery, write=False)
+    assert card_dry_run["status"] == "dry_run"
+    assert card_dry_run["audit_cards"] == 2
+    cards = build_cards(source_dir, delivery, write=True)
+    assert cards["audit_cards"] == 2
     inventory_ids = {
         item["filename"]: item["source_file_id"]
         for item in read_jsonl(data / "source_inventory.jsonl")
     }
+    audit_cards = {
+        item["source_file_id"]: item
+        for item in read_jsonl(data / "source_audit_card_ledger.jsonl")
+    }
+    long_card_path = data / audit_cards[inventory_ids["详情页工艺图.svg"]]["audit_card_path"]
+    assert 'height="13460" viewBox="0 0 1400 13460"' in long_card_path.read_text(encoding="utf-8")
+    first_pass_at = datetime.now().astimezone().replace(microsecond=0)
+    second_image_first_pass_at = first_pass_at + timedelta(seconds=1)
+    second_pass_at = first_pass_at + timedelta(seconds=2)
+    first_image_second_pass_at = first_pass_at + timedelta(seconds=3)
     write_jsonl(
         data / "source_observation.jsonl",
         [
@@ -46,6 +70,13 @@ def populate_valid_partial(delivery: Path) -> None:
                 "inspection_method": "document_text",
                 "inspection_status": "inspected",
                 "inspected_at": timestamp,
+                "audit_card_sha256": "",
+                "first_pass_sequence": 0,
+                "second_pass_sequence": 0,
+                "second_pass_heading": "",
+                "second_pass_excerpt": "",
+                "second_pass_status": "not_applicable",
+                "second_pass_at": "",
             },
             {
                 "observation_id": "OBS-002",
@@ -58,6 +89,13 @@ def populate_valid_partial(delivery: Path) -> None:
                 "inspection_method": "document_text",
                 "inspection_status": "inspected",
                 "inspected_at": timestamp,
+                "audit_card_sha256": "",
+                "first_pass_sequence": 0,
+                "second_pass_sequence": 0,
+                "second_pass_heading": "",
+                "second_pass_excerpt": "",
+                "second_pass_status": "not_applicable",
+                "second_pass_at": "",
             },
             {
                 "observation_id": "OBS-003",
@@ -70,6 +108,51 @@ def populate_valid_partial(delivery: Path) -> None:
                 "inspection_method": "document_text",
                 "inspection_status": "inspected",
                 "inspected_at": timestamp,
+                "audit_card_sha256": "",
+                "first_pass_sequence": 0,
+                "second_pass_sequence": 0,
+                "second_pass_heading": "",
+                "second_pass_excerpt": "",
+                "second_pass_status": "not_applicable",
+                "second_pass_at": "",
+            },
+            {
+                "observation_id": "OBS-004",
+                "source_file_id": inventory_ids["详情页主图.svg"],
+                "relative_path": "详情页主图.svg",
+                "content_type": "product_page_image",
+                "title": "虚构详情页主图",
+                "visible_heading": "独立小袋包装",
+                "visible_text_excerpt": "外出拿取更清楚",
+                "inspection_method": "visual_stamped_card",
+                "inspection_status": "inspected",
+                "inspected_at": first_pass_at.isoformat(),
+                "audit_card_sha256": audit_cards[inventory_ids["详情页主图.svg"]]["audit_card_sha256"],
+                "first_pass_sequence": 1,
+                "second_pass_sequence": 2,
+                "second_pass_heading": "独立小袋包装",
+                "second_pass_excerpt": "外出拿取更清楚",
+                "second_pass_status": "match",
+                "second_pass_at": first_image_second_pass_at.isoformat(),
+            },
+            {
+                "observation_id": "OBS-005",
+                "source_file_id": inventory_ids["详情页工艺图.svg"],
+                "relative_path": "详情页工艺图.svg",
+                "content_type": "product_page_image",
+                "title": "虚构详情页工艺图",
+                "visible_heading": "虚构工艺说明",
+                "visible_text_excerpt": "仅作图片审计测试",
+                "inspection_method": "visual_stamped_card",
+                "inspection_status": "inspected",
+                "inspected_at": second_image_first_pass_at.isoformat(),
+                "audit_card_sha256": audit_cards[inventory_ids["详情页工艺图.svg"]]["audit_card_sha256"],
+                "first_pass_sequence": 2,
+                "second_pass_sequence": 1,
+                "second_pass_heading": "虚构工艺说明",
+                "second_pass_excerpt": "仅作图片审计测试",
+                "second_pass_status": "match",
+                "second_pass_at": second_pass_at.isoformat(),
             },
         ],
     )
@@ -132,6 +215,30 @@ def populate_valid_partial(delivery: Path) -> None:
                 "sku_scope": "示例规格A",
                 "status": "active",
                 "notes": "仅用于动态日期一致性测试",
+            },
+            {
+                "source_id": "SRC-004",
+                "source_file_id": inventory_ids["详情页主图.svg"],
+                "observation_id": "OBS-004",
+                "source_type": "product_page_image",
+                "title": "虚构详情页主图",
+                "locator": "详情页主图.svg｜带身份审计卡",
+                "captured_at": timestamp,
+                "sku_scope": "示例规格A",
+                "status": "active",
+                "notes": "仅用于离线图片审计测试",
+            },
+            {
+                "source_id": "SRC-005",
+                "source_file_id": inventory_ids["详情页工艺图.svg"],
+                "observation_id": "OBS-005",
+                "source_type": "product_page_image",
+                "title": "虚构详情页工艺图",
+                "locator": "详情页工艺图.svg｜带身份审计卡",
+                "captured_at": timestamp,
+                "sku_scope": "示例规格A",
+                "status": "active",
+                "notes": "仅用于离线图片审计测试",
             },
         ],
     )
@@ -335,6 +442,8 @@ def test_partial_delivery(root: Path) -> None:
     plan = build_plan(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
     assert plan["dry_run"] is True
     assert "data/source_inventory.jsonl" in plan["will_create"]
+    assert "data/source_audit_card_ledger.jsonl" in plan["will_create"]
+    assert "data/source_audit_cards/" in plan["will_create"]
     assert "data/source_observation.jsonl" in plan["will_create"]
     assert "data/fabe_ledger.jsonl" in plan["will_create"]
     assert not delivery.exists(), "Dry Run 计划不应创建目录"
@@ -436,7 +545,7 @@ def test_dynamic_and_semantic_guardrails(root: Path) -> None:
     assert traceability_broken["status"] == "failed"
     assert any("真实 relative_path" in error for error in traceability_broken["errors"])
     assert any("具体次数" in error for error in traceability_broken["errors"])
-    assert any("原件或官方验证页定位" in error for error in traceability_broken["errors"])
+    assert any("含精确证据值" in error for error in traceability_broken["errors"])
     assert any("全 SKU" in error for error in traceability_broken["errors"])
 
 
@@ -463,30 +572,91 @@ def test_visual_observation_and_evidence_boundaries(root: Path) -> None:
             "fact_id": "F-002",
             "fact_type": "F-EVIDENCE",
             "statement": "页面图片展示某项检测为未检出。",
-            "source_id": "SRC-001",
-            "locator": "商品包装.txt｜页面内嵌检测图",
+            "source_id": "SRC-004",
+            "locator": "详情页主图.svg｜页面内嵌检测图",
             "sku_scope": "示例规格A",
             "time_scope": "当前页面版本",
             "status": "confirmed",
-            "boundary": "仅保留页面可辨识的大字结论。",
+            "boundary": "仅保留页面可辨识的大字结论；报告编号 VHYF20250004-01 未经原件核验。",
             "evidence_detail_confidence": "high",
             "exact_fields_verified": True,
-            "verification_locator": "商品包装.txt",
+            "verification_locator": "详情页主图.svg",
         }
     )
     write_jsonl(fact_path, facts)
-    observations[0]["inspection_method"] = "visual_exact_file"
-    write_jsonl(observation_path, observations)
-    inventory_path = delivery / "data" / "source_inventory.jsonl"
-    inventory = read_jsonl(inventory_path)
-    inventory_by_id = {item["source_file_id"]: item for item in inventory}
-    inventory_by_id[observations[0]["source_file_id"]]["media_type"] = "image/jpeg"
-    write_jsonl(inventory_path, inventory)
     build_delivery(delivery, write=True)
     image_exact = validate_delivery(delivery)
     assert image_exact["status"] == "failed"
     assert any("页面图片，不得设置 exact_fields_verified=true" in error for error in image_exact["errors"])
     assert any("证据细节可信度最高只能是 medium" in error for error in image_exact["errors"])
+    assert any("不得在任何字段抄录" in error for error in image_exact["errors"])
+
+    facts.pop()
+    facts.append(
+        {
+            "fact_id": "F-002",
+            "fact_type": "F-PAGE",
+            "statement": "报告编号 VHYF20250004-01。",
+            "source_id": "SRC-004",
+            "locator": "详情页主图.svg",
+            "sku_scope": "示例规格A",
+            "time_scope": "当前页面版本",
+            "status": "confirmed",
+            "boundary": "仅用于测试事实类型绕过。",
+        }
+    )
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    wrong_fact_type = validate_delivery(delivery)
+    assert wrong_fact_type["status"] == "failed"
+    assert any("必须改为原件级 F-EVIDENCE" in error for error in wrong_fact_type["errors"])
+    facts.pop()
+    write_jsonl(fact_path, facts)
+    image_observation = next(item for item in observations if item["observation_id"] == "OBS-004")
+    original_card_hash = image_observation["audit_card_sha256"]
+    image_observation["audit_card_sha256"] = "0" * 64
+    write_jsonl(observation_path, observations)
+    wrong_binding = validate_delivery(delivery)
+    assert wrong_binding["status"] == "failed"
+    assert any("audit_card_sha256" in error for error in wrong_binding["errors"])
+
+    image_observation["audit_card_sha256"] = original_card_hash
+    image_observation["visible_text_excerpt"] = "报告编号 VHYF20250004-01"
+    image_observation["second_pass_excerpt"] = "报告编号 VHYF20250004-01"
+    write_jsonl(observation_path, observations)
+    exact_smuggling = validate_delivery(delivery)
+    assert exact_smuggling["status"] == "failed"
+    assert any("不得在逐图观察中抄录" in error for error in exact_smuggling["errors"])
+
+    image_observation["visible_text_excerpt"] = "外出拿取更清楚"
+    image_observation["second_pass_excerpt"] = "外出拿取更清楚"
+    write_jsonl(observation_path, observations)
+    card_path = delivery / "data" / "source_audit_cards" / f"{image_observation['source_file_id']}.svg"
+    original_card = card_path.read_bytes()
+    card_path.write_bytes(original_card + b"\n")
+    tampered_card = validate_delivery(delivery)
+    assert tampered_card["status"] == "failed"
+    assert any("审计卡 SHA-256" in error for error in tampered_card["errors"])
+    card_path.write_bytes(original_card)
+
+    second_image_observation = next(item for item in observations if item["observation_id"] == "OBS-005")
+    original_second_first_at = second_image_observation["inspected_at"]
+    second_image_observation["inspected_at"] = image_observation["inspected_at"]
+    write_jsonl(observation_path, observations)
+    batch_timestamp = validate_delivery(delivery)
+    assert batch_timestamp["status"] == "failed"
+    assert any("不能批量填入同一时间" in error for error in batch_timestamp["errors"])
+    second_image_observation["inspected_at"] = original_second_first_at
+    write_jsonl(observation_path, observations)
+
+    gap_path = delivery / "data" / "gap_ledger.jsonl"
+    gaps = read_jsonl(gap_path)
+    gaps[0]["minimum_needed"] = "补充报告编号 VHYF20250004-01 对应的原件"
+    write_jsonl(gap_path, gaps)
+    build_delivery(delivery, write=True)
+    leaked_exact_value = validate_delivery(delivery)
+    assert leaked_exact_value["status"] == "failed"
+    assert any("未由原件级 F-EVIDENCE" in error for error in leaked_exact_value["errors"])
 
 
 def test_fabe_and_public_copy_guardrails(root: Path) -> None:
@@ -514,6 +684,18 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     assert any("无添加或无防腐剂" in error for error in semantic_broken["errors"])
     assert any("缺少竞品或行业对照" in error for error in semantic_broken["errors"])
     assert any("笼统安全结论" in error for error in semantic_broken["errors"])
+
+    values[0]["value_statement"] = "让外出携带更省一步准备。"
+    write_jsonl(value_path, values)
+    decision_path = delivery / "data" / "p0_decision.json"
+    decision = read_json(decision_path)
+    decision["public_rationale"] = "该卖点出现次数最多、覆盖页面最广，很多用户不知道如何携带。"
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    p0_broken = validate_delivery(delivery)
+    assert p0_broken["status"] == "failed"
+    assert any("不能决定 P0" in error for error in p0_broken["errors"])
+    assert any("不能声称很多或多数用户" in error for error in p0_broken["errors"])
 
 
 def test_insufficient_delivery(root: Path) -> None:

@@ -47,6 +47,8 @@ def build_plan(
             "02_资料说明与缺口.md",
             "data/product_manifest.json",
             "data/source_inventory.jsonl",
+            "data/source_audit_card_ledger.jsonl",
+            "data/source_audit_cards/",
             "data/source_observation.jsonl",
             "data/source_ledger.jsonl",
             "data/fact_ledger.jsonl",
@@ -80,6 +82,7 @@ def init_delivery(
 
     data = out / "data"
     data.mkdir(parents=True, exist_ok=True)
+    (data / "source_audit_cards").mkdir(parents=True, exist_ok=True)
     timestamp = now_iso()
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -121,6 +124,7 @@ def init_delivery(
     write_json(data / "product_manifest.json", manifest)
     for filename in (
         "source_inventory.jsonl",
+        "source_audit_card_ledger.jsonl",
         "source_observation.jsonl",
         "source_ledger.jsonl",
         "fact_ledger.jsonl",
