@@ -81,6 +81,19 @@ STATUS_ZH = {
     "U": "用户原声",
     "EX": "页面表达",
     "H": "分析推导",
+    "FC0": "商品事实不足",
+    "FC1": "商品事实初步可用",
+    "FC2": "商品事实较完整",
+    "FC3": "商品事实完整且有多源核对",
+    "SC0": "暂无战略信息",
+    "SC1": "有初步方向",
+    "SC2": "战略信息较完整",
+    "SC3": "战略信息完整且已验证",
+    "PKG-L0": "当前不可用",
+    "PKG-L1": "仅可补资料",
+    "PKG-L2": "可形成初步底座",
+    "PKG-L3": "可形成有条件底座",
+    "PKG-L4": "可正式调用",
 }
 
 INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
@@ -104,6 +117,19 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     text = re.sub(r"^[,/;+、，;；:：\s]+", "", text)
     text = re.sub(r"^\s*>\s*", "", text)
     text = re.sub(r"([；;])\s*>\s*", r"\1", text)
+    replacements = {
+        "HYPOTHESIS": "优先验证假设",
+        "SELECTED": "当前业务选择",
+        "VALIDATING": "验证中",
+        "evidence_detail_confidence": "证据细节可信度",
+        "exact_fields_verified": "精确字段已核验",
+        "source_inventory.jsonl": "来源文件清单",
+        "sku_status=partial": "SKU 状态为部分确认",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    text = re.sub(r"[（(]\s*(?:→\s*)+[)）]", "", text)
+    text = re.sub(r"→\s*→+", "→", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
@@ -155,6 +181,7 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
         "paths": paths,
         "manifest": read_json(paths["manifest"]),
         "source_inventory": read_jsonl(paths["source_inventory"]),
+        "source_observations": read_jsonl(paths["source_observations"]),
         "sources": read_jsonl(paths["sources"]),
         "facts": read_jsonl(paths["facts"]),
         "fabe": read_jsonl(paths["fabe"]),
@@ -185,10 +212,12 @@ def build_report_01(data: dict[str, Any]) -> str:
         "P0-VALIDATING",
         "P0-REOPEN",
     } else "当前核心价值"
-    p0_note = decision.get("rationale") or "当前资料尚不足以形成明确判断。"
-    limitations = list(
-        dict.fromkeys(list(manifest.get("limitations") or []) + list(decision.get("cannot_prove") or []))
-    )
+    p0_note = decision.get("public_rationale") or "当前资料尚不足以形成明确判断。"
+    limitations = list(dict.fromkeys(list(manifest.get("limitations") or [])))
+    cannot_prove = list(dict.fromkeys(list(decision.get("cannot_prove") or [])))
+
+    def visible_value(item: dict[str, Any]) -> bool:
+        return item.get("layer") != "deferred" and item.get("downstream_readiness") != "blocked"
 
     anchors_rows = [
         [label(item.get("anchor_type")), item.get("statement"), label(item.get("status")), item.get("boundary")]
@@ -196,7 +225,7 @@ def build_report_01(data: dict[str, Any]) -> str:
     ]
     task_rows = []
     for item in values:
-        if item.get("layer") == "deferred":
+        if not visible_value(item):
             continue
         chain = (fabe_by_value.get(str(item.get("value_id"))) or [{}])[0]
         task_rows.append(
@@ -211,7 +240,7 @@ def build_report_01(data: dict[str, Any]) -> str:
 
     fabe_rows = []
     for item in values:
-        if item.get("layer") == "deferred":
+        if not visible_value(item):
             continue
         for chain in fabe_by_value.get(str(item.get("value_id"))) or []:
             fabe_rows.append(
@@ -235,10 +264,13 @@ def build_report_01(data: dict[str, Any]) -> str:
             label(item.get("downstream_readiness")),
         ]
         for item in values
+        if visible_value(item)
     ]
     candidate_rows = []
     for value_id in decision.get("candidate_value_ids") or []:
         item = values_by_id.get(value_id, {})
+        if not visible_value(item):
+            continue
         candidate_rows.append(
             [
                 item.get("value_statement"),
@@ -249,8 +281,8 @@ def build_report_01(data: dict[str, Any]) -> str:
             ]
         )
 
-    p1_values = [item for item in values if item.get("layer") == "P1"]
-    p2_values = [item for item in values if item.get("layer") == "P2"]
+    p1_values = [item for item in values if item.get("layer") == "P1" and visible_value(item)]
+    p2_values = [item for item in values if item.get("layer") == "P2" and visible_value(item)]
     dyn_facts = [item for item in facts if item.get("fact_type") == "DYN"]
     anchor_summary = "；".join(str(item.get("statement")) for item in data["anchors"]) or "尚未形成识别锚"
     p1_summary = "；".join(str(item.get("value_statement")) for item in p1_values) or "暂无购买支撑"
@@ -351,6 +383,10 @@ P0 是优先记住和选择的核心价值，P1 帮助理解与完成选择，P2
 
 {public_bullet_lines(limitations, '暂无额外限制；仍须遵守原始证据范围')}
 
+### 当前资料不能证明
+
+{public_bullet_lines(cannot_prove, '暂无额外未证事项；仍不得超出已登记事实')}
+
 ### 优先补充资料
 
 {public_bullet_lines(next_steps, '暂无高优先级补充项')}
@@ -424,9 +460,9 @@ def build_report_02(data: dict[str, Any]) -> str:
 
 ## 输入成熟度
 
-- 商品事实完整度：{md(manifest.get('fc'))}
-- 战略信息完整度：{md(manifest.get('sc'))}
-- 综合可用程度：{md(manifest.get('pkg_level'))}
+- 商品事实完整度：{label(manifest.get('fc'))}
+- 战略信息完整度：{label(manifest.get('sc'))}
+- 综合可用程度：{label(manifest.get('pkg_level'))}
 
 成熟度只描述本次输入的可用程度，不表示商品真实效果、竞争优势或市场表现。
 
@@ -467,6 +503,7 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
         "delivery": str(delivery.resolve()),
         "counts": {
             "source_files": len(data["source_inventory"]),
+            "source_observations": len(data["source_observations"]),
             "sources": len(data["sources"]),
             "facts": len(data["facts"]),
             "fabe": len(data["fabe"]),

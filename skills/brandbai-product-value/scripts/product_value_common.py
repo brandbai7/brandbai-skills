@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.1.2"
-SKILL_VERSION = "0.1.3"
+SCHEMA_VERSION = "0.1.3"
+SKILL_VERSION = "0.1.4"
 
 INPUT_MODES = {
     "link",
@@ -48,6 +48,7 @@ P0_STATUSES = {
 DATA_FILES = (
     "product_manifest.json",
     "source_inventory.jsonl",
+    "source_observation.jsonl",
     "source_ledger.jsonl",
     "fact_ledger.jsonl",
     "fabe_ledger.jsonl",
@@ -138,6 +139,7 @@ def delivery_paths(delivery: Path) -> dict[str, Path]:
     return {
         "manifest": data / "product_manifest.json",
         "source_inventory": data / "source_inventory.jsonl",
+        "source_observations": data / "source_observation.jsonl",
         "sources": data / "source_ledger.jsonl",
         "facts": data / "fact_ledger.jsonl",
         "fabe": data / "fabe_ledger.jsonl",

@@ -62,9 +62,22 @@ SOURCE_INVENTORY_FIELDS = {
     "sha256",
     "status",
 }
+SOURCE_OBSERVATION_FIELDS = {
+    "observation_id",
+    "source_file_id",
+    "relative_path",
+    "content_type",
+    "title",
+    "visible_heading",
+    "visible_text_excerpt",
+    "inspection_method",
+    "inspection_status",
+    "inspected_at",
+}
 SOURCE_FIELDS = {
     "source_id",
     "source_file_id",
+    "observation_id",
     "source_type",
     "title",
     "locator",
@@ -74,7 +87,7 @@ SOURCE_FIELDS = {
     "notes",
 }
 FACT_FIELDS = {"fact_id", "fact_type", "statement", "source_id", "locator", "sku_scope", "time_scope", "status", "boundary"}
-EVIDENCE_FACT_FIELDS = {"evidence_detail_confidence", "exact_fields_verified"}
+EVIDENCE_FACT_FIELDS = {"evidence_detail_confidence", "exact_fields_verified", "verification_locator"}
 FABE_FIELDS = {
     "fabe_id",
     "value_id",
@@ -112,6 +125,7 @@ DECISION_FIELDS = {
     "recommended_value_id",
     "status",
     "rationale",
+    "public_rationale",
     "current_execution_axis",
     "cannot_prove",
     "validation_questions",
@@ -129,6 +143,11 @@ RISKY_INFERENCE_RULES = (
     (re.compile(r"(?:滋养|滋补)(?:收益|功效|效果)"), "食品商品价值不得预设未经资料支持的滋养收益或功效"),
     (re.compile(r"第三方(?:安全)?检测背书"), "页面展示的检测报告应写成支持该页面主张，不写成笼统背书"),
     (re.compile(r"无刺激"), "不得把页面中的入口温和或去麻描述扩大为无刺激"),
+    (re.compile(r"安全(?:底线|指标)"), "检测结果应写具体项目和页面主张，不能扩大为笼统安全结论"),
+    (re.compile(r"(?:健康的食物|健康的食品|健康的零食|送健康)"), "不得把食品价值笼统改写为健康承诺"),
+    (re.compile(r"不产生咀嚼噪音|没有咀嚼噪音|无强烈气味"), "资料未证明咀嚼噪音或气味体验"),
+    (re.compile(r"不需(?:要)?冰箱|无需特殊(?:保存|贮存)条件|常温放一年都没事|长期存放和食用"), "不得扩大或冲突于页面储存条件"),
+    (re.compile(r"非根茎"), "不得把加工后形态误写成原料并非根茎"),
 )
 EXPIRY_WORDS_RE = re.compile(r"已过期|已经过期|时效性过期")
 DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
@@ -143,6 +162,15 @@ QUANTIFIED_STEAM_DRY_RE = re.compile(
 EXACT_EVIDENCE_FIELD_RE = re.compile(
     r"报告(?:编号|号)|发布日期|签发日期|报告日期|检测日期|证书编号|批次号|生产批号|证书日期"
 )
+NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
+ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
+PUBLIC_JARGON_RE = re.compile(
+    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|sku_status=partial",
+    re.IGNORECASE,
+)
+OBSERVATION_METHODS = {"visual_exact_file", "document_text", "official_url"}
+OBSERVATION_STATUSES = {"inspected", "unreadable", "not_applicable"}
+COMPETITOR_SOURCE_TYPES = {"competitor_page", "industry_report", "competitor_dataset"}
 
 
 def parse_reference_date(value: Any) -> date | None:
@@ -199,7 +227,7 @@ def iter_analysis_texts(
         )
     texts.extend(
         (f"p0_decision.{key}", str(decision.get(key, "")))
-        for key in ("rationale", "current_execution_axis")
+        for key in ("rationale", "public_rationale", "current_execution_axis")
     )
     return texts
 
@@ -240,6 +268,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     try:
         manifest = read_json(paths["manifest"])
         source_inventory = read_jsonl(paths["source_inventory"])
+        source_observations = read_jsonl(paths["source_observations"])
         sources = read_jsonl(paths["sources"])
         facts = read_jsonl(paths["facts"])
         fabe = read_jsonl(paths["fabe"])
@@ -259,6 +288,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     counts = {
         "source_files": len(source_inventory),
+        "source_observations": len(source_observations),
         "sources": len(sources),
         "facts": len(facts),
         "fabe": len(fabe),
@@ -305,6 +335,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     ledger_specs = (
         ("source_inventory", source_inventory, "source_file_id", SOURCE_INVENTORY_FIELDS, r"SF-\d{3,}"),
+        ("source_observation", source_observations, "observation_id", SOURCE_OBSERVATION_FIELDS, r"OBS-\d{3,}"),
         ("source_ledger", sources, "source_id", SOURCE_FIELDS, r"SRC-\d{3,}"),
         ("fact_ledger", facts, "fact_id", FACT_FIELDS, r"(?:F|STRAT|DYN|U|EX|H)-\d{3,}"),
         ("fabe_ledger", fabe, "fabe_id", FABE_FIELDS, r"FABE-\d{3,}"),
@@ -339,9 +370,40 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if item.get("status") != "indexed":
             errors.append(f"{source_file_id} 的 status 必须是 indexed")
 
+    observations_by_id = {item.get("observation_id"): item for item in source_observations}
+    observations_by_file_id: dict[str, list[dict[str, Any]]] = {}
+    for observation in source_observations:
+        observation_id = str(observation.get("observation_id", ""))
+        source_file_id = str(observation.get("source_file_id", ""))
+        indexed = source_files_by_id.get(source_file_id)
+        if indexed is None:
+            errors.append(f"{observation_id} 引用了不存在的 source_file_id: {source_file_id}")
+        else:
+            if observation.get("relative_path") != indexed.get("relative_path"):
+                errors.append(f"{observation_id} 的 relative_path 与 {source_file_id} 不一致")
+        observations_by_file_id.setdefault(source_file_id, []).append(observation)
+        if observation.get("inspection_method") not in OBSERVATION_METHODS:
+            errors.append(f"{observation_id} 的 inspection_method 不在允许范围")
+        if observation.get("inspection_status") not in OBSERVATION_STATUSES:
+            errors.append(f"{observation_id} 的 inspection_status 不在允许范围")
+        if observation.get("inspection_status") == "inspected":
+            for key in ("content_type", "title", "visible_heading", "visible_text_excerpt", "inspected_at"):
+                if not str(observation.get(key, "")).strip():
+                    errors.append(f"{observation_id} 已标记 inspected，但 {key} 为空")
+        if indexed and str(indexed.get("media_type", "")).startswith("image/"):
+            if observation.get("inspection_status") == "inspected" and observation.get("inspection_method") != "visual_exact_file":
+                errors.append(f"{observation_id} 是图片来源，必须逐个打开原文件并使用 visual_exact_file")
+    for source_file_id, records in observations_by_file_id.items():
+        if len(records) > 1:
+            errors.append(f"{source_file_id} 存在多条逐文件核对记录；每个原文件只能保留一条当前记录")
+    for source_file_id in source_files_by_id:
+        if source_file_id not in observations_by_file_id:
+            errors.append(f"{source_file_id} 尚无逐文件核对记录；清单中的每个文件都必须先检查或明确标记不可读")
+
     for source in sources:
         source_id = str(source.get("source_id", ""))
         source_file_id = str(source.get("source_file_id", "")).strip()
+        observation_id = str(source.get("observation_id", "")).strip()
         locator = str(source.get("locator", "")).strip()
         if source_file_id:
             indexed = source_files_by_id.get(source_file_id)
@@ -349,8 +411,26 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{source_id} 引用了不存在的 source_file_id: {source_file_id}")
             elif str(indexed.get("relative_path", "")) not in locator:
                 errors.append(f"{source_id} 的 locator 必须保留 {source_file_id} 的真实 relative_path")
+            observation = observations_by_id.get(observation_id)
+            if observation is None:
+                errors.append(f"{source_id} 必须绑定该原文件的 observation_id")
+            else:
+                if observation.get("source_file_id") != source_file_id:
+                    errors.append(f"{source_id} 的 observation_id 与 source_file_id 不一致")
+                if observation.get("inspection_status") != "inspected":
+                    errors.append(f"{source_id} 绑定的 {observation_id} 尚未完成逐文件核对")
+                if str(source.get("title", "")).strip() != str(observation.get("title", "")).strip():
+                    errors.append(f"{source_id} 的 title 必须与 {observation_id} 的逐文件核对标题完全一致")
+            if indexed and str(indexed.get("media_type", "")).startswith("image/"):
+                source_text = " ".join(str(source.get(key, "")) for key in ("title", "notes"))
+                if EXACT_EVIDENCE_FIELD_RE.search(source_text):
+                    errors.append(f"{source_id} 是页面图片，不得在来源标题或备注中自证报告编号、日期、批次等精确字段")
         elif not URL_RE.match(locator):
             errors.append(f"{source_id} 是本地来源时必须绑定 source_file_id；仅 URL 来源可留空")
+        elif observation_id:
+            observation = observations_by_id.get(observation_id)
+            if observation is None or observation.get("inspection_method") != "official_url":
+                errors.append(f"{source_id} 的 URL observation_id 必须绑定 official_url 核对记录")
 
     source_ids = {item.get("source_id") for item in sources}
     sources_by_id = {item.get("source_id"): item for item in sources}
@@ -382,15 +462,36 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{fact_id} 是证据事实，缺少字段: {', '.join(evidence_missing)}")
             confidence = fact.get("evidence_detail_confidence")
             exact_fields_verified = fact.get("exact_fields_verified")
+            verification_locator = str(fact.get("verification_locator", "")).strip()
             if confidence not in {"high", "medium", "low"}:
                 errors.append(f"{fact_id} 的 evidence_detail_confidence 必须是 high/medium/low")
             if not isinstance(exact_fields_verified, bool):
                 errors.append(f"{fact_id} 的 exact_fields_verified 必须是布尔值")
+            source = sources_by_id.get(source_id, {})
+            source_file = source_files_by_id.get(source.get("source_file_id"), {})
+            observation = observations_by_id.get(source.get("observation_id"), {})
+            media_type = str(source_file.get("media_type", ""))
+            inspection_method = observation.get("inspection_method")
+            page_image = media_type.startswith("image/")
+            if page_image:
+                if exact_fields_verified is True:
+                    errors.append(f"{fact_id} 来自页面图片，不得设置 exact_fields_verified=true")
+                if confidence == "high":
+                    errors.append(f"{fact_id} 来自页面图片，证据细节可信度最高只能是 medium")
+            if exact_fields_verified is True:
+                source_is_official_url = URL_RE.match(str(source.get("locator", ""))) is not None
+                if inspection_method != "document_text" and not source_is_official_url:
+                    errors.append(f"{fact_id} 的精确字段只有报告原件/PDF或官方验证页可以核验")
+                if not verification_locator:
+                    errors.append(f"{fact_id} 设置 exact_fields_verified=true 时必须填写 verification_locator")
+                elif source_is_official_url and not URL_RE.match(verification_locator):
+                    errors.append(f"{fact_id} 来自官方验证页时 verification_locator 必须是完整 URL")
             exact_text = f"{fact.get('statement', '')} {fact.get('locator', '')}"
-            if EXACT_EVIDENCE_FIELD_RE.search(exact_text) and not (
-                confidence == "high" and exact_fields_verified is True
-            ):
-                errors.append(f"{fact_id} 含报告编号、日期、批次等精确字段，必须 high 且 exact_fields_verified=true")
+            if EXACT_EVIDENCE_FIELD_RE.search(exact_text):
+                if page_image:
+                    errors.append(f"{fact_id} 来自页面图片，不得抄录报告编号、日期、批次等小字精确字段")
+                elif not (confidence == "high" and exact_fields_verified is True and verification_locator):
+                    errors.append(f"{fact_id} 含报告编号、日期、批次等精确字段，必须有原件或官方验证页定位")
         if QUANTIFIED_STEAM_DRY_RE.search(str(fact.get("statement", ""))):
             source = sources_by_id.get(source_id, {})
             source_text = " ".join(
@@ -453,6 +554,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{fabe_id} 的 {key} 为空")
         if item.get("derivation_status") not in allowed_derivation_statuses:
             errors.append(f"{fabe_id} 的 derivation_status 必须是 page_supported/reasoned/to_validate")
+        if item.get("derivation_status") == "page_supported":
+            feature_ids = set(item.get("feature_fact_ids") or [])
+            evidence_ids = set(item.get("evidence_fact_ids") or [])
+            if not feature_ids.intersection(evidence_ids):
+                errors.append(f"{fabe_id} 标记页面直接支持时，Evidence 必须至少包含一条 Feature 的直接事实")
 
     allowed_axis = {"high", "medium", "low", "unknown"}
     for value in values:
@@ -511,6 +617,16 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         for pattern, explanation in RISKY_INFERENCE_RULES:
             if pattern.search(text):
                 errors.append(f"{location} 存在越界表达：{explanation}")
+        if NO_ADDITIVE_RE.search(text):
+            has_direct_claim = any(
+                fact.get("fact_type") == "F-PAGE" and NO_ADDITIVE_RE.search(str(fact.get("statement", "")))
+                for fact in facts
+            )
+            if not has_direct_claim:
+                errors.append(f"{location} 存在越界表达：配料表只有一种原料不自动等于无添加或无防腐剂")
+        if ABSOLUTE_COMPETITION_RE.search(text):
+            if not any(source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources):
+                errors.append(f"{location} 存在越界表达：缺少竞品或行业对照，不能写最强、唯一、独有或领先")
 
     p0_values = [item for item in values if item.get("layer") == "P0"]
     if len(p0_values) > 1:
@@ -527,6 +643,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("decision_id 格式无效")
     if decision.get("status") not in P0_STATUSES:
         errors.append("P0 决策状态不在允许范围")
+    if not str(decision.get("public_rationale", "")).strip() and decision.get("recommended_value_id"):
+        errors.append("已有推荐 P0 时 public_rationale 不得为空")
+    if INTERNAL_ID_RE.search(str(decision.get("public_rationale", ""))):
+        errors.append("public_rationale 不得包含内部资产 ID")
+    if PUBLIC_JARGON_RE.search(str(decision.get("public_rationale", ""))):
+        errors.append("public_rationale 不得包含内部英文字段或技术状态")
     candidate_ids = decision.get("candidate_value_ids")
     if not isinstance(candidate_ids, list):
         errors.append("candidate_value_ids 必须是数组")
@@ -545,6 +667,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append("P0 推荐值不在 candidate_value_ids 中")
             if values_by_id[recommended_id].get("layer") != "P0":
                 errors.append("P0 推荐值的 layer 必须是 P0")
+            if values_by_id[recommended_id].get("downstream_readiness") == "blocked":
+                errors.append("P0 推荐值不得是 downstream_readiness=blocked")
 
     analysis_status = manifest.get("analysis_status")
     delivery_status = manifest.get("delivery_status")
@@ -599,6 +723,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 含隐藏内部 ID 后遗留的异常标点")
         if re.search(r"\|\s*>[^|\r\n]*\|", text):
             errors.append(f"{paths[report_key].name} 的表格单元格含多余的 > 符号")
+        if re.search(r"→\s*→|[（(]\s*(?:→\s*)+[)）]", text):
+            errors.append(f"{paths[report_key].name} 含删除内部 ID 后残留的箭头或空括号")
+        if PUBLIC_JARGON_RE.search(text):
+            errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
 
     return {
         "status": "passed" if not errors else "failed",

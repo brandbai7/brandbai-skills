@@ -25,12 +25,54 @@ def populate_valid_partial(delivery: Path) -> None:
     dry_run = index_sources(source_dir, delivery, write=False)
     assert dry_run["status"] == "dry_run"
     assert read_jsonl(data / "source_inventory.jsonl") == []
+    assert read_jsonl(data / "source_observation.jsonl") == []
     indexed = index_sources(source_dir, delivery, write=True)
     assert indexed["file_count"] == 3
     inventory_ids = {
         item["filename"]: item["source_file_id"]
         for item in read_jsonl(data / "source_inventory.jsonl")
     }
+    write_jsonl(
+        data / "source_observation.jsonl",
+        [
+            {
+                "observation_id": "OBS-001",
+                "source_file_id": inventory_ids["商品包装.txt"],
+                "relative_path": "商品包装.txt",
+                "content_type": "packaging",
+                "title": "虚构商品包装信息",
+                "visible_heading": "独立小袋包装",
+                "visible_text_excerpt": "独立小袋包装",
+                "inspection_method": "document_text",
+                "inspection_status": "inspected",
+                "inspected_at": timestamp,
+            },
+            {
+                "observation_id": "OBS-002",
+                "source_file_id": inventory_ids["品牌方向.txt"],
+                "relative_path": "品牌方向.txt",
+                "content_type": "brand_brief",
+                "title": "虚构品牌方向说明",
+                "visible_heading": "外出携带",
+                "visible_text_excerpt": "外出携带",
+                "inspection_method": "document_text",
+                "inspection_status": "inspected",
+                "inspected_at": timestamp,
+            },
+            {
+                "observation_id": "OBS-003",
+                "source_file_id": inventory_ids["活动信息.txt"],
+                "relative_path": "活动信息.txt",
+                "content_type": "promotion",
+                "title": "虚构限时活动信息",
+                "visible_heading": "虚构活动日期",
+                "visible_text_excerpt": "虚构活动日期",
+                "inspection_method": "document_text",
+                "inspection_status": "inspected",
+                "inspected_at": timestamp,
+            },
+        ],
+    )
     try:
         index_sources(source_dir, delivery, write=True)
     except FileExistsError:
@@ -58,6 +100,7 @@ def populate_valid_partial(delivery: Path) -> None:
             {
                 "source_id": "SRC-001",
                 "source_file_id": inventory_ids["商品包装.txt"],
+                "observation_id": "OBS-001",
                 "source_type": "product_page_image",
                 "title": "虚构商品包装信息",
                 "locator": "商品包装.txt｜包装正面与背面",
@@ -69,6 +112,7 @@ def populate_valid_partial(delivery: Path) -> None:
             {
                 "source_id": "SRC-002",
                 "source_file_id": inventory_ids["品牌方向.txt"],
+                "observation_id": "OBS-002",
                 "source_type": "brief",
                 "title": "虚构品牌方向说明",
                 "locator": "品牌方向.txt｜第1段",
@@ -80,6 +124,7 @@ def populate_valid_partial(delivery: Path) -> None:
             {
                 "source_id": "SRC-003",
                 "source_file_id": inventory_ids["活动信息.txt"],
+                "observation_id": "OBS-003",
                 "source_type": "promotion_banner",
                 "title": "虚构限时活动信息",
                 "locator": "活动信息.txt｜活动图片",
@@ -260,6 +305,7 @@ def populate_valid_partial(delivery: Path) -> None:
             "recommended_value_id": "V-001",
             "status": "P0-HYPOTHESIS",
             "rationale": "V-001的外出准备任务与品牌方向一致；相比V-002仍缺少用户和竞争验证。",
+            "public_rationale": "外出前少一步分装与品牌当前方向一致，但仍需真实用户和同类商品对照验证。",
             "current_execution_axis": "先说明独立小袋如何减少外出前的分装步骤。",
             "cannot_prove": ["不能写成消费者已经认可的核心心智。"],
             "validation_questions": ["目标用户是否真实存在临时分装负担？", "同类商品是否普遍采用相同结构？"],
@@ -289,6 +335,7 @@ def test_partial_delivery(root: Path) -> None:
     plan = build_plan(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
     assert plan["dry_run"] is True
     assert "data/source_inventory.jsonl" in plan["will_create"]
+    assert "data/source_observation.jsonl" in plan["will_create"]
     assert "data/fabe_ledger.jsonl" in plan["will_create"]
     assert not delivery.exists(), "Dry Run 计划不应创建目录"
     init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
@@ -313,7 +360,8 @@ def test_partial_delivery(root: Path) -> None:
     assert "见F-001" not in report
     assert "的外出准备任务" not in report
     assert "参见；" not in report
-    assert "与其他候选相比仍缺少" in report
+    assert "仍需真实用户和同类商品对照验证" in report
+    assert "当前资料不能证明" in report
     assert "| >口感" not in report
     assert "(,)" not in report
     assert "(/)" not in report
@@ -373,6 +421,7 @@ def test_dynamic_and_semantic_guardrails(root: Path) -> None:
             "boundary": "精确编号仍需报告原件复核。",
             "evidence_detail_confidence": "medium",
             "exact_fields_verified": False,
+            "verification_locator": "",
         }
     )
     write_jsonl(fact_path, facts)
@@ -387,8 +436,84 @@ def test_dynamic_and_semantic_guardrails(root: Path) -> None:
     assert traceability_broken["status"] == "failed"
     assert any("真实 relative_path" in error for error in traceability_broken["errors"])
     assert any("具体次数" in error for error in traceability_broken["errors"])
-    assert any("exact_fields_verified=true" in error for error in traceability_broken["errors"])
+    assert any("原件或官方验证页定位" in error for error in traceability_broken["errors"])
     assert any("全 SKU" in error for error in traceability_broken["errors"])
+
+
+def test_visual_observation_and_evidence_boundaries(root: Path) -> None:
+    delivery = root / "visual-evidence"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+
+    observation_path = delivery / "data" / "source_observation.jsonl"
+    observations = read_jsonl(observation_path)
+    observations[0]["title"] = "与来源台账不一致的标题"
+    write_jsonl(observation_path, observations)
+    mismatch = validate_delivery(delivery)
+    assert mismatch["status"] == "failed"
+    assert any("逐文件核对标题完全一致" in error for error in mismatch["errors"])
+
+    observations[0]["title"] = "虚构商品包装信息"
+    write_jsonl(observation_path, observations)
+    fact_path = delivery / "data" / "fact_ledger.jsonl"
+    facts = read_jsonl(fact_path)
+    facts.append(
+        {
+            "fact_id": "F-002",
+            "fact_type": "F-EVIDENCE",
+            "statement": "页面图片展示某项检测为未检出。",
+            "source_id": "SRC-001",
+            "locator": "商品包装.txt｜页面内嵌检测图",
+            "sku_scope": "示例规格A",
+            "time_scope": "当前页面版本",
+            "status": "confirmed",
+            "boundary": "仅保留页面可辨识的大字结论。",
+            "evidence_detail_confidence": "high",
+            "exact_fields_verified": True,
+            "verification_locator": "商品包装.txt",
+        }
+    )
+    write_jsonl(fact_path, facts)
+    observations[0]["inspection_method"] = "visual_exact_file"
+    write_jsonl(observation_path, observations)
+    inventory_path = delivery / "data" / "source_inventory.jsonl"
+    inventory = read_jsonl(inventory_path)
+    inventory_by_id = {item["source_file_id"]: item for item in inventory}
+    inventory_by_id[observations[0]["source_file_id"]]["media_type"] = "image/jpeg"
+    write_jsonl(inventory_path, inventory)
+    build_delivery(delivery, write=True)
+    image_exact = validate_delivery(delivery)
+    assert image_exact["status"] == "failed"
+    assert any("页面图片，不得设置 exact_fields_verified=true" in error for error in image_exact["errors"])
+    assert any("证据细节可信度最高只能是 medium" in error for error in image_exact["errors"])
+
+
+def test_fabe_and_public_copy_guardrails(root: Path) -> None:
+    delivery = root / "public-copy"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    fabe_path = delivery / "data" / "fabe_ledger.jsonl"
+    chains = read_jsonl(fabe_path)
+    chains[1]["evidence_fact_ids"] = ["STRAT-001"]
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    direct_broken = validate_delivery(delivery)
+    assert direct_broken["status"] == "failed"
+    assert any("Evidence 必须至少包含一条 Feature" in error for error in direct_broken["errors"])
+
+    chains[1]["evidence_fact_ids"] = ["F-001"]
+    write_jsonl(fabe_path, chains)
+    value_path = delivery / "data" / "value_ledger.jsonl"
+    values = read_jsonl(value_path)
+    values[0]["value_statement"] = "无额外添加，差异化最强，还能形成安全底线。"
+    write_jsonl(value_path, values)
+    build_delivery(delivery, write=True)
+    semantic_broken = validate_delivery(delivery)
+    assert semantic_broken["status"] == "failed"
+    assert any("无添加或无防腐剂" in error for error in semantic_broken["errors"])
+    assert any("缺少竞品或行业对照" in error for error in semantic_broken["errors"])
+    assert any("笼统安全结论" in error for error in semantic_broken["errors"])
 
 
 def test_insufficient_delivery(root: Path) -> None:
@@ -432,6 +557,8 @@ def main() -> int:
     try:
         test_partial_delivery(root)
         test_dynamic_and_semantic_guardrails(root)
+        test_visual_observation_and_evidence_boundaries(root)
+        test_fabe_and_public_copy_guardrails(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

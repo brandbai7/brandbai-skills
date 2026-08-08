@@ -47,6 +47,7 @@ def build_plan(
             "02_资料说明与缺口.md",
             "data/product_manifest.json",
             "data/source_inventory.jsonl",
+            "data/source_observation.jsonl",
             "data/source_ledger.jsonl",
             "data/fact_ledger.jsonl",
             "data/fabe_ledger.jsonl",
@@ -109,6 +110,7 @@ def init_delivery(
         "recommended_value_id": "",
         "status": "P0-CANDIDATE",
         "rationale": "",
+        "public_rationale": "",
         "current_execution_axis": "",
         "cannot_prove": [],
         "validation_questions": [],
@@ -119,6 +121,7 @@ def init_delivery(
     write_json(data / "product_manifest.json", manifest)
     for filename in (
         "source_inventory.jsonl",
+        "source_observation.jsonl",
         "source_ledger.jsonl",
         "fact_ledger.jsonl",
         "fabe_ledger.jsonl",
