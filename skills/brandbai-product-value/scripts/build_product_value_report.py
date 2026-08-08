@@ -53,7 +53,16 @@ STATUS_ZH = {
     "image": "详情页图片",
     "page": "商品页面",
     "mixed": "混合资料",
+    "link": "网页链接",
+    "packaging": "商品包装",
+    "brief": "商品或品牌资料",
+    "evidence": "证据资料",
+    "feedback": "用户反馈",
+    "spreadsheet": "表格资料",
+    "incremental": "增量资料",
     "product_page_images": "商品详情页图片组",
+    "product_page_image": "商品详情页图片",
+    "product_info_area": "商品信息区",
     "dynamic_promotion_graphic": "动态活动信息图",
     "time_bound": "时点有效",
     "product_page_pdf": "商品详情页 PDF",
@@ -61,6 +70,10 @@ STATUS_ZH = {
     "detail_page_image": "商品详情页图片",
     "embedded_evidence_image": "内嵌证据图片",
     "certification_claim_graphic": "认证宣称图片",
+    "current": "当前有效",
+    "page_embedded": "页面内嵌",
+    "inferred_from_page": "页面推断",
+    "current_expression": "当前表达",
     "F-PAGE": "页面事实",
     "F-EVIDENCE": "证据资料",
     "STRAT": "品牌战略",
@@ -70,8 +83,8 @@ STATUS_ZH = {
     "H": "分析推导",
 }
 
-INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SRC|ID|ANCHOR|FABE|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
-INTERNAL_ID_RE = re.compile(rf"\b{INTERNAL_ID}\b")
+INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
+INTERNAL_ID_RE = re.compile(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])")
 INTERNAL_ID_GROUP_RE = re.compile(rf"\(\s*{INTERNAL_ID}(?:\s*[,/;+、，]\s*{INTERNAL_ID})*\s*\)")
 
 
@@ -79,12 +92,18 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     """Hide internal IDs without leaving punctuation fragments in human reports."""
 
     text = md(value, empty)
+    text = re.sub(rf"(?:参见|见)\s*{INTERNAL_ID}(?![A-Za-z0-9])", "", text)
+    text = re.sub(rf"相比\s*{INTERNAL_ID}(?![A-Za-z0-9])", "与其他候选相比", text)
+    text = re.sub(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])的", "", text)
     text = INTERNAL_ID_GROUP_RE.sub("", text)
     text = INTERNAL_ID_RE.sub("", text)
     text = re.sub(r"[（(]\s*[,/;+、，;；:：\s]*[)）]", "", text)
     text = re.sub(r"([（(])\s*[,/;+、，;；:：]+\s*", r"\1", text)
     text = re.sub(r"\s*[,/;+、，;；:：]+\s*([)）])", r"\1", text)
     text = re.sub(r"基于\s*[,/;+、，;；:：]*\s*推导", "综合资料推导", text)
+    text = re.sub(r"^[,/;+、，;；:：\s]+", "", text)
+    text = re.sub(r"^\s*>\s*", "", text)
+    text = re.sub(r"([；;])\s*>\s*", r"\1", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
@@ -135,6 +154,7 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
     return {
         "paths": paths,
         "manifest": read_json(paths["manifest"]),
+        "source_inventory": read_jsonl(paths["source_inventory"]),
         "sources": read_jsonl(paths["sources"]),
         "facts": read_jsonl(paths["facts"]),
         "fabe": read_jsonl(paths["fabe"]),
@@ -446,6 +466,7 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
         "status": "built" if write else "dry_run",
         "delivery": str(delivery.resolve()),
         "counts": {
+            "source_files": len(data["source_inventory"]),
             "sources": len(data["sources"]),
             "facts": len(data["facts"]),
             "fabe": len(data["fabe"]),

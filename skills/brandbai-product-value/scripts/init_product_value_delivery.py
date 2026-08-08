@@ -46,6 +46,7 @@ def build_plan(
             "01_商品价值底座.md",
             "02_资料说明与缺口.md",
             "data/product_manifest.json",
+            "data/source_inventory.jsonl",
             "data/source_ledger.jsonl",
             "data/fact_ledger.jsonl",
             "data/fabe_ledger.jsonl",
@@ -117,6 +118,7 @@ def init_delivery(
     }
     write_json(data / "product_manifest.json", manifest)
     for filename in (
+        "source_inventory.jsonl",
         "source_ledger.jsonl",
         "fact_ledger.jsonl",
         "fabe_ledger.jsonl",

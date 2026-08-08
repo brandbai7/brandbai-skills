@@ -46,6 +46,7 @@
 ├── 02_资料说明与缺口.md
 └── data/
     ├── product_manifest.json
+    ├── source_inventory.jsonl
     ├── source_ledger.jsonl
     ├── fact_ledger.jsonl
     ├── fabe_ledger.jsonl
@@ -73,16 +74,27 @@ limitations, created_at, updated_at
 
 `sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
 
+### source_inventory.jsonl
+
+分析本地资料前由脚本生成，每行至少包含：
+
+```text
+source_file_id, filename, relative_path, media_type,
+size_bytes, sha256, status
+```
+
+`relative_path` 必须保留输入目录内的真实相对路径，`sha256` 用于识别文件内容。清单非空后不得覆盖或按视觉顺序重编号。直接 URL 来源不进入本地文件清单。
+
 ### source_ledger.jsonl
 
 每行至少包含：
 
 ```text
-source_id, source_type, title, locator,
+source_id, source_file_id, source_type, title, locator,
 captured_at, sku_scope, status, notes
 ```
 
-`locator` 使用能够回到来源的页码、工作表、图片编号、URL 或文件内位置。对外文档不需要暴露本地绝对路径。
+本地来源的 `source_file_id` 必须存在于 `source_inventory.jsonl`，且 `locator` 必须包含对应的真实 `relative_path`，再追加页码、工作表、图片区域或文件内位置。不得把阅读顺序重新写成并不存在的文件编号。直接 URL 来源可以将 `source_file_id` 留空，并在 `locator` 保留完整 URL。对外文档不需要暴露本地绝对路径。
 
 ### fact_ledger.jsonl
 
@@ -94,6 +106,14 @@ sku_scope, time_scope, status, boundary
 ```
 
 `fact_type` 允许：`F-PAGE`、`F-EVIDENCE`、`STRAT`、`DYN`、`U`、`EX`、`H`。
+
+`F-EVIDENCE` 另外必须包含：
+
+```text
+evidence_detail_confidence, exact_fields_verified
+```
+
+`evidence_detail_confidence` 允许 `high`、`medium`、`low`。只有清晰可辨并完成二次核对时，才能把报告编号、日期、批次或证书编号等精确字段写入事实，此时必须为 `high` 且 `exact_fields_verified=true`；否则省略精确字段，只记录页面可确认的报告机构、检测项目、结果或主张。
 
 `DYN.time_scope` 使用含年份的完整日期或日期区间。以 `product_manifest.updated_at` 所在时区判断 `upcoming/active/expired`，并确保事实状态、边界、缺口和 limitations 不互相矛盾。
 
@@ -136,6 +156,8 @@ cannot_prove, downstream_readiness
 
 `layer` 允许 `P0`、`P1`、`P2`、`deferred`。`p0_candidate` 表示是否进入过同层比较；编号不表示排序。
 
+`sku_scope` 和 `scope` 默认限定当前已分析 SKU。写“全 SKU/所有 SKU”时，`supporting_fact_ids` 引用的每一条事实都必须明确覆盖全 SKU。
+
 ### p0_decision.json
 
 至少包含：
@@ -166,6 +188,7 @@ minimum_needed, priority, state
 
 ```text
 PV-<12位十六进制>
+SF-001
 SRC-001
 ID-001
 ANCHOR-001
