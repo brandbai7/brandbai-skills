@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from build_product_value_report import build_delivery
+from index_product_sources import index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
 from validate_product_value_delivery import validate_delivery
@@ -16,6 +17,26 @@ from validate_product_value_delivery import validate_delivery
 def populate_valid_partial(delivery: Path) -> None:
     data = delivery / "data"
     timestamp = now_iso()
+    source_dir = delivery.parent / f"{delivery.name}-source-materials"
+    source_dir.mkdir()
+    (source_dir / "商品包装.txt").write_text("独立小袋包装", encoding="utf-8")
+    (source_dir / "品牌方向.txt").write_text("外出携带", encoding="utf-8")
+    (source_dir / "活动信息.txt").write_text("虚构活动日期", encoding="utf-8")
+    dry_run = index_sources(source_dir, delivery, write=False)
+    assert dry_run["status"] == "dry_run"
+    assert read_jsonl(data / "source_inventory.jsonl") == []
+    indexed = index_sources(source_dir, delivery, write=True)
+    assert indexed["file_count"] == 3
+    inventory_ids = {
+        item["filename"]: item["source_file_id"]
+        for item in read_jsonl(data / "source_inventory.jsonl")
+    }
+    try:
+        index_sources(source_dir, delivery, write=True)
+    except FileExistsError:
+        pass
+    else:
+        raise AssertionError("来源索引不得覆盖已有非空清单")
     manifest = read_json(data / "product_manifest.json")
     manifest.update(
         {
@@ -36,9 +57,10 @@ def populate_valid_partial(delivery: Path) -> None:
         [
             {
                 "source_id": "SRC-001",
-                "source_type": "packaging",
+                "source_file_id": inventory_ids["商品包装.txt"],
+                "source_type": "product_page_image",
                 "title": "虚构商品包装信息",
-                "locator": "包装正面与背面",
+                "locator": "商品包装.txt｜包装正面与背面",
                 "captured_at": timestamp,
                 "sku_scope": "示例规格A",
                 "status": "active",
@@ -46,9 +68,10 @@ def populate_valid_partial(delivery: Path) -> None:
             },
             {
                 "source_id": "SRC-002",
+                "source_file_id": inventory_ids["品牌方向.txt"],
                 "source_type": "brief",
                 "title": "虚构品牌方向说明",
-                "locator": "第1段",
+                "locator": "品牌方向.txt｜第1段",
                 "captured_at": timestamp,
                 "sku_scope": "示例规格A",
                 "status": "active",
@@ -56,9 +79,10 @@ def populate_valid_partial(delivery: Path) -> None:
             },
             {
                 "source_id": "SRC-003",
+                "source_file_id": inventory_ids["活动信息.txt"],
                 "source_type": "promotion_banner",
                 "title": "虚构限时活动信息",
-                "locator": "活动图片",
+                "locator": "活动信息.txt｜活动图片",
                 "captured_at": timestamp,
                 "sku_scope": "示例规格A",
                 "status": "active",
@@ -124,7 +148,7 @@ def populate_valid_partial(delivery: Path) -> None:
                 "statement": "独立小袋包装",
                 "fact_ids": ["F-001"],
                 "status": "active",
-                "boundary": "识别锚不自动等于购买理由。",
+                "boundary": "参见F-001；识别锚不自动等于购买理由。",
             }
         ],
     )
@@ -141,7 +165,7 @@ def populate_valid_partial(delivery: Path) -> None:
                 "evidence": "包装正背面可直接核对独立小袋结构（SRC-001/F-001）。",
                 "evidence_fact_ids": ["F-001"],
                 "reference_frame": "临时自行分装的旧习惯",
-                "user_language": "出门直接拿一袋，不用再找盒子分装。",
+                "user_language": ">口感之外，出门直接拿一袋，不用再找盒子分装。",
                 "derivation_status": "reasoned",
                 "boundary": "便利性需要用户验证，不写成所有人都更方便。",
             },
@@ -235,7 +259,7 @@ def populate_valid_partial(delivery: Path) -> None:
             "candidate_value_ids": ["V-001", "V-002"],
             "recommended_value_id": "V-001",
             "status": "P0-HYPOTHESIS",
-            "rationale": "外出准备任务与品牌方向一致，但缺少用户和竞争验证。",
+            "rationale": "V-001的外出准备任务与品牌方向一致；相比V-002仍缺少用户和竞争验证。",
             "current_execution_axis": "先说明独立小袋如何减少外出前的分装步骤。",
             "cannot_prove": ["不能写成消费者已经认可的核心心智。"],
             "validation_questions": ["目标用户是否真实存在临时分装负担？", "同类商品是否普遍采用相同结构？"],
@@ -264,6 +288,7 @@ def test_partial_delivery(root: Path) -> None:
     delivery = root / "partial"
     plan = build_plan(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
     assert plan["dry_run"] is True
+    assert "data/source_inventory.jsonl" in plan["will_create"]
     assert "data/fabe_ledger.jsonl" in plan["will_create"]
     assert not delivery.exists(), "Dry Run 计划不应创建目录"
     init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
@@ -284,10 +309,19 @@ def test_partial_delivery(root: Path) -> None:
     assert "V-001" not in report
     assert "PV-" not in report
     assert "SRC-001" not in report
+    assert "V-001的" not in report
+    assert "见F-001" not in report
+    assert "的外出准备任务" not in report
+    assert "参见；" not in report
+    assert "与其他候选相比仍缺少" in report
+    assert "| >口感" not in report
     assert "(,)" not in report
     assert "(/)" not in report
     assert "暂无高优先级补充项" not in report
     assert "真实用户外出分装反馈" in report
+    source_report = (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
+    assert "商品详情页图片" in source_report
+    assert "product_page_image" not in source_report
 
     value_path = delivery / "data" / "value_ledger.jsonl"
     values = read_jsonl(value_path)
@@ -324,6 +358,37 @@ def test_dynamic_and_semantic_guardrails(root: Path) -> None:
     semantic_broken = validate_delivery(delivery)
     assert semantic_broken["status"] == "failed"
     assert any("越界表达" in error for error in semantic_broken["errors"])
+
+    facts[0]["statement"] = "采用传统九蒸九晒工艺。"
+    facts.append(
+        {
+            "fact_id": "F-002",
+            "fact_type": "F-EVIDENCE",
+            "statement": "页面图片展示SGS检测报告编号 VHYF20250004-01。",
+            "source_id": "SRC-001",
+            "locator": "商品包装.txt｜页面内嵌报告",
+            "sku_scope": "示例规格A",
+            "time_scope": "当前页面版本",
+            "status": "confirmed",
+            "boundary": "精确编号仍需报告原件复核。",
+            "evidence_detail_confidence": "medium",
+            "exact_fields_verified": False,
+        }
+    )
+    write_jsonl(fact_path, facts)
+    values[0]["scope"] = "全SKU适用"
+    write_jsonl(value_path, values)
+    source_path = delivery / "data" / "source_ledger.jsonl"
+    sources = read_jsonl(source_path)
+    sources[0]["locator"] = "重新编号后的图片1"
+    write_jsonl(source_path, sources)
+    build_delivery(delivery, write=True)
+    traceability_broken = validate_delivery(delivery)
+    assert traceability_broken["status"] == "failed"
+    assert any("真实 relative_path" in error for error in traceability_broken["errors"])
+    assert any("具体次数" in error for error in traceability_broken["errors"])
+    assert any("exact_fields_verified=true" in error for error in traceability_broken["errors"])
+    assert any("全 SKU" in error for error in traceability_broken["errors"])
 
 
 def test_insufficient_delivery(root: Path) -> None:

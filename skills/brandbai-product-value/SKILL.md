@@ -4,7 +4,7 @@ description: Build an evidence-backed product value foundation from product link
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.2"
+  version: "0.1.3"
   category: content-commerce
 ---
 
@@ -77,12 +77,27 @@ python scripts/init_product_value_delivery.py `
 
 确认目标目录后去掉 `--dry-run`。脚本只初始化模板和底稿，不读取商品内容，也不自动得出价值结论。不要覆盖已有交付；重做使用新目录，增量更新按版本合同处理。
 
+本地文件或文件夹必须在分析前建立真实来源清单：
+
+```powershell
+python scripts/index_product_sources.py `
+  --input "<原始商品资料文件或目录>" `
+  --delivery "<输出目录>" `
+  --dry-run
+python scripts/index_product_sources.py `
+  --input "<原始商品资料文件或目录>" `
+  --delivery "<输出目录>"
+```
+
+来源清单保留原始文件名、相对路径、大小和 SHA-256。生成后不得为了视觉顺序重命名或重新编号；需要重做时新建交付目录。每条本地来源必须绑定清单中的 `source_file_id`，`locator` 必须包含清单里的原始相对路径；只有直接 URL 来源可以不绑定本地文件。
+
 ## 建立结构化底稿
 
 按合同填充：
 
 ```text
 data/product_manifest.json
+data/source_inventory.jsonl
 data/source_ledger.jsonl
 data/fact_ledger.jsonl
 data/fabe_ledger.jsonl
@@ -99,7 +114,7 @@ data/gap_ledger.jsonl
 严格按以下顺序执行：
 
 1. 确认商品身份、当前 SKU、版本和标准成交单元；
-2. 建立来源账本，保留标题、类型、时间、定位和适用 SKU；
+2. 先生成不可覆盖的真实文件清单，再建立来源账本；保留原文件名、相对路径、文件指纹、标题、类型、时间、定位和适用 SKU，禁止把视觉浏览顺序当成文件编号；
 3. 穷举当前可确认事实，隔离跨 SKU、历史版本、动态字段和冲突；
 4. 为每个准备进入 P0/P1/P2 的价值建立独立 FABE 记录，完整写出 Feature、Advantage、Benefit、Evidence、参照系、用户语言、推导状态和边界；参数不能直接当用户利益；
 5. 分离商品身份、一级识别锚、P0 候选、P1、P2 与 DYN；
@@ -111,7 +126,9 @@ data/gap_ledger.jsonl
 
 商品身份阶段必须同时填写 `sku_status` 和 `sku_basis`。页面标题与包装规格冲突时，以 SKU 选择器、包装或商品信息区为准；仍不能唯一确认时，不要把标题片段锁定为 SKU。
 
-表达边界采用“公开页面可用、分析推导不扩大”的原则：可以保留页面上的“未经二氧化硫熏制”、检测数值和公开口感主张，但检测报告不得改写为“安全认证”，高于页面所列基准的数值不得改写成“确保品质”，零脂肪或无硫熏不得自动推导“适合控脂/敏感人群”，食品价值不得预设未经资料支持的“滋养收益”或功效。
+表达边界采用“公开页面可用、分析推导不扩大”的原则：可以保留页面上的“未经二氧化硫熏制”、检测数值和公开口感主张，但检测报告不得改写为“安全认证”，高于页面所列基准的数值不得改写成“确保品质”，零脂肪或无硫熏不得自动推导“适合控脂/敏感人群”，食品价值不得预设未经资料支持的“滋养收益”或功效。证据图片中的报告编号、日期、批次、证书编号等精确字段，只有在清晰可辨且完成二次核对时才能抄录；否则只保留页面级证据事实并标记待核。不得把“反复蒸晒”扩写成“九蒸九晒”，也不得把“入口温和”扩写成“无刺激”。
+
+价值适用范围默认只覆盖当前已分析 SKU 或标准成交单元。只有每条支撑事实都明确覆盖全部 SKU 时，才允许写“全 SKU 适用”；`sku_status=partial/unverified` 时不得主动扩大范围。
 
 P0 必须是一个用户价值，不得只写成分、技术名、包装、价格或赠品。可拍性、页面篇幅、识别度、已有呈现或单次内容表现都不能单独决定 P0。
 
@@ -141,7 +158,7 @@ python scripts/build_product_value_report.py --delivery "<输出目录>"
 python scripts/validate_product_value_delivery.py --delivery "<输出目录>"
 ```
 
-只有退出码为 `0` 才能作为正式交付。校验会检查商品与 SKU、来源和事实引用、稳定 ID、P0 决策、完成状态、资料缺口、普通版占位符和下游边界。
+只有退出码为 `0` 才能作为正式交付。校验会检查商品与 SKU、真实来源文件绑定、证据精确字段可信度、来源和事实引用、稳定 ID、价值适用范围、P0 决策、完成状态、资料缺口、普通版占位符和下游边界。
 
 ## 判定完成状态
 
