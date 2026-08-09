@@ -292,7 +292,11 @@ FLAG_CLAIM_REQUIREMENTS = {
     "comparison": ("comparison", 2),
 }
 COMPETITOR_SOURCE_TYPES = {"competitor_page", "industry_report", "competitor_dataset"}
-AGGREGATE_USER_RE = re.compile(r"(?:很多|大多数|多数|普遍).{0,8}(?:人|用户|消费者)")
+AGGREGATE_USER_RE = re.compile(
+    r"(?:很多|大多数|多数|普遍).{0,8}(?:人|用户|消费者)|"
+    r"最常见.{0,12}(?:购买|任务|需求|问题|场景)|"
+    r"(?:主流|普遍存在|最主要).{0,12}(?:购买|任务|需求|问题|场景)"
+)
 NUMBER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])\d+(?:\.\d+)?%?(?![A-Za-z0-9])")
 DIRECT_QUOTE_TERMS_RE = re.compile(
     r"好吸收|道地(?:品种|药材|产区)?|无添加|无防腐剂|适合.{0,8}(?:小白|老人|长辈|儿童|孕妇|人群)|"
@@ -310,8 +314,10 @@ MISLEADING_COMPARATOR_RE = re.compile(
 )
 UNSUPPORTED_PRODUCT_COMPARATOR_RE = re.compile(
     r"(?:相对|相比)(?:(?![，。；;]).){0,30}(?:"
-    r"无法确认加工工艺|多配料(?:的)?加工食品|单一食用方式(?:的)?产品|"
-    r"散装或大包装|无检测引用(?:的)?产品|需要煎煮或加工(?:的)?黄精原料)"
+    r"无法确认加工工艺|多配料(?:的)?(?:加工|复合)?食品|单一食用方式(?:的)?产品|"
+    r"(?:散装|整袋)(?:或)?大包装|无检测引用(?:的)?产品|一般(?:产区|产品|原料)|"
+    r"部分(?:使用|采用)?硫熏(?:工艺)?(?:保色保鲜)?(?:的)?(?:加工方式|产品)?|"
+    r"需要煎煮或加工(?:的)?黄精原料)"
 )
 MARKET_COMPARATOR_RE = re.compile(
     r"(?:相对|相比|优于|高于).{0,18}(?:同类|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)"
@@ -329,6 +335,28 @@ EATING_RESTRICTION_RE = re.compile(r"(?:不宜|不可|不能|禁止|请勿|勿|�
 TITLE_EVIDENCE_RE = re.compile(r"(?:商品|页面|下载文件|文件)?标题|文件名|OCR", re.IGNORECASE)
 HIGHER_PRIORITY_SKU_RE = re.compile(r"SKU\s*选择|包装|规格(?:栏|表|选择)|商品信息|成交单元|订单", re.IGNORECASE)
 SKU_CONFLICT_RE = re.compile(r"不一致|冲突|无法确认|待核对|待确认")
+PACKAGE_COUNT_RE = re.compile(
+    r"(?P<start>\d{1,3})(?:\s*(?:~|～|-|—|–|至|到)\s*(?P<end>\d{1,3}))?\s*"
+    r"(?P<label>独立装|小包|袋装|袋|包)"
+)
+TOTAL_WEIGHT_RE = re.compile(
+    r"(?:总?净含量|规格)\s*[:：]?\s*(?P<weight>\d+(?:\.\d+)?)\s*(?:g|克)(?:\s*/\s*盒)?|"
+    r"(?P<boxed>\d+(?:\.\d+)?)\s*(?:g|克)\s*/\s*盒",
+    re.IGNORECASE,
+)
+PER_UNIT_WEIGHT_RE = re.compile(
+    r"(?P<weight>\d+(?:\.\d+)?)\s*(?:g|克)\s*/\s*(?:包|袋)|"
+    r"(?:每包|每袋|单包|单袋)[^\d]{0,6}(?P<labeled>\d+(?:\.\d+)?)\s*(?:g|克)",
+    re.IGNORECASE,
+)
+MALFORMED_OCR_RE = re.compile(
+    r"\boneBag\b|\b\d+\s*[gG]?\s*/\s*[A-Za-z]{3,}\s*/\s*\d+\s*[gG]?\b",
+    re.IGNORECASE,
+)
+PUBLIC_FRAGMENT_RE = re.compile(
+    r"仅在\s+出现|与\s*等(?:工艺|页面|信息|主张|口径)?|"
+    r"(?:不同|冲突|差异|不一致)[^。！？\n|]{0,30}[，,；;：:]\s*$"
+)
 INFERRED_DYNAMIC_YEAR_RE = re.compile(
     r"年份.{0,12}(?:根据|依据|按).{0,20}(?:抓取|采集|截图|下载|访问|页面保存).{0,12}(?:推定|推断|补全|确定)"
 )
@@ -353,6 +381,58 @@ def record_text(record: dict[str, Any]) -> str:
         elif isinstance(value, (str, int, float)):
             values.append(str(value))
     return " ".join(values)
+
+
+def package_count_ranges(claim: dict[str, Any]) -> list[tuple[int, int, str]]:
+    """Return package-count ranges that are explicit in a SKU or packaging claim."""
+
+    if claim.get("claim_type") not in {"sku", "packaging"}:
+        return []
+    values: list[tuple[int, int, str]] = []
+    for match in PACKAGE_COUNT_RE.finditer(str(claim.get("verbatim_text", ""))):
+        start = int(match.group("start"))
+        end = int(match.group("end") or start)
+        values.append((min(start, end), max(start, end), match.group(0)))
+    return values
+
+
+def claim_total_weights(claim: dict[str, Any]) -> list[float]:
+    text = str(claim.get("verbatim_text", ""))
+    if re.search(r"每包|每袋|单包|单袋", f"{claim.get('label', '')} {text}"):
+        return []
+    values: list[float] = []
+    for match in TOTAL_WEIGHT_RE.finditer(text):
+        raw = match.group("weight") or match.group("boxed")
+        if raw:
+            values.append(float(raw))
+    return values
+
+
+def claim_per_unit_weights(claim: dict[str, Any]) -> list[float]:
+    text = str(claim.get("verbatim_text", ""))
+    values: list[float] = []
+    for match in PER_UNIT_WEIGHT_RE.finditer(text):
+        raw = match.group("weight") or match.group("labeled")
+        if raw:
+            values.append(float(raw))
+    if not values and re.search(r"每包|每袋|单包|单袋", str(claim.get("label", ""))):
+        simple = re.search(r"净含量\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:g|克)", text, re.IGNORECASE)
+        if simple:
+            values.append(float(simple.group(1)))
+    return values
+
+
+def markdown_public_cells(text: str) -> list[str]:
+    cells: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|")):
+            continue
+        parts = [part.strip() for part in stripped[1:-1].split("|")]
+        if parts and all(re.fullmatch(r":?-{3,}:?", part) for part in parts):
+            continue
+        cells.extend(part for part in parts if part)
+    return cells
 
 
 def parse_reference_date(value: Any) -> date | None:
@@ -972,6 +1052,84 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if exact_evidence_values(record_text(claim)):
                 errors.append(f"{claim_id} 来自页面图片，不得在原文主张账本抄录报告编号、日期或检测方法等精确小字")
 
+    malformed_spec_claim_ids: set[str] = set()
+    for claim in source_claims:
+        if claim.get("claim_type") not in {"sku", "packaging"}:
+            continue
+        claim_id = str(claim.get("claim_id", ""))
+        if MALFORMED_OCR_RE.search(str(claim.get("verbatim_text", ""))):
+            malformed_spec_claim_ids.add(claim_id)
+            errors.append(
+                f"{claim_id} 的 SKU/包装原文含 oneBag 或斜杠拼接等疑似 OCR 残片；"
+                "重复核对不能替代清晰可读性，必须回看原图并降为待确认"
+            )
+
+    count_entries: list[tuple[str, int, int, str]] = []
+    for claim in source_claims:
+        claim_id = str(claim.get("claim_id", ""))
+        if claim.get("critical") is not True:
+            continue
+        count_entries.extend((claim_id, low, high, phrase) for low, high, phrase in package_count_ranges(claim))
+    conflicted_claim_ids: set[str] = set()
+    conflicted_spec_phrases: set[str] = set()
+    count_conflicts: list[str] = []
+    for index, (left_id, left_low, left_high, left_phrase) in enumerate(count_entries):
+        for right_id, right_low, right_high, right_phrase in count_entries[index + 1 :]:
+            if left_id == right_id or not (left_high < right_low or right_high < left_low):
+                continue
+            conflicted_claim_ids.update({left_id, right_id})
+            conflicted_spec_phrases.update({left_phrase, right_phrase})
+            count_conflicts.append(f"{left_id}={left_phrase} vs {right_id}={right_phrase}")
+    if count_conflicts:
+        errors.append(
+            "SKU/包装原文存在互不相容的小包数量："
+            + "；".join(count_conflicts)
+            + "；四遍读取结果一致也不能把冲突规格标为已确认"
+        )
+
+    total_entries = [
+        (str(claim.get("claim_id", "")), value)
+        for claim in source_claims
+        if claim.get("critical") is True
+        for value in claim_total_weights(claim)
+    ]
+    per_unit_entries = [
+        (str(claim.get("claim_id", "")), value)
+        for claim in source_claims
+        if claim.get("critical") is True
+        for value in claim_per_unit_weights(claim)
+    ]
+    exact_count_entries = [(claim_id, low, phrase) for claim_id, low, high, phrase in count_entries if low == high]
+    arithmetic_conflicts: list[str] = []
+    for total_id, total in total_entries:
+        for unit_id, per_unit in per_unit_entries:
+            for count_id, count, count_phrase in exact_count_entries:
+                if abs(total - per_unit * count) <= 0.05:
+                    continue
+                # The arithmetic only disproves the exact per-unit/count combination.
+                # A consistently displayed total net weight may remain confirmed.
+                conflicted_claim_ids.update({unit_id, count_id})
+                conflicted_spec_phrases.add(count_phrase)
+                arithmetic_conflicts.append(
+                    f"{total:g}g ≠ {per_unit:g}g×{count}（{total_id}/{unit_id}/{count_id}）"
+                )
+    if arithmetic_conflicts:
+        errors.append(
+            "SKU/包装规格存在总净含量、单包克重与包数的算术冲突："
+            + "；".join(arithmetic_conflicts)
+            + "；必须以清晰实物或 SKU 选择器复核后再进入商品价值"
+        )
+
+    blocked_spec_claim_ids = conflicted_claim_ids | malformed_spec_claim_ids
+    if conflicted_claim_ids and manifest.get("sku_status") == "confirmed":
+        errors.append("存在互相冲突的 SKU/包装原文时，sku_status 不得为 confirmed")
+    manifest_sku_text = str(manifest.get("sku", ""))
+    for phrase in conflicted_spec_phrases:
+        if phrase and phrase in manifest_sku_text:
+            errors.append(f"当前 SKU 名称继续使用冲突规格“{phrase}”；应只保留已确认的标准成交单元并注明待确认")
+    if MALFORMED_OCR_RE.search(manifest_sku_text):
+        errors.append("当前 SKU 名称含疑似 OCR 残片，不得作为正式商品身份")
+
     for observation in source_observations:
         observation_id = str(observation.get("observation_id", ""))
         source_file_id = str(observation.get("source_file_id", ""))
@@ -1088,6 +1246,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     dyn_expected_states: dict[str, str] = {}
     allowed_exact_values: set[str] = set()
     referenced_claim_ids: set[str] = set()
+    blocked_spec_fact_ids: set[str] = set()
 
     for fact in facts:
         fact_id = str(fact.get("fact_id", ""))
@@ -1131,6 +1290,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 if claim.get("observation_id") != source.get("observation_id"):
                     errors.append(f"{fact_id} 的 {claim_id} 与 source_id 不是同一观察记录")
         selected_verbatim = {str(item.get("verbatim_text", "")).strip() for item in selected_claims}
+        statement = str(fact.get("statement", ""))
+        selected_claim_id_set = set(str(item) for item in claim_ids)
+        blocked_claims_used = selected_claim_id_set.intersection(malformed_spec_claim_ids)
+        if any(phrase and phrase in statement for phrase in conflicted_spec_phrases):
+            blocked_claims_used.update(selected_claim_id_set.intersection(conflicted_claim_ids))
+        if blocked_claims_used:
+            blocked_spec_fact_ids.add(fact_id)
+            if str(fact.get("status", "")).lower() in {"confirmed", "active", "current", "ready"}:
+                errors.append(
+                    f"{fact_id} 引用了冲突或不可清晰读取的 SKU/包装原文 "
+                    f"{', '.join(sorted(blocked_claims_used))}，不得标记为已确认"
+                )
         quote_values = {str(item).strip() for item in source_quotes if str(item).strip()}
         missing_quotes = selected_verbatim.difference(quote_values)
         if missing_quotes:
@@ -1138,7 +1309,6 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         unbound_quotes = quote_values.difference(selected_verbatim)
         if unbound_quotes:
             errors.append(f"{fact_id} 的 source_quotes 含未绑定 claim_id 的文字")
-        statement = str(fact.get("statement", ""))
         claim_text = " ".join(selected_verbatim)
         missing_numbers = sorted(set(NUMBER_TOKEN_RE.findall(statement)).difference(NUMBER_TOKEN_RE.findall(claim_text)))
         if missing_numbers:
@@ -1251,6 +1421,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for fact_id in references:
                 if fact_id not in fact_ids:
                     errors.append(f"{anchor_id} 引用了不存在的 fact_id: {fact_id}")
+            blocked = set(str(item) for item in references).intersection(blocked_spec_fact_ids)
+            if blocked:
+                errors.append(
+                    f"{anchor_id} 使用了冲突或不可清晰读取的 SKU/包装事实 "
+                    f"{', '.join(sorted(blocked))}；识别锚只能保留已确认规格"
+                )
 
     allowed_derivation_statuses = {"page_supported", "reasoned", "to_validate"}
     for item in fabe:
@@ -1279,6 +1455,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if not feature_ids.intersection(evidence_ids):
                 errors.append(f"{fabe_id} 标记页面直接支持时，Evidence 必须至少包含一条 Feature 的直接事实")
         referenced_fact_ids = set(item.get("feature_fact_ids") or []) | set(item.get("evidence_fact_ids") or [])
+        blocked = referenced_fact_ids.intersection(blocked_spec_fact_ids)
+        if blocked:
+            errors.append(
+                f"{fabe_id} 使用了冲突或不可清晰读取的 SKU/包装事实 "
+                f"{', '.join(sorted(blocked))}；不得进入 FABE 推导"
+            )
         referenced_facts = [facts_by_id[fact_id] for fact_id in referenced_fact_ids if fact_id in facts_by_id]
         referenced_claims = [
             claims_by_id[claim_id]
@@ -1307,7 +1489,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 f"{fabe_id} 使用了“相对普通/仅达到/添加多种/未明示”等替代性比较；必须改写为页面明确展示的具体对比，或补充真实对照来源"
             )
         elif UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(analysis_text):
-            errors.append(f"{fabe_id} 使用了虚构的产品替代对象；必须改写为用户旧习惯，或补充页面对比、竞品页或行业对照")
+            has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
+            has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
+            if not has_comparison_claim and not has_comparator_source:
+                errors.append(f"{fabe_id} 使用了无来源的产品替代对象；必须改写为内生任务假设，或补充页面对比、竞品页或行业对照")
         elif MARKET_COMPARATOR_RE.search(analysis_text):
             has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
             has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
@@ -1338,6 +1523,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for fact_id in references:
                 if fact_id not in fact_ids:
                     errors.append(f"{value_id} 引用了不存在的 fact_id: {fact_id}")
+            blocked = set(str(item) for item in references).intersection(blocked_spec_fact_ids)
+            if blocked:
+                errors.append(
+                    f"{value_id} 使用了冲突或不可清晰读取的 SKU/包装事实 "
+                    f"{', '.join(sorted(blocked))}；不得进入价值分层或 P0 候选"
+                )
         scope_text = f"{value.get('sku_scope', '')} {value.get('scope', '')}"
         if ALL_SKU_RE.search(scope_text):
             unsupported = [
@@ -1354,6 +1545,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{value_id} 的 {key} 必须是 high/medium/low/unknown")
         if value.get("downstream_readiness") not in READINESS_LEVELS:
             errors.append(f"{value_id} 的 downstream_readiness 不在允许范围")
+        if manifest.get("sku_status") in {"partial", "unverified"} and value.get("downstream_readiness") == "ready":
+            errors.append(f"{value_id} 在 SKU 未完全确认时 downstream_readiness 不得为 ready")
         if not isinstance(value.get("cannot_prove"), list):
             errors.append(f"{value_id} 的 cannot_prove 必须是数组")
         if not str(value.get("value_statement", "")).strip():
@@ -1376,6 +1569,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"limitations 把仍处活动期的 {fact_id} 写成已过期")
 
     all_claim_text = " ".join(str(item.get("verbatim_text", "")) for item in source_claims)
+    has_any_comparison_support = any(claim.get("claim_type") == "comparison" for claim in source_claims) or any(
+        source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources
+    )
     for location, text in iter_analysis_texts(facts, fabe, anchors, values, decision):
         for pattern, explanation in RISKY_INFERENCE_RULES:
             if pattern.search(text):
@@ -1391,7 +1587,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if not any(source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources):
                 errors.append(f"{location} 存在越界表达：缺少竞品或行业对照，不能写最强、唯一、独有或领先")
         if AGGREGATE_USER_RE.search(text) and not any(fact.get("fact_type") == "U" for fact in facts):
-            errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称很多或多数用户存在该问题")
+            errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称最常见、主流、普遍或多数用户存在该问题")
+        if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(text) and not has_any_comparison_support:
+            errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
         for restriction in set(EATING_RESTRICTION_RE.findall(text)):
             if restriction not in all_claim_text:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
@@ -1412,6 +1610,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     decision_unexpected = exact_evidence_values(record_text(decision)).difference(allowed_exact_values)
     if decision_unexpected:
         errors.append(f"p0_decision.json 的 {next(iter(decision_unexpected))} 未由原件级 F-EVIDENCE 事实核验")
+    decision_text = record_text(decision)
+    for phrase in conflicted_spec_phrases:
+        if phrase and phrase in decision_text:
+            errors.append(f"p0_decision.json 继续使用冲突规格“{phrase}”；冲突规格不得进入推荐理由或执行主轴")
+    if MALFORMED_OCR_RE.search(decision_text):
+        errors.append("p0_decision.json 含疑似 OCR 残片，不得进入正式 P0 决策")
     limitation_unexpected = exact_evidence_values(" ".join(str(item) for item in (manifest.get("limitations") or []))).difference(
         allowed_exact_values
     )
@@ -1537,6 +1741,16 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 含删除内部 ID 后残留的箭头或空括号")
         if PUBLIC_JARGON_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
+        if MALFORMED_OCR_RE.search(text):
+            errors.append(f"{paths[report_key].name} 含 oneBag 或斜杠拼接等疑似 OCR 残片，不能作为客户稿")
+        if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(text) and not has_any_comparison_support:
+            errors.append(f"{paths[report_key].name} 含无来源的产品替代对象，不能作为客户结论")
+        for cell in markdown_public_cells(text):
+            clean_cell = cell.strip("`*_ ")
+            if re.search(r"[，,；;：:]$", clean_cell):
+                errors.append(f"{paths[report_key].name} 的表格单元格以逗号、分号或冒号结尾，疑似客户残句：{clean_cell}")
+            if PUBLIC_FRAGMENT_RE.search(clean_cell):
+                errors.append(f"{paths[report_key].name} 的表格单元格含缺失主语或对象的客户残句：{clean_cell}")
         for restriction in set(EATING_RESTRICTION_RE.findall(text)):
             if restriction not in all_claim_text:
                 errors.append(f"{paths[report_key].name} 新增了原文没有的限制性结论“{restriction}”")

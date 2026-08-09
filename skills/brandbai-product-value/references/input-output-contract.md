@@ -77,7 +77,7 @@ fc, sc, pkg_level, analysis_status, delivery_status,
 limitations, created_at, updated_at
 ```
 
-`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。标题或文件名与包装、规格表、商品信息区冲突时，不得继续把标题片段写成当前 SKU；只能写可确认的标准成交单元，或明确待确认。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
+`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。标题或文件名与包装、规格表、商品信息区冲突时，不得继续把标题片段写成当前 SKU；只能写可确认的标准成交单元，或明确待确认。四遍一致不等于识别正确：疑似 OCR 残片、不同页面互斥包数，以及总净含量不等于单包克重乘包数时，相关规格事实必须降为待确认，不得进入识别锚、FABE、价值或 P0。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
 
 ### source_inventory.jsonl
 
