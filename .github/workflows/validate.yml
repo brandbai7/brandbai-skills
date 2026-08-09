@@ -25,7 +25,10 @@ jobs:
       - name: Validate public skill tree
         run: python scripts/validate_repo.py
       - name: Test standalone Skill release package
-        run: python -m unittest scripts/test_build_skill_release.py
+        run: >-
+          python -m unittest
+          scripts/test_build_skill_release.py
+          scripts/test_publish_skill_release.py
       - name: Run Douyin collector unit tests
         working-directory: skills/brandbai-douyin-download/scripts
         run: >-
