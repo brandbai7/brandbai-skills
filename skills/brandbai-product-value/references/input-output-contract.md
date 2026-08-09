@@ -114,7 +114,7 @@ second_pass_sequence, second_pass_heading, second_pass_excerpt,
 second_pass_status, second_pass_at
 ```
 
-`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。固定间隔批量生成、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔批量生成、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
 
 每条观察另填 `text_density` 和 `content_flags`。`text_density` 使用 `none/low/medium/high`；`content_flags` 从 `identity/sku/ingredient/nutrition_table/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other` 中选择。中高文字密度来源不得遗漏内容类型。
 
@@ -130,7 +130,7 @@ label, verbatim_text, normalized_value, unit, visual_locator,
 critical, claim_status, claimed_at, rechecked_at
 ```
 
-`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。第三遍摘录后稍后第四遍重新打开同一来源，只有一致时写 `claim_status=match`；每条 `claimed_at` 和 `rechecked_at` 均由宿主在实际操作当下独立取时，带时区并晚于前两遍观察。重复时间、固定间隔批量生成、未来时间或晚于 `source_claim_ledger.jsonl` 实际写入时间的记录无效。
+`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。必须先完成全部第三遍摘录，再开始第四遍重新打开来源复核；两个阶段不得交叉，只有一致时写 `claim_status=match`。每条 `claimed_at` 和 `rechecked_at` 均由宿主在实际操作当下独立取时，带时区并晚于前两遍观察。重复时间、固定间隔批量生成、未来时间或晚于 `source_claim_ledger.jsonl` 实际写入时间的记录无效。
 
 营养表逐行登记，FAQ 每个问答分别登记，对比页分别登记双方原文。SKU、配料、营养、储存和警示主张必须写 `critical=true`，并进入至少一条事实；看不清时不得猜测或补全，改为资料缺口。页面图片中的报告编号、日期、批次、证书编号和检测方法等精确小字仍不得进入原文主张账本。
 
@@ -183,6 +183,8 @@ derivation_status, boundary
 ```
 
 `derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，不能用无关检测页支撑另一种体验利益。Advantage 与 Benefit 不得只把参数换一种说法。
+
+把“用户旧习惯、消费者原有习惯”等行为写成 `reference_frame` 时，必须引用至少一条 `U` 用户原声或研究事实。没有 `U` 证据时，改写为页面内具体对比或明确标注的内生任务假设。Benefit、用户语言和价值陈述不得使用“不用担心、无需担心、不必担心”等绝对化保证，应改为“减少顾虑”并保留条件。
 
 ### anchor_ledger.jsonl
 

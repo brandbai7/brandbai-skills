@@ -202,6 +202,7 @@ RISKY_INFERENCE_RULES = (
     (re.compile(r"坚持食用|长期坚持"), "没有用户或使用研究时，不得把页面事实扩大为持续使用结论"),
     (re.compile(r"(?:食品)?加工过程安全性|吃得放心|放心吃"), "单项检测或页面安心文案不得扩大为整体食品安全判断"),
     (re.compile(r"全部强制标注项目"), "仅凭商品页成分表不能判断其已完整覆盖全部法定强制项目"),
+    (re.compile(r"(?:不用|无需|不必)(?:再)?担心"), "用户利益不得写成绝对化的“不用担心”；应改为减少顾虑或明确适用条件"),
 )
 EXPIRY_WORDS_RE = re.compile(r"已过期|已经过期|时效性过期")
 DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
@@ -209,6 +210,9 @@ INTERNAL_ID_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|CLM|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,})(?![A-Za-z0-9])"
 )
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+USER_HABIT_REFERENCE_RE = re.compile(
+    r"(?:用户|消费者|人们|大家)?.{0,16}(?:旧习惯|原有习惯|日常习惯|习惯做法)"
+)
 ALL_SKU_RE = re.compile(r"(?:全\s*SKU|所有\s*SKU|all[_\s-]*skus?)", re.IGNORECASE)
 QUANTIFIED_STEAM_DRY_RE = re.compile(
     r"(?:九|[一二三四五六七八九十两0-9]+)\s*蒸\s*(?:九|[一二三四五六七八九十两0-9]+)\s*晒"
@@ -372,6 +376,14 @@ def timestamp_after_file(timestamp: datetime | None, path: Path, tolerance_secon
     if timestamp is None or not path.is_file():
         return False
     return timestamp.timestamp() > path.stat().st_mtime + tolerance_seconds
+
+
+def file_written_long_after(path: Path, anchor_path: Path, tolerance_seconds: float = 300.0) -> bool:
+    """Return true when a final artifact was written long after the manifest."""
+
+    if not path.is_file() or not anchor_path.is_file():
+        return False
+    return path.stat().st_mtime > anchor_path.stat().st_mtime + tolerance_seconds
 
 
 def suspicious_fixed_cadence(timestamps: list[datetime]) -> bool:
@@ -567,13 +579,45 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("analysis_status=draft，不得作为正式交付")
     if not isinstance(manifest.get("limitations"), list):
         errors.append("limitations 必须是数组")
+    manifest_created_at = parse_datetime(manifest.get("created_at"))
     manifest_updated_at = parse_datetime(manifest.get("updated_at"))
+    if manifest_created_at is None:
+        errors.append("product_manifest.created_at 必须是带时区的完整 ISO 时间")
+    if manifest_updated_at is None:
+        errors.append("product_manifest.updated_at 必须是带时区的完整 ISO 时间")
+    if (
+        manifest_created_at is not None
+        and manifest_updated_at is not None
+        and manifest_updated_at < manifest_created_at
+    ):
+        errors.append("product_manifest.updated_at 不得早于 created_at")
     if timestamp_after_file(manifest_updated_at, paths["manifest"]):
         errors.append("product_manifest.updated_at 晚于 manifest 文件实际写入时间，存在事后生成或未来时间")
     if manifest_updated_at is not None:
         for report_key in ("report_01", "report_02"):
             if timestamp_after_file(manifest_updated_at, paths[report_key]):
                 errors.append(f"product_manifest.updated_at 晚于 {paths[report_key].name} 实际生成时间")
+    late_artifacts: list[str] = []
+    for artifact_key in (
+        "source_observations",
+        "source_claims",
+        "sources",
+        "facts",
+        "fabe",
+        "anchors",
+        "values",
+        "decision",
+        "gaps",
+        "report_01",
+        "report_02",
+    ):
+        if file_written_long_after(paths[artifact_key], paths["manifest"]):
+            late_artifacts.append(paths[artifact_key].name)
+    if late_artifacts:
+        errors.append(
+            "以下正式账本或报告在 product_manifest.json 之后超过 5 分钟仍被修改："
+            f"{', '.join(late_artifacts)}；完成最终建账和报告生成后必须刷新 updated_at 并重写 manifest"
+        )
 
     ledger_specs = (
         ("source_inventory", source_inventory, "source_file_id", SOURCE_INVENTORY_FIELDS, r"SF-\d{3,}"),
@@ -964,11 +1008,43 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("原文主张摘录时间呈固定间隔批量生成，不能作为真实逐条摘录记录")
     if suspicious_fixed_cadence(sorted(valid_claim_recheck_times)):
         errors.append("原文主张复核时间呈固定间隔批量生成，不能作为真实逐条复核记录")
+    if (
+        valid_claim_check_times
+        and valid_claim_recheck_times
+        and min(valid_claim_recheck_times) <= max(valid_claim_check_times)
+    ):
+        errors.append("必须先完成全部原文主张的第三遍摘录，再开始第四遍复核")
     if any(
         timestamp_after_file(item, paths["source_claims"])
         for item in valid_claim_check_times + valid_claim_recheck_times
     ):
         errors.append("原文主张摘录或复核时间晚于 source_claim_ledger.jsonl 实际写入时间，存在未来时间或事后批量回填")
+
+    observation_event_times = [
+        parsed
+        for observation in source_observations
+        for parsed in (
+            parse_datetime(observation.get("inspected_at")),
+            parse_datetime(observation.get("second_pass_at")),
+        )
+        if parsed is not None
+    ]
+    workflow_event_times = observation_event_times + valid_claim_check_times + valid_claim_recheck_times
+    if (
+        manifest_created_at is not None
+        and workflow_event_times
+        and min(workflow_event_times) < manifest_created_at
+    ):
+        errors.append(
+            "逐文件核验、原文摘录或复核时间早于 product_manifest.created_at；"
+            "请检查 UTC/本地时区标注，不能把 UTC 时钟直接标成 +08:00"
+        )
+    if (
+        manifest_updated_at is not None
+        and workflow_event_times
+        and max(workflow_event_times) > manifest_updated_at
+    ):
+        errors.append("product_manifest.updated_at 必须晚于全部逐文件核验、原文摘录与复核事件")
 
     for source in sources:
         source_id = str(source.get("source_id", ""))
@@ -1215,6 +1291,13 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in referenced_facts
         }
+        if USER_HABIT_REFERENCE_RE.search(str(item.get("reference_frame", ""))) and not any(
+            fact.get("fact_type") == "U" for fact in referenced_facts
+        ):
+            errors.append(
+                f"{fabe_id} 把用户旧习惯写成参照系，但未引用 U 用户证据；"
+                "应改为页面内具体对比、内生任务假设，或补充用户原声"
+            )
         analysis_text = " ".join(
             str(item.get(key, ""))
             for key in ("feature", "advantage", "benefit", "evidence", "reference_frame", "user_language", "boundary")

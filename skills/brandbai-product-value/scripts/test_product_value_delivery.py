@@ -18,6 +18,7 @@ from validate_product_value_delivery import suspicious_fixed_cadence, validate_d
 def populate_valid_partial(delivery: Path) -> None:
     data = delivery / "data"
     clock_now = datetime.now().astimezone().replace(microsecond=0)
+    created_at = (clock_now - timedelta(minutes=30)).isoformat()
     timestamp = (clock_now - timedelta(minutes=20)).isoformat()
     event_start = (clock_now - timedelta(days=1)).replace(hour=0, minute=0, second=0)
     event_end = (clock_now + timedelta(days=1)).replace(hour=23, minute=59, second=59)
@@ -271,7 +272,8 @@ def populate_valid_partial(delivery: Path) -> None:
             "analysis_status": "partial",
             "delivery_status": "conditional",
             "limitations": ["尚未获得独立检测资料，当前仅按包装信息建立价值假设（GAP-001）。"],
-            "updated_at": timestamp,
+            "created_at": created_at,
+            "updated_at": clock_now.isoformat(),
         }
     )
     write_json(data / "product_manifest.json", manifest)
@@ -418,11 +420,11 @@ def populate_valid_partial(delivery: Path) -> None:
                 "value_id": "V-001",
                 "feature": "当前SKU采用独立小袋包装。",
                 "feature_fact_ids": ["F-001"],
-                "advantage": "相比临时自行分装，商品已经按小袋形成拿取单元。",
+                "advantage": "独立小袋把商品预先分成可直接拿取的包装单元。",
                 "benefit": "外出前可以少做一步分装准备。",
                 "evidence": "包装正背面可直接核对独立小袋结构（SRC-001/F-001）。",
                 "evidence_fact_ids": ["F-001"],
-                "reference_frame": "临时自行分装的旧习惯",
+                "reference_frame": "当前包装结构与临时分装任务的内生推导",
                 "user_language": ">口感之外，出门直接拿一袋，不用再找盒子分装。",
                 "derivation_status": "reasoned",
                 "boundary": "便利性需要用户验证，不写成所有人都更方便。",
@@ -828,6 +830,42 @@ def test_audit_timestamp_and_sku_guardrails(root: Path) -> None:
     populate_valid_partial(delivery)
     build_delivery(delivery, write=True)
 
+    manifest_path = delivery / "data" / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    original_created_at = manifest["created_at"]
+    observations = read_jsonl(delivery / "data" / "source_observation.jsonl")
+    first_observation_at = datetime.fromisoformat(observations[3]["inspected_at"])
+    manifest["created_at"] = (first_observation_at + timedelta(minutes=1)).isoformat()
+    write_json(manifest_path, manifest)
+    timezone_broken = validate_delivery(delivery)
+    assert timezone_broken["status"] == "failed"
+    assert any("早于 product_manifest.created_at" in error for error in timezone_broken["errors"])
+    manifest["created_at"] = original_created_at
+    write_json(manifest_path, manifest)
+
+    claim_path = delivery / "data" / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    original_first_recheck = claims[0]["rechecked_at"]
+    claims[0]["rechecked_at"] = (
+        datetime.fromisoformat(claims[-1]["claimed_at"]) - timedelta(seconds=1)
+    ).isoformat()
+    write_jsonl(claim_path, claims)
+    overlap_broken = validate_delivery(delivery)
+    assert overlap_broken["status"] == "failed"
+    assert any("先完成全部原文主张的第三遍摘录" in error for error in overlap_broken["errors"])
+    claims[0]["rechecked_at"] = original_first_recheck
+    write_jsonl(claim_path, claims)
+
+    manifest = read_json(manifest_path)
+    original_updated_at = manifest["updated_at"]
+    manifest["updated_at"] = (datetime.now().astimezone() - timedelta(minutes=20)).isoformat()
+    write_json(manifest_path, manifest)
+    stale_updated_at = validate_delivery(delivery)
+    assert stale_updated_at["status"] == "failed"
+    assert any("updated_at 必须晚于全部" in error for error in stale_updated_at["errors"])
+    manifest["updated_at"] = original_updated_at
+    write_json(manifest_path, manifest)
+
     evenly_spaced = [
         datetime.now().astimezone().replace(microsecond=0) + timedelta(seconds=15 * index)
         for index in range(8)
@@ -837,7 +875,6 @@ def test_audit_timestamp_and_sku_guardrails(root: Path) -> None:
         [evenly_spaced[0] + timedelta(seconds=value) for value in (0, 4, 9, 15, 22, 31, 43, 58)]
     )
 
-    claim_path = delivery / "data" / "source_claim_ledger.jsonl"
     claims = read_jsonl(claim_path)
     base = datetime.now().astimezone().replace(microsecond=0) - timedelta(minutes=4)
     for index, claim in enumerate(claims):
@@ -858,7 +895,6 @@ def test_audit_timestamp_and_sku_guardrails(root: Path) -> None:
     assert future_broken["status"] == "failed"
     assert any("晚于 source_claim_ledger.jsonl 实际写入时间" in error for error in future_broken["errors"])
 
-    manifest_path = delivery / "data" / "product_manifest.json"
     manifest = read_json(manifest_path)
     manifest["sku"] = "九独立装"
     manifest["sku_status"] = "partial"
@@ -927,6 +963,22 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     unsupported_usage = validate_delivery(delivery)
     assert unsupported_usage["status"] == "failed"
     assert any("所引原文未作该限制" in error for error in unsupported_usage["errors"])
+
+    chains[0]["benefit"] = original_benefit
+    chains[0]["reference_frame"] = "用户处理生黄精的旧习惯"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unsupported_habit = validate_delivery(delivery)
+    assert unsupported_habit["status"] == "failed"
+    assert any("未引用 U 用户证据" in error for error in unsupported_habit["errors"])
+
+    chains[0]["reference_frame"] = "当前包装结构与临时分装任务的内生推导"
+    chains[0]["benefit"] = "不用担心外出分装麻烦。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    absolute_reassurance = validate_delivery(delivery)
+    assert absolute_reassurance["status"] == "failed"
+    assert any("绝对化的“不用担心”" in error for error in absolute_reassurance["errors"])
 
     chains[0]["benefit"] = original_benefit
     chains[0]["advantage"] = "相比散装或大包装，独立小袋更利于外出携带。"
