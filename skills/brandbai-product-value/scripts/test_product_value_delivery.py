@@ -941,7 +941,14 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     p0_broken = validate_delivery(delivery)
     assert p0_broken["status"] == "failed"
     assert any("不能决定 P0" in error for error in p0_broken["errors"])
-    assert any("不能声称很多或多数用户" in error for error in p0_broken["errors"])
+    assert any("不能声称最常见、主流、普遍或多数用户" in error for error in p0_broken["errors"])
+
+    decision["public_rationale"] = "这是最常见的购买任务，但当前还没有用户原声。"
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    most_common_broken = validate_delivery(delivery)
+    assert most_common_broken["status"] == "failed"
+    assert any("不能声称最常见、主流、普遍或多数用户" in error for error in most_common_broken["errors"])
 
     decision["public_rationale"] = "外出前少一步分装与品牌当前方向一致，但仍需真实用户和同类商品对照验证。"
     write_json(decision_path, decision)
@@ -986,7 +993,20 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     build_delivery(delivery, write=True)
     invented_product_comparison = validate_delivery(delivery)
     assert invented_product_comparison["status"] == "failed"
-    assert any("虚构的产品替代对象" in error for error in invented_product_comparison["errors"])
+    assert any("无来源的产品替代对象" in error for error in invented_product_comparison["errors"])
+
+    for unsupported_comparator in (
+        "相对多配料复合食品，单一配料更容易看清。",
+        "相对整袋大包装，当前包装更便于拿取。",
+        "相对一般产区，页面描述了更具体的环境。",
+        "相对部分使用硫熏工艺保色保鲜的加工方式，本品页面写明未经硫熏。",
+    ):
+        chains[0]["advantage"] = unsupported_comparator
+        write_jsonl(fabe_path, chains)
+        build_delivery(delivery, write=True)
+        unsupported_comparison = validate_delivery(delivery)
+        assert unsupported_comparison["status"] == "failed"
+        assert any("无来源的产品替代对象" in error for error in unsupported_comparison["errors"])
 
     chains[0]["advantage"] = original_advantage
     write_jsonl(fabe_path, chains)
@@ -1112,6 +1132,136 @@ def test_literal_claim_grounding(root: Path) -> None:
     assert validate_delivery(delivery)["status"] == "passed"
 
 
+def test_sku_conflict_propagation_and_customer_fragments(root: Path) -> None:
+    delivery = root / "sku-conflict"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    data = delivery / "data"
+
+    manifest_path = data / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest.update(
+        {
+            "sku": "示例商品 150g/盒（小包数量待确认）",
+            "sku_status": "partial",
+            "sku_basis": "商品信息区显示150g、每盒约10~12小包；包装图疑似显示9独立装，二者冲突待确认",
+            "delivery_status": "conditional",
+        }
+    )
+    write_json(manifest_path, manifest)
+
+    claims_path = data / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claims_path)
+    claims[0].update(
+        {
+            "claim_type": "sku",
+            "label": "净含量与小包数",
+            "verbatim_text": "净含量150g，每盒约10~12小包",
+            "critical": True,
+        }
+    )
+    claims[3].update(
+        {
+            "claim_type": "packaging",
+            "label": "包装数量",
+            "verbatim_text": "150g/盒，9独立装",
+            "critical": True,
+        }
+    )
+    claims[4].update(
+        {
+            "claim_type": "sku",
+            "label": "单包净含量",
+            "verbatim_text": "单包净含量15g",
+            "critical": True,
+        }
+    )
+    write_jsonl(claims_path, claims)
+
+    facts_path = data / "fact_ledger.jsonl"
+    facts = read_jsonl(facts_path)
+    facts[0].update(
+        {
+            "statement": "商品信息区标示净含量150g，每盒约10~12小包。",
+            "source_quotes": ["净含量150g，每盒约10~12小包"],
+            "boundary": "小包数量与包装图冲突，待实物确认。",
+        }
+    )
+    facts.extend(
+        [
+            {
+                "fact_id": "F-004",
+                "fact_type": "F-PAGE",
+                "statement": "包装图显示150g/盒、9独立装。",
+                "source_id": "SRC-004",
+                "claim_ids": ["CLM-004"],
+                "source_quotes": ["150g/盒，9独立装"],
+                "locator": "包装正面",
+                "sku_scope": "当前商品",
+                "time_scope": "当前页面",
+                "status": "confirmed",
+                "boundary": "与商品信息区的小包数量冲突。",
+            },
+            {
+                "fact_id": "F-005",
+                "fact_type": "F-PAGE",
+                "statement": "包装图显示单包净含量15g。",
+                "source_id": "SRC-005",
+                "claim_ids": ["CLM-005"],
+                "source_quotes": ["单包净含量15g"],
+                "locator": "包装侧面",
+                "sku_scope": "当前商品",
+                "time_scope": "当前页面",
+                "status": "confirmed",
+                "boundary": "与总净含量和9独立装的算术关系冲突。",
+            },
+        ]
+    )
+    write_jsonl(facts_path, facts)
+
+    gaps_path = data / "gap_ledger.jsonl"
+    gaps = read_jsonl(gaps_path)
+    gaps[0].update(
+        {
+            "category": "SKU规格",
+            "missing": "150g/盒、约10~12小包、9独立装和15g/包之间存在冲突",
+            "impact": "冲突规格不得进入商品价值",
+            "minimum_needed": "清晰实物包装或SKU选择器",
+            "state": "open",
+        }
+    )
+    write_jsonl(gaps_path, gaps)
+    build_delivery(delivery, write=True)
+    conflicted = validate_delivery(delivery)
+    assert conflicted["status"] == "failed"
+    assert any("互不相容的小包数量" in error for error in conflicted["errors"])
+    assert any("算术冲突" in error for error in conflicted["errors"])
+    assert any("不得进入 FABE 推导" in error for error in conflicted["errors"])
+    assert any("不得进入价值分层或 P0 候选" in error for error in conflicted["errors"])
+
+    claims[3]["verbatim_text"] = "150G/oneBag/9g 9独立装"
+    write_jsonl(claims_path, claims)
+    facts = read_jsonl(facts_path)
+    facts[-2]["source_quotes"] = ["150G/oneBag/9g 9独立装"]
+    write_jsonl(facts_path, facts)
+    build_delivery(delivery, write=True)
+    malformed = validate_delivery(delivery)
+    assert malformed["status"] == "failed"
+    assert any("疑似 OCR 残片" in error for error in malformed["errors"])
+
+    customer_delivery = root / "customer-fragments"
+    init_delivery(customer_delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(customer_delivery)
+    build_delivery(customer_delivery, write=True)
+    report_path = customer_delivery / "02_资料说明与缺口.md"
+    report = report_path.read_text(encoding="utf-8")
+    report += "\n| 资料类型 | 当前说明 | 边界 |\n|---|---|---|\n| 页面事实 | 注册商标标识仅在 出现 | 与等工艺页口径一致， |\n"
+    report_path.write_text(report, encoding="utf-8")
+    fragment_broken = validate_delivery(customer_delivery)
+    assert fragment_broken["status"] == "failed"
+    assert any("客户残句" in error for error in fragment_broken["errors"])
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -1157,6 +1307,7 @@ def main() -> int:
         test_audit_timestamp_and_sku_guardrails(root)
         test_fabe_and_public_copy_guardrails(root)
         test_literal_claim_grounding(root)
+        test_sku_conflict_propagation_and_customer_fragments(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
