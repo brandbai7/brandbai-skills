@@ -1,4 +1,4 @@
 interface:
   display_name: "BrandBAI 商品价值底座"
-  short_description: "从商品资料建立可回溯的FABE、商品价值与P0分层"
-  default_prompt: "使用 $brandbai-product-value 分析这份商品资料，完整建立FABE价值链、P0/P1/P2、表达边界与资料缺口。"
+  short_description: "从商品资料建立逐字可追溯的FABE、商品价值与P0分层"
+  default_prompt: "使用 $brandbai-product-value 分析这份商品资料，先逐图核对并逐条复核可见原文，再建立FABE价值链、P0/P1/P2、表达边界与资料缺口。"

@@ -93,6 +93,23 @@ SOURCE_OBSERVATION_FIELDS = {
     "second_pass_excerpt",
     "second_pass_status",
     "second_pass_at",
+    "text_density",
+    "content_flags",
+}
+SOURCE_CLAIM_FIELDS = {
+    "claim_id",
+    "source_file_id",
+    "observation_id",
+    "claim_type",
+    "label",
+    "verbatim_text",
+    "normalized_value",
+    "unit",
+    "visual_locator",
+    "critical",
+    "claim_status",
+    "claimed_at",
+    "rechecked_at",
 }
 SOURCE_FIELDS = {
     "source_id",
@@ -106,7 +123,19 @@ SOURCE_FIELDS = {
     "status",
     "notes",
 }
-FACT_FIELDS = {"fact_id", "fact_type", "statement", "source_id", "locator", "sku_scope", "time_scope", "status", "boundary"}
+FACT_FIELDS = {
+    "fact_id",
+    "fact_type",
+    "statement",
+    "source_id",
+    "claim_ids",
+    "source_quotes",
+    "locator",
+    "sku_scope",
+    "time_scope",
+    "status",
+    "boundary",
+}
 EVIDENCE_FACT_FIELDS = {"evidence_detail_confidence", "exact_fields_verified", "verification_locator"}
 FABE_FIELDS = {
     "fabe_id",
@@ -198,13 +227,69 @@ METHOD_VALUE_RE = re.compile(
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
-    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|sku_status=partial|\b(?:high|medium|low) confidence\b|exact fields unverified|\bdietary\b",
+    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|source_claim_ledger\.jsonl|sku_status=partial|\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|\b(?:dietary|page_supported|reasoned|to_validate)\b",
     re.IGNORECASE,
 )
 OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url"}
 OBSERVATION_STATUSES = {"inspected", "unreadable", "not_applicable"}
+TEXT_DENSITIES = {"none", "low", "medium", "high"}
+CONTENT_FLAGS = {
+    "identity",
+    "sku",
+    "ingredient",
+    "nutrition_table",
+    "storage",
+    "warning",
+    "faq",
+    "usage",
+    "comparison",
+    "process",
+    "sensory",
+    "packaging",
+    "origin",
+    "evidence",
+    "transaction",
+    "audience",
+    "other",
+}
+CLAIM_TYPES = {
+    "identity",
+    "sku",
+    "ingredient",
+    "nutrition",
+    "storage",
+    "warning",
+    "faq",
+    "usage",
+    "comparison",
+    "process",
+    "sensory",
+    "packaging",
+    "origin",
+    "evidence",
+    "transaction",
+    "audience",
+    "other",
+}
+CRITICAL_CLAIM_TYPES = {"sku", "ingredient", "nutrition", "storage", "warning"}
+FLAG_CLAIM_REQUIREMENTS = {
+    "sku": ("sku", 1),
+    "ingredient": ("ingredient", 1),
+    "nutrition_table": ("nutrition", 3),
+    "storage": ("storage", 1),
+    "warning": ("warning", 1),
+    "faq": ("faq", 1),
+    "usage": ("usage", 1),
+    "comparison": ("comparison", 2),
+}
 COMPETITOR_SOURCE_TYPES = {"competitor_page", "industry_report", "competitor_dataset"}
 AGGREGATE_USER_RE = re.compile(r"(?:很多|大多数|多数|普遍).{0,8}(?:人|用户|消费者)")
+NUMBER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])\d+(?:\.\d+)?%?(?![A-Za-z0-9])")
+DIRECT_QUOTE_TERMS_RE = re.compile(
+    r"好吸收|道地(?:品种|药材|产区)?|无添加|无防腐剂|适合.{0,8}(?:小白|老人|长辈|儿童|孕妇|人群)|"
+    r"哪些人(?:适合|不宜)|禁止食用|不宜食用|遵医嘱|建议冷藏|无需熬煮|"
+    r"(?:生黄精|生精|黄精)多糖|国家标准|推荐量|通过.{0,4}检测|安心好携带"
+)
 
 
 def exact_evidence_values(value: Any) -> set[str]:
@@ -333,6 +418,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         source_inventory = read_jsonl(paths["source_inventory"])
         audit_card_ledger = read_jsonl(paths["audit_card_ledger"])
         source_observations = read_jsonl(paths["source_observations"])
+        source_claims = read_jsonl(paths["source_claims"])
         sources = read_jsonl(paths["sources"])
         facts = read_jsonl(paths["facts"])
         fabe = read_jsonl(paths["fabe"])
@@ -354,6 +440,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         "source_files": len(source_inventory),
         "audit_cards": sum(1 for item in audit_card_ledger if item.get("status") == "ready"),
         "source_observations": len(source_observations),
+        "source_claims": len(source_claims),
         "sources": len(sources),
         "facts": len(facts),
         "fabe": len(fabe),
@@ -402,6 +489,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         ("source_inventory", source_inventory, "source_file_id", SOURCE_INVENTORY_FIELDS, r"SF-\d{3,}"),
         ("source_audit_card_ledger", audit_card_ledger, "source_file_id", AUDIT_CARD_FIELDS, r"SF-\d{3,}"),
         ("source_observation", source_observations, "observation_id", SOURCE_OBSERVATION_FIELDS, r"OBS-\d{3,}"),
+        ("source_claim_ledger", source_claims, "claim_id", SOURCE_CLAIM_FIELDS, r"CLM-\d{3,}"),
         ("source_ledger", sources, "source_id", SOURCE_FIELDS, r"SRC-\d{3,}"),
         ("fact_ledger", facts, "fact_id", FACT_FIELDS, r"(?:F|STRAT|DYN|U|EX|H)-\d{3,}"),
         ("fabe_ledger", fabe, "fabe_id", FABE_FIELDS, r"FABE-\d{3,}"),
@@ -528,15 +616,37 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         source_file_id = str(observation.get("source_file_id", ""))
         indexed = source_files_by_id.get(source_file_id)
         if indexed is None:
-            errors.append(f"{observation_id} 引用了不存在的 source_file_id: {source_file_id}")
+            if not (not source_file_id and observation.get("inspection_method") == "official_url"):
+                errors.append(f"{observation_id} 引用了不存在的 source_file_id: {source_file_id}")
         else:
             if observation.get("relative_path") != indexed.get("relative_path"):
                 errors.append(f"{observation_id} 的 relative_path 与 {source_file_id} 不一致")
-        observations_by_file_id.setdefault(source_file_id, []).append(observation)
+        # Local source files must map one-to-one to an observation. Official URLs
+        # intentionally have no source_file_id, so grouping them under an empty
+        # key would incorrectly make multiple independent URLs look duplicated.
+        if source_file_id:
+            observations_by_file_id.setdefault(source_file_id, []).append(observation)
         if observation.get("inspection_method") not in OBSERVATION_METHODS:
             errors.append(f"{observation_id} 的 inspection_method 不在允许范围")
         if observation.get("inspection_status") not in OBSERVATION_STATUSES:
             errors.append(f"{observation_id} 的 inspection_status 不在允许范围")
+        text_density = observation.get("text_density")
+        if text_density not in TEXT_DENSITIES:
+            errors.append(f"{observation_id} 的 text_density 必须是 none/low/medium/high")
+        content_flags = observation.get("content_flags")
+        if not isinstance(content_flags, list):
+            errors.append(f"{observation_id} 的 content_flags 必须是数组")
+            content_flags = []
+        else:
+            unknown_flags = sorted(set(str(item) for item in content_flags).difference(CONTENT_FLAGS))
+            if unknown_flags:
+                errors.append(f"{observation_id} 的 content_flags 含未知类型: {', '.join(unknown_flags)}")
+            if len(content_flags) != len(set(str(item) for item in content_flags)):
+                errors.append(f"{observation_id} 的 content_flags 不得重复")
+        if text_density == "none" and content_flags:
+            errors.append(f"{observation_id} 标记无文字时不应填写 content_flags")
+        if text_density in {"medium", "high"} and not content_flags:
+            errors.append(f"{observation_id} 是中高文字密度来源，必须标记可见内容类型")
         if observation.get("inspection_status") == "inspected":
             for key in ("content_type", "title", "visible_heading", "visible_text_excerpt", "inspected_at"):
                 if not str(observation.get(key, "")).strip():
@@ -627,6 +737,88 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if min(valid_second_times) <= max(valid_first_times):
                 errors.append("必须先完成全部图片的正序初检，再开始逆序复核")
 
+    claims_by_id = {item.get("claim_id"): item for item in source_claims}
+    claims_by_observation_id: dict[str, list[dict[str, Any]]] = {}
+    for claim in source_claims:
+        claim_id = str(claim.get("claim_id", ""))
+        source_file_id = str(claim.get("source_file_id", ""))
+        observation_id = str(claim.get("observation_id", ""))
+        indexed = source_files_by_id.get(source_file_id)
+        observation = observations_by_id.get(observation_id)
+        claims_by_observation_id.setdefault(observation_id, []).append(claim)
+        if indexed is None:
+            official_url_claim = (
+                not source_file_id
+                and observation is not None
+                and observation.get("inspection_method") == "official_url"
+            )
+            if not official_url_claim:
+                errors.append(f"{claim_id} 引用了不存在的 source_file_id: {source_file_id}")
+        if observation is None:
+            errors.append(f"{claim_id} 引用了不存在的 observation_id: {observation_id}")
+        elif observation.get("source_file_id") != source_file_id:
+            errors.append(f"{claim_id} 的 observation_id 与 source_file_id 不一致")
+        claim_type = claim.get("claim_type")
+        if claim_type not in CLAIM_TYPES:
+            errors.append(f"{claim_id} 的 claim_type 不在允许范围")
+        if not str(claim.get("label", "")).strip():
+            errors.append(f"{claim_id} 的 label 为空")
+        verbatim_text = str(claim.get("verbatim_text", "")).strip()
+        if not verbatim_text:
+            errors.append(f"{claim_id} 的 verbatim_text 为空；原文主张不得写成摘要")
+        if not str(claim.get("visual_locator", "")).strip():
+            errors.append(f"{claim_id} 的 visual_locator 为空")
+        if not isinstance(claim.get("critical"), bool):
+            errors.append(f"{claim_id} 的 critical 必须是布尔值")
+        if claim_type in CRITICAL_CLAIM_TYPES and claim.get("critical") is not True:
+            errors.append(f"{claim_id} 属于关键字段，critical 必须为 true")
+        if claim.get("claim_status") != "match":
+            errors.append(f"{claim_id} 的原文复核必须标记 claim_status=match")
+        normalized_value = str(claim.get("normalized_value", "")).strip()
+        if normalized_value and normalized_value not in verbatim_text:
+            errors.append(f"{claim_id} 的 normalized_value 必须能在 verbatim_text 中原样找到")
+        claimed_at = parse_datetime(claim.get("claimed_at"))
+        rechecked_at = parse_datetime(claim.get("rechecked_at"))
+        if claimed_at is None or rechecked_at is None:
+            errors.append(f"{claim_id} 的原文摘录与复核时间必须是带时区的完整 ISO 时间")
+        elif rechecked_at <= claimed_at:
+            errors.append(f"{claim_id} 的 rechecked_at 必须晚于 claimed_at")
+        if observation and claimed_at is not None:
+            prior_at = parse_datetime(
+                observation.get("second_pass_at")
+                if indexed and str(indexed.get("media_type", "")).startswith("image/")
+                else observation.get("inspected_at")
+            )
+            if prior_at is not None and claimed_at <= prior_at:
+                errors.append(f"{claim_id} 必须在逐文件观察完成后重新打开来源并摘录原文")
+        if indexed and str(indexed.get("media_type", "")).startswith("image/"):
+            if exact_evidence_values(record_text(claim)):
+                errors.append(f"{claim_id} 来自页面图片，不得在原文主张账本抄录报告编号、日期或检测方法等精确小字")
+
+    for observation in source_observations:
+        observation_id = str(observation.get("observation_id", ""))
+        source_file_id = str(observation.get("source_file_id", ""))
+        claims = claims_by_observation_id.get(observation_id, [])
+        text_density = observation.get("text_density")
+        content_flags = observation.get("content_flags") if isinstance(observation.get("content_flags"), list) else []
+        if observation.get("inspection_status") == "inspected" and text_density in {"medium", "high"} and not claims:
+            errors.append(f"{observation_id} 是中高文字密度来源，必须完成原文主张摘录与复核")
+        if text_density == "none" and claims:
+            errors.append(f"{observation_id} 标记无文字，但 source_claim_ledger 中存在原文主张")
+        claim_type_counts: dict[str, int] = {}
+        for claim in claims:
+            claim_type = str(claim.get("claim_type", ""))
+            claim_type_counts[claim_type] = claim_type_counts.get(claim_type, 0) + 1
+        for flag in content_flags:
+            requirement = FLAG_CLAIM_REQUIREMENTS.get(str(flag))
+            if requirement is None:
+                continue
+            claim_type, minimum = requirement
+            if claim_type_counts.get(claim_type, 0) < minimum:
+                errors.append(
+                    f"{observation_id} 标记 {flag}，至少需要 {minimum} 条 {claim_type} 原文主张"
+                )
+
     for source in sources:
         source_id = str(source.get("source_id", ""))
         source_file_id = str(source.get("source_file_id", "")).strip()
@@ -668,6 +860,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     snapshot_date = parse_reference_date(manifest.get("updated_at"))
     dyn_expected_states: dict[str, str] = {}
     allowed_exact_values: set[str] = set()
+    referenced_claim_ids: set[str] = set()
 
     for fact in facts:
         fact_id = str(fact.get("fact_id", ""))
@@ -683,6 +876,49 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 warnings.append(f"{fact_id} 是无直接来源的分析推导，已依赖 boundary 限定")
             else:
                 errors.append(f"{fact_id} 引用了不存在的 source_id: {source_id}")
+        claim_ids = fact.get("claim_ids")
+        source_quotes = fact.get("source_quotes")
+        if not isinstance(claim_ids, list):
+            errors.append(f"{fact_id} 的 claim_ids 必须是数组")
+            claim_ids = []
+        if not isinstance(source_quotes, list):
+            errors.append(f"{fact_id} 的 source_quotes 必须是数组")
+            source_quotes = []
+        direct_source_required = fact_type != "H"
+        if direct_source_required and not claim_ids:
+            errors.append(f"{fact_id} 是直接来源事实，必须引用至少一条原文主张")
+        if direct_source_required and not source_quotes:
+            errors.append(f"{fact_id} 是直接来源事实，必须保留对应原文摘录")
+        source = sources_by_id.get(source_id, {})
+        selected_claims: list[dict[str, Any]] = []
+        for claim_id in claim_ids:
+            claim = claims_by_id.get(claim_id)
+            if claim is None:
+                errors.append(f"{fact_id} 引用了不存在的 claim_id: {claim_id}")
+                continue
+            selected_claims.append(claim)
+            referenced_claim_ids.add(str(claim_id))
+            if source:
+                if claim.get("source_file_id") != source.get("source_file_id"):
+                    errors.append(f"{fact_id} 的 {claim_id} 与 source_id 不是同一原文件")
+                if claim.get("observation_id") != source.get("observation_id"):
+                    errors.append(f"{fact_id} 的 {claim_id} 与 source_id 不是同一观察记录")
+        selected_verbatim = {str(item.get("verbatim_text", "")).strip() for item in selected_claims}
+        quote_values = {str(item).strip() for item in source_quotes if str(item).strip()}
+        missing_quotes = selected_verbatim.difference(quote_values)
+        if missing_quotes:
+            errors.append(f"{fact_id} 的 source_quotes 必须逐条原样复制所引用 claim 的 verbatim_text")
+        unbound_quotes = quote_values.difference(selected_verbatim)
+        if unbound_quotes:
+            errors.append(f"{fact_id} 的 source_quotes 含未绑定 claim_id 的文字")
+        statement = str(fact.get("statement", ""))
+        claim_text = " ".join(selected_verbatim)
+        missing_numbers = sorted(set(NUMBER_TOKEN_RE.findall(statement)).difference(NUMBER_TOKEN_RE.findall(claim_text)))
+        if missing_numbers:
+            errors.append(f"{fact_id} 的数字未在所引原文主张中出现: {', '.join(missing_numbers)}")
+        for term in DIRECT_QUOTE_TERMS_RE.findall(statement):
+            if term not in claim_text:
+                errors.append(f"{fact_id} 的高风险词“{term}”未在所引原文主张中原样出现")
         if fact_type == "F-EVIDENCE":
             evidence_missing = missing_fields(fact, EVIDENCE_FACT_FIELDS)
             if evidence_missing:
@@ -751,6 +987,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{fact_id} 的 statement 为空")
         if not str(fact.get("boundary", "")).strip():
             errors.append(f"{fact_id} 的 boundary 为空")
+
+    for claim in source_claims:
+        claim_id = str(claim.get("claim_id", ""))
+        if claim.get("critical") is True and claim_id not in referenced_claim_ids:
+            errors.append(f"{claim_id} 是关键原文字段，但没有进入任何事实记录")
 
     for anchor in anchors:
         anchor_id = str(anchor.get("anchor_id", ""))

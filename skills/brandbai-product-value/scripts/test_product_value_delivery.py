@@ -35,6 +35,7 @@ def populate_valid_partial(delivery: Path) -> None:
     assert dry_run["status"] == "dry_run"
     assert read_jsonl(data / "source_inventory.jsonl") == []
     assert read_jsonl(data / "source_observation.jsonl") == []
+    assert read_jsonl(data / "source_claim_ledger.jsonl") == []
     indexed = index_sources(source_dir, delivery, write=True)
     assert indexed["file_count"] == 5
     card_dry_run = build_cards(source_dir, delivery, write=False)
@@ -56,6 +57,8 @@ def populate_valid_partial(delivery: Path) -> None:
     second_image_first_pass_at = first_pass_at + timedelta(seconds=1)
     second_pass_at = first_pass_at + timedelta(seconds=2)
     first_image_second_pass_at = first_pass_at + timedelta(seconds=3)
+    claim_pass_at = first_pass_at + timedelta(seconds=4)
+    claim_recheck_at = first_pass_at + timedelta(seconds=5)
     write_jsonl(
         data / "source_observation.jsonl",
         [
@@ -77,6 +80,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "second_pass_excerpt": "",
                 "second_pass_status": "not_applicable",
                 "second_pass_at": "",
+                "text_density": "low",
+                "content_flags": ["packaging"],
             },
             {
                 "observation_id": "OBS-002",
@@ -96,6 +101,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "second_pass_excerpt": "",
                 "second_pass_status": "not_applicable",
                 "second_pass_at": "",
+                "text_density": "low",
+                "content_flags": ["audience"],
             },
             {
                 "observation_id": "OBS-003",
@@ -115,6 +122,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "second_pass_excerpt": "",
                 "second_pass_status": "not_applicable",
                 "second_pass_at": "",
+                "text_density": "low",
+                "content_flags": ["transaction"],
             },
             {
                 "observation_id": "OBS-004",
@@ -134,6 +143,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "second_pass_excerpt": "外出拿取更清楚",
                 "second_pass_status": "match",
                 "second_pass_at": first_image_second_pass_at.isoformat(),
+                "text_density": "medium",
+                "content_flags": ["packaging"],
             },
             {
                 "observation_id": "OBS-005",
@@ -153,6 +164,88 @@ def populate_valid_partial(delivery: Path) -> None:
                 "second_pass_excerpt": "仅作图片审计测试",
                 "second_pass_status": "match",
                 "second_pass_at": second_pass_at.isoformat(),
+                "text_density": "low",
+                "content_flags": ["process"],
+            },
+        ],
+    )
+    write_jsonl(
+        data / "source_claim_ledger.jsonl",
+        [
+            {
+                "claim_id": "CLM-001",
+                "source_file_id": inventory_ids["商品包装.txt"],
+                "observation_id": "OBS-001",
+                "claim_type": "packaging",
+                "label": "包装形式",
+                "verbatim_text": "独立小袋包装",
+                "normalized_value": "",
+                "unit": "",
+                "visual_locator": "文本第1行",
+                "critical": False,
+                "claim_status": "match",
+                "claimed_at": claim_pass_at.isoformat(),
+                "rechecked_at": claim_recheck_at.isoformat(),
+            },
+            {
+                "claim_id": "CLM-002",
+                "source_file_id": inventory_ids["品牌方向.txt"],
+                "observation_id": "OBS-002",
+                "claim_type": "audience",
+                "label": "品牌方向",
+                "verbatim_text": "外出携带",
+                "normalized_value": "",
+                "unit": "",
+                "visual_locator": "文本第1行",
+                "critical": False,
+                "claim_status": "match",
+                "claimed_at": claim_pass_at.isoformat(),
+                "rechecked_at": claim_recheck_at.isoformat(),
+            },
+            {
+                "claim_id": "CLM-003",
+                "source_file_id": inventory_ids["活动信息.txt"],
+                "observation_id": "OBS-003",
+                "claim_type": "transaction",
+                "label": "活动信息",
+                "verbatim_text": "虚构活动日期",
+                "normalized_value": "",
+                "unit": "",
+                "visual_locator": "文本第1行",
+                "critical": False,
+                "claim_status": "match",
+                "claimed_at": claim_pass_at.isoformat(),
+                "rechecked_at": claim_recheck_at.isoformat(),
+            },
+            {
+                "claim_id": "CLM-004",
+                "source_file_id": inventory_ids["详情页主图.svg"],
+                "observation_id": "OBS-004",
+                "claim_type": "packaging",
+                "label": "主图包装文案",
+                "verbatim_text": "独立小袋包装",
+                "normalized_value": "",
+                "unit": "",
+                "visual_locator": "主图上部",
+                "critical": False,
+                "claim_status": "match",
+                "claimed_at": claim_pass_at.isoformat(),
+                "rechecked_at": claim_recheck_at.isoformat(),
+            },
+            {
+                "claim_id": "CLM-005",
+                "source_file_id": inventory_ids["详情页工艺图.svg"],
+                "observation_id": "OBS-005",
+                "claim_type": "process",
+                "label": "工艺测试文案",
+                "verbatim_text": "虚构工艺说明",
+                "normalized_value": "",
+                "unit": "",
+                "visual_locator": "长图上部",
+                "critical": False,
+                "claim_status": "match",
+                "claimed_at": claim_pass_at.isoformat(),
+                "rechecked_at": claim_recheck_at.isoformat(),
             },
         ],
     )
@@ -250,6 +343,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "fact_type": "F-PAGE",
                 "statement": "包装标示采用独立小袋分装。",
                 "source_id": "SRC-001",
+                "claim_ids": ["CLM-001"],
+                "source_quotes": ["独立小袋包装"],
                 "locator": "包装背面",
                 "sku_scope": "示例规格A",
                 "time_scope": "当前包装版本",
@@ -261,6 +356,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "fact_type": "STRAT",
                 "statement": "品牌希望优先服务需要外出携带的用户。",
                 "source_id": "SRC-002",
+                "claim_ids": ["CLM-002"],
+                "source_quotes": ["外出携带"],
                 "locator": "第1段",
                 "sku_scope": "示例规格A",
                 "time_scope": "本次任务",
@@ -272,6 +369,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "fact_type": "H",
                 "statement": "独立小袋可能降低外出分装步骤。",
                 "source_id": "SRC-001",
+                "claim_ids": [],
+                "source_quotes": [],
                 "locator": "基于 F-001 的分析推导",
                 "sku_scope": "示例规格A",
                 "time_scope": "当前包装版本",
@@ -283,6 +382,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "fact_type": "DYN",
                 "statement": "虚构活动在本次交付日期内有效。",
                 "source_id": "SRC-003",
+                "claim_ids": ["CLM-003"],
+                "source_quotes": ["虚构活动日期"],
                 "locator": "活动图片",
                 "sku_scope": "示例规格A",
                 "time_scope": f"{(datetime.now().astimezone().date() - timedelta(days=1)).isoformat()}~{(datetime.now().astimezone().date() + timedelta(days=1)).isoformat()}",
@@ -445,6 +546,7 @@ def test_partial_delivery(root: Path) -> None:
     assert "data/source_audit_card_ledger.jsonl" in plan["will_create"]
     assert "data/source_audit_cards/" in plan["will_create"]
     assert "data/source_observation.jsonl" in plan["will_create"]
+    assert "data/source_claim_ledger.jsonl" in plan["will_create"]
     assert "data/fabe_ledger.jsonl" in plan["will_create"]
     assert not delivery.exists(), "Dry Run 计划不应创建目录"
     init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
@@ -523,6 +625,8 @@ def test_dynamic_and_semantic_guardrails(root: Path) -> None:
             "fact_type": "F-EVIDENCE",
             "statement": "页面图片展示SGS检测报告编号 VHYF20250004-01。",
             "source_id": "SRC-001",
+            "claim_ids": ["CLM-001"],
+            "source_quotes": ["独立小袋包装"],
             "locator": "商品包装.txt｜页面内嵌报告",
             "sku_scope": "示例规格A",
             "time_scope": "当前页面版本",
@@ -573,6 +677,8 @@ def test_visual_observation_and_evidence_boundaries(root: Path) -> None:
             "fact_type": "F-EVIDENCE",
             "statement": "页面图片展示某项检测为未检出。",
             "source_id": "SRC-004",
+            "claim_ids": ["CLM-004"],
+            "source_quotes": ["独立小袋包装"],
             "locator": "详情页主图.svg｜页面内嵌检测图",
             "sku_scope": "示例规格A",
             "time_scope": "当前页面版本",
@@ -598,6 +704,8 @@ def test_visual_observation_and_evidence_boundaries(root: Path) -> None:
             "fact_type": "F-PAGE",
             "statement": "报告编号 VHYF20250004-01。",
             "source_id": "SRC-004",
+            "claim_ids": ["CLM-004"],
+            "source_quotes": ["独立小袋包装"],
             "locator": "详情页主图.svg",
             "sku_scope": "示例规格A",
             "time_scope": "当前页面版本",
@@ -698,6 +806,70 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     assert any("不能声称很多或多数用户" in error for error in p0_broken["errors"])
 
 
+def test_literal_claim_grounding(root: Path) -> None:
+    delivery = root / "literal-claims"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+
+    fact_path = delivery / "data" / "fact_ledger.jsonl"
+    facts = read_jsonl(fact_path)
+    facts[0]["statement"] = "包装标示每盒12袋。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    number_broken = validate_delivery(delivery)
+    assert number_broken["status"] == "failed"
+    assert any("数字未在所引原文主张中出现" in error for error in number_broken["errors"])
+
+    facts[0]["statement"] = "包装标示独立小袋，适合老人。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    risky_word_broken = validate_delivery(delivery)
+    assert risky_word_broken["status"] == "failed"
+    assert any("高风险词" in error for error in risky_word_broken["errors"])
+
+    facts[0]["statement"] = "包装标示采用独立小袋分装。"
+    write_jsonl(fact_path, facts)
+    claim_path = delivery / "data" / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    warning = dict(claims[3])
+    warning.update(
+        {
+            "claim_id": "CLM-006",
+            "claim_type": "warning",
+            "label": "食用提示",
+            "verbatim_text": "如有胀袋请勿食用",
+            "visual_locator": "主图下部提示",
+            "critical": True,
+        }
+    )
+    claims.append(warning)
+    write_jsonl(claim_path, claims)
+    critical_unbound = validate_delivery(delivery)
+    assert critical_unbound["status"] == "failed"
+    assert any("关键原文字段，但没有进入任何事实记录" in error for error in critical_unbound["errors"])
+
+    claims.pop()
+    write_jsonl(claim_path, claims)
+    observation_path = delivery / "data" / "source_observation.jsonl"
+    observations = read_jsonl(observation_path)
+    observations[3]["content_flags"].append("warning")
+    write_jsonl(observation_path, observations)
+    missing_warning = validate_delivery(delivery)
+    assert missing_warning["status"] == "failed"
+    assert any("至少需要 1 条 warning 原文主张" in error for error in missing_warning["errors"])
+
+    observations[3]["content_flags"].remove("warning")
+    write_jsonl(observation_path, observations)
+    facts[0]["boundary"] = "页面截图为medium置信度，仅证明包装结构。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    report = (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
+    assert "medium置信度" not in report
+    assert "页面截图可确认" in report
+    assert validate_delivery(delivery)["status"] == "passed"
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -741,6 +913,7 @@ def main() -> int:
         test_dynamic_and_semantic_guardrails(root)
         test_visual_observation_and_evidence_boundaries(root)
         test_fabe_and_public_copy_guardrails(root)
+        test_literal_claim_grounding(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
