@@ -303,6 +303,12 @@ DIRECT_QUOTE_TERMS_RE = re.compile(
     r"哪些人(?:适合|不宜)|禁止食用|不宜食用|遵医嘱|建议冷藏|无需熬煮|"
     r"(?:生黄精|生精|黄精)多糖|国家标准|推荐量|通过.{0,4}检测|安心好携带"
 )
+ATOMIC_CLAIM_TERMS_RE = re.compile(
+    r"每\s*100\s*克|饱和脂肪|碳水化合物|蛋白质|生产日期|保质期|贮存条件|储存条件|"
+    r"总净含量|单包净含量|单袋净含量|净含量|配料表|配料|能量|脂肪|糖|钠|"
+    r"如有胀袋|胀袋|过敏者|孕妇|哺乳期|婴幼儿|特殊人群|"
+    r"禁止食用|请勿食用|不宜食用|不可食用|不能食用|勿食用|遵医嘱"
+)
 SENSORY_LITERAL_RE = re.compile(
     r"软糯甘甜|软韧回甜|软韧回甘|微甜软糯|草本香|无纤维感|入口温和|口感软糯"
 )
@@ -1316,6 +1322,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         for term in DIRECT_QUOTE_TERMS_RE.findall(statement):
             if term not in claim_text:
                 errors.append(f"{fact_id} 的高风险词“{term}”未在所引原文主张中原样出现")
+        for term in sorted(set(ATOMIC_CLAIM_TERMS_RE.findall(statement))):
+            compact_term = re.sub(r"\s+", "", term)
+            compact_claim_text = re.sub(r"\s+", "", claim_text)
+            if compact_term not in compact_claim_text:
+                errors.append(
+                    f"{fact_id} 的关键字段或警示“{compact_term}”未在所引原文主张中出现；"
+                    "复合事实必须逐字段绑定 claim_id 和 source_quotes"
+                )
         for term in SENSORY_LITERAL_RE.findall(statement):
             if term not in claim_text:
                 errors.append(f"{fact_id} 的口感或感官词“{term}”未在所引原文主张中原样出现；回甜、回甘等近义词不得互换")
