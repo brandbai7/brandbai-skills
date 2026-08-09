@@ -578,12 +578,29 @@ def test_partial_delivery(root: Path) -> None:
     assert "(/)" not in report
     assert "暂无高优先级补充项" not in report
     assert "真实用户外出分装反馈" in report
+    assert "按小袋拿取，使用单元更清楚。" in report
     source_report = (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
     assert "商品详情页图片" in source_report
     assert "product_page_image" not in source_report
 
+    helper_script = delivery / "fix_all_errors.py"
+    helper_script.write_text("# synthetic forbidden correction helper\n", encoding="utf-8")
+    helper_broken = validate_delivery(delivery)
+    assert helper_broken["status"] == "failed"
+    assert any("正式交付根目录不得包含修正脚本" in error for error in helper_broken["errors"])
+    helper_script.unlink()
+
     value_path = delivery / "data" / "value_ledger.jsonl"
     values = read_jsonl(value_path)
+    values[1]["layer"] = "deferred"
+    values[1]["downstream_readiness"] = "blocked"
+    write_jsonl(value_path, values)
+    build_delivery(delivery, write=True)
+    candidate_report = (delivery / "01_商品价值底座.md").read_text(encoding="utf-8")
+    assert "按小袋拿取，使用单元更清楚。" in candidate_report
+    assert "当前未选为核心价值" in candidate_report
+    assert validate_delivery(delivery)["status"] == "passed"
+
     values[0]["supporting_fact_ids"].append("F-999")
     write_jsonl(value_path, values)
     broken = validate_delivery(delivery)
@@ -757,6 +774,18 @@ def test_visual_observation_and_evidence_boundaries(root: Path) -> None:
     second_image_observation["inspected_at"] = original_second_first_at
     write_jsonl(observation_path, observations)
 
+    original_first_second_at = image_observation["second_pass_at"]
+    original_second_second_at = second_image_observation["second_pass_at"]
+    image_observation["second_pass_at"] = original_second_second_at
+    second_image_observation["second_pass_at"] = original_first_second_at
+    write_jsonl(observation_path, observations)
+    fabricated_reverse = validate_delivery(delivery)
+    assert fabricated_reverse["status"] == "failed"
+    assert any("逆序复核时间必须按 second_pass_sequence" in error for error in fabricated_reverse["errors"])
+    image_observation["second_pass_at"] = original_first_second_at
+    second_image_observation["second_pass_at"] = original_second_second_at
+    write_jsonl(observation_path, observations)
+
     gap_path = delivery / "data" / "gap_ledger.jsonl"
     gaps = read_jsonl(gap_path)
     gaps[0]["minimum_needed"] = "补充报告编号 VHYF20250004-01 对应的原件"
@@ -805,6 +834,45 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     assert any("不能决定 P0" in error for error in p0_broken["errors"])
     assert any("不能声称很多或多数用户" in error for error in p0_broken["errors"])
 
+    decision["public_rationale"] = "外出前少一步分装与品牌当前方向一致，但仍需真实用户和同类商品对照验证。"
+    write_json(decision_path, decision)
+    chains = read_jsonl(fabe_path)
+    original_advantage = chains[0]["advantage"]
+    original_benefit = chains[0]["benefit"]
+
+    chains[0]["advantage"] = "相对添加多种辅料的产品，当前商品更简单。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    misleading_comparison = validate_delivery(delivery)
+    assert misleading_comparison["status"] == "failed"
+    assert any("替代性比较" in error for error in misleading_comparison["errors"])
+
+    chains[0]["advantage"] = original_advantage
+    chains[0]["benefit"] = "黄精片仅适合泡水，因此即食形态使用更方便。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unsupported_usage = validate_delivery(delivery)
+    assert unsupported_usage["status"] == "failed"
+    assert any("所引原文未作该限制" in error for error in unsupported_usage["errors"])
+
+    chains[0]["benefit"] = "未经二氧化硫熏制，因此不引入二氧化硫残留风险。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    sulfur_overreach = validate_delivery(delivery)
+    assert sulfur_overreach["status"] == "failed"
+    assert any("不得把“未经二氧化硫熏制工艺”扩大" in error for error in sulfur_overreach["errors"])
+
+    chains[0]["benefit"] = original_benefit
+    chains[0]["advantage"] = "优惠可以叠加使用。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unsupported_stacking = validate_delivery(delivery)
+    assert unsupported_stacking["status"] == "failed"
+    assert any("明确叠加规则" in error for error in unsupported_stacking["errors"])
+
+    chains[0]["advantage"] = original_advantage
+    write_jsonl(fabe_path, chains)
+
 
 def test_literal_claim_grounding(root: Path) -> None:
     delivery = root / "literal-claims"
@@ -827,6 +895,13 @@ def test_literal_claim_grounding(root: Path) -> None:
     risky_word_broken = validate_delivery(delivery)
     assert risky_word_broken["status"] == "failed"
     assert any("高风险词" in error for error in risky_word_broken["errors"])
+
+    facts[0]["statement"] = "页面写明黄精片软韧回甘。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    sensory_substitution = validate_delivery(delivery)
+    assert sensory_substitution["status"] == "failed"
+    assert any("回甜、回甘等近义词不得互换" in error for error in sensory_substitution["errors"])
 
     facts[0]["statement"] = "包装标示采用独立小袋分装。"
     write_jsonl(fact_path, facts)
@@ -851,6 +926,25 @@ def test_literal_claim_grounding(root: Path) -> None:
 
     claims.pop()
     write_jsonl(claim_path, claims)
+    faq_warning = dict(claims[3])
+    faq_warning.update(
+        {
+            "claim_id": "CLM-006",
+            "claim_type": "faq",
+            "label": "特殊人群提示",
+            "verbatim_text": "过敏体质禁止食用，特殊人群请遵医嘱",
+            "critical": False,
+        }
+    )
+    claims.append(faq_warning)
+    write_jsonl(claim_path, claims)
+    mislabeled_warning = validate_delivery(delivery)
+    assert mislabeled_warning["status"] == "failed"
+    assert any("claim_type 必须是 warning" in error for error in mislabeled_warning["errors"])
+    assert any("critical 必须为 true" in error for error in mislabeled_warning["errors"])
+    assert any("必须保留 warning 内容标记" in error for error in mislabeled_warning["errors"])
+    claims.pop()
+    write_jsonl(claim_path, claims)
     observation_path = delivery / "data" / "source_observation.jsonl"
     observations = read_jsonl(observation_path)
     observations[3]["content_flags"].append("warning")
@@ -861,12 +955,15 @@ def test_literal_claim_grounding(root: Path) -> None:
 
     observations[3]["content_flags"].remove("warning")
     write_jsonl(observation_path, observations)
-    facts[0]["boundary"] = "页面截图为medium置信度，仅证明包装结构。"
+    facts[0]["boundary"] = "页面截图为medium置信度；证据细节可信度=medium；sku_status=unverified；参见CLM-046，仅证明包装结构。"
     write_jsonl(fact_path, facts)
     build_delivery(delivery, write=True)
     report = (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
     assert "medium置信度" not in report
     assert "页面截图可确认" in report
+    assert "证据细节可信度=medium" not in report
+    assert "sku_status=unverified" not in report
+    assert "CLM-046" not in report
     assert validate_delivery(delivery)["status"] == "passed"
 
 

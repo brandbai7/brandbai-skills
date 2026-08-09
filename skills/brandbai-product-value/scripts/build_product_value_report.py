@@ -96,7 +96,7 @@ STATUS_ZH = {
     "PKG-L4": "可正式调用",
 }
 
-INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
+INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|CLM|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
 INTERNAL_ID_RE = re.compile(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])")
 INTERNAL_ID_GROUP_RE = re.compile(rf"\(\s*{INTERNAL_ID}(?:\s*[,/;+、，]\s*{INTERNAL_ID})*\s*\)")
 
@@ -117,6 +117,20 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     text = re.sub(r"^[,/;+、，;；:：\s]+", "", text)
     text = re.sub(r"^\s*>\s*", "", text)
     text = re.sub(r"([；;])\s*>\s*", r"\1", text)
+    confidence_labels = {"high": "原件级", "medium": "页面截图级", "low": "低可信度"}
+    text = re.sub(
+        r"证据细节可信度\s*=\s*(high|medium|low)",
+        lambda match: f"证据细节可信度：{confidence_labels[match.group(1).lower()]}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    sku_labels = {"confirmed": "已确认", "partial": "部分确认", "unverified": "待确认"}
+    text = re.sub(
+        r"sku_status\s*=\s*(confirmed|partial|unverified)",
+        lambda match: f"SKU状态：{sku_labels[match.group(1).lower()]}",
+        text,
+        flags=re.IGNORECASE,
+    )
     replacements = {
         "HYPOTHESIS": "优先验证假设",
         "SELECTED": "当前业务选择",
@@ -134,9 +148,26 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "low confidence": "低可信度证据",
         "exact fields unverified": "精确字段未核验",
         "dietary": "饮食",
+        "snapshot_only": "仅代表当前时点",
+        "P0-BOUNDARY-VALIDATED": "边界内已验证",
+        "P0-REOPEN": "重新评估",
     }
     for source, target in replacements.items():
         text = text.replace(source, target)
+    status_words = {
+        "verified": "已核验",
+        "unverified": "未核验",
+        "active": "当前有效",
+        "expired": "已过期",
+        "template": "模板状态",
+        "deferred": "暂缓",
+        "blocked": "禁止调用",
+        "conditional": "有条件调用",
+        "ready": "可正式调用",
+        "stale": "已失效",
+    }
+    for source, target in status_words.items():
+        text = re.sub(rf"(?<![A-Za-z0-9_]){source}(?![A-Za-z0-9_])", target, text, flags=re.IGNORECASE)
     text = re.sub(r"[（(]\s*(?:→\s*)+[)）]", "", text)
     text = re.sub(r"→\s*→+", "→", text)
     text = re.sub(r"\s{2,}", " ", text)
@@ -280,15 +311,21 @@ def build_report_01(data: dict[str, Any]) -> str:
     candidate_rows = []
     for value_id in decision.get("candidate_value_ids") or []:
         item = values_by_id.get(value_id, {})
-        if not visible_value(item):
-            continue
+        not_selected_reasons = [public_text(reason, "") for reason in (item.get("cannot_prove") or [])]
+        not_selected_reasons = [reason for reason in not_selected_reasons if reason]
+        current_role = "当前推荐" if value_id == decision.get("recommended_value_id") else f"候选｜当前{label(item.get('layer'))}"
+        selection_note = (
+            public_text(p0_note)
+            if value_id == decision.get("recommended_value_id")
+            else "当前未选为核心价值：" + ("；".join(not_selected_reasons) or "仍需补充比较依据")
+        )
         candidate_rows.append(
             [
                 item.get("value_statement"),
                 label(item.get("strategic_potential")),
                 label(item.get("execution_maturity")),
-                "当前推荐" if value_id == decision.get("recommended_value_id") else "候选",
-                "作为优先验证的核心价值" if value_id == decision.get("recommended_value_id") else f"保留候选；当前归入{label(item.get('layer'))}",
+                current_role,
+                selection_note,
             ]
         )
 
@@ -500,7 +537,7 @@ def build_report_02(data: dict[str, Any]) -> str:
 ## 增量资料与版本说明
 
 - 新增商品页、SKU、证据、战略输入或用户资料时，应先更新结构化底稿，再重新生成两份普通版。
-- 如果新增资料挑战当前核心价值，将旧版本标为 `stale`，P0 状态改为 `P0-REOPEN`，不得静默覆盖。
+- 如果新增资料挑战当前核心价值，应将旧版本标记为已失效，并重新评估核心价值，不得静默覆盖。
 - 当前更新时间：{md(manifest.get('updated_at'))}
 """
 

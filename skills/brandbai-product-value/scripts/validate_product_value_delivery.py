@@ -205,7 +205,7 @@ RISKY_INFERENCE_RULES = (
 EXPIRY_WORDS_RE = re.compile(r"已过期|已经过期|时效性过期")
 DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
 INTERNAL_ID_RE = re.compile(
-    r"(?<![A-Za-z0-9])(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,})(?![A-Za-z0-9])"
+    r"(?<![A-Za-z0-9])(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|CLM|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,})(?![A-Za-z0-9])"
 )
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 ALL_SKU_RE = re.compile(r"(?:全\s*SKU|所有\s*SKU|all[_\s-]*skus?)", re.IGNORECASE)
@@ -227,7 +227,11 @@ METHOD_VALUE_RE = re.compile(
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
-    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|source_claim_ledger\.jsonl|sku_status=partial|\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|\b(?:dietary|page_supported|reasoned|to_validate)\b",
+    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|source_claim_ledger\.jsonl|"
+    r"sku_status\s*=\s*(?:confirmed|partial|unverified)|证据细节可信度\s*=\s*(?:high|medium|low)|"
+    r"\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|"
+    r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only)\b|"
+    r"`(?:active|expired|verified|unverified|template|deferred|blocked|conditional|ready|stale)`",
     re.IGNORECASE,
 )
 OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url"}
@@ -290,6 +294,28 @@ DIRECT_QUOTE_TERMS_RE = re.compile(
     r"哪些人(?:适合|不宜)|禁止食用|不宜食用|遵医嘱|建议冷藏|无需熬煮|"
     r"(?:生黄精|生精|黄精)多糖|国家标准|推荐量|通过.{0,4}检测|安心好携带"
 )
+SENSORY_LITERAL_RE = re.compile(
+    r"软糯甘甜|软韧回甜|软韧回甘|微甜软糯|草本香|无纤维感|入口温和|口感软糯"
+)
+WARNING_TEXT_RE = re.compile(
+    r"禁止食用|请勿食用|不宜食用|不可食用|不能食用|勿食用|遵医嘱|谨遵医嘱|过敏.{0,8}(?:禁用|禁止|勿食)"
+)
+MISLEADING_COMPARATOR_RE = re.compile(
+    r"(?:相对|相比)(?:仅达到|普通(?:产地|原料|产品)?|添加多种|未明示|传统(?:产品|工艺)?)"
+)
+MARKET_COMPARATOR_RE = re.compile(
+    r"(?:相对|相比|优于|高于).{0,18}(?:同类|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)"
+)
+UNSUPPORTED_RESTRICTION_RE = re.compile(
+    r"仅适合泡水|只能泡水|(?:需要|必须).{0,6}长时间(?:炖煮|熬煮)"
+)
+SULFUR_RESIDUE_RISK_RE = re.compile(
+    r"(?:不引入|避免|没有|不存在|无).{0,6}二氧化硫.{0,6}(?:残留)?风险|二氧化硫.{0,6}(?:零残留|无残留)"
+)
+PROMOTION_STACKING_RE = re.compile(
+    r"(?:优惠|活动|折扣|赠品|券|权益)?.{0,8}(?:可以|可|能够)叠加(?:使用|享受)?|(?:同时|一并)享受.{0,10}(?:优惠|活动|折扣|赠品|券|权益)"
+)
+DISALLOWED_TOP_LEVEL_SCRIPT_SUFFIXES = {".py", ".pyw", ".ps1", ".bat", ".cmd", ".exe", ".js", ".vbs"}
 
 
 def exact_evidence_values(value: Any) -> set[str]:
@@ -397,14 +423,21 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     paths = delivery_paths(delivery)
     errors: list[str] = []
     warnings: list[str] = []
+    missing_required = False
 
     for name, path in paths.items():
         if name == "audit_cards_dir":
             if not path.is_dir():
                 errors.append(f"缺少必需目录 {name}: {path}")
+                missing_required = True
         elif not path.is_file():
             errors.append(f"缺少必需文件 {name}: {path}")
-    if errors:
+            missing_required = True
+    if delivery.is_dir():
+        for entry in delivery.iterdir():
+            if entry.is_file() and entry.suffix.lower() in DISALLOWED_TOP_LEVEL_SCRIPT_SUFFIXES:
+                errors.append(f"正式交付根目录不得包含修正脚本或可执行文件: {entry.name}")
+    if missing_required:
         return {
             "status": "failed",
             "delivery": str(delivery),
@@ -733,9 +766,30 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append("每张图片的正序初检时间必须独立记录，不能批量填入同一时间")
         if len(set(valid_second_times)) != len(image_observations):
             errors.append("每张图片的逆序复核时间必须独立记录，不能批量填入同一时间")
-        if len(valid_first_times) == len(image_observations) and len(valid_second_times) == len(image_observations):
+        sequence_values_valid = all(
+            isinstance(item.get(key), int) and not isinstance(item.get(key), bool)
+            for item in image_observations
+            for key in ("first_pass_sequence", "second_pass_sequence")
+        )
+        if (
+            len(valid_first_times) == len(image_observations)
+            and len(valid_second_times) == len(image_observations)
+            and sequence_values_valid
+        ):
             if min(valid_second_times) <= max(valid_first_times):
                 errors.append("必须先完成全部图片的正序初检，再开始逆序复核")
+            first_time_order = [
+                int(item.get("first_pass_sequence"))
+                for item in sorted(image_observations, key=lambda record: parse_datetime(record.get("inspected_at")))
+            ]
+            if first_time_order != expected_sequences:
+                errors.append("图片正序初检时间必须按 first_pass_sequence=1..N 真实递进")
+            second_time_order = [
+                int(item.get("second_pass_sequence"))
+                for item in sorted(image_observations, key=lambda record: parse_datetime(record.get("second_pass_at")))
+            ]
+            if second_time_order != expected_sequences:
+                errors.append("图片逆序复核时间必须按 second_pass_sequence=1..N 真实递进；不得事后批量回填序号与时间")
 
     claims_by_id = {item.get("claim_id"): item for item in source_claims}
     claims_by_observation_id: dict[str, list[dict[str, Any]]] = {}
@@ -766,6 +820,13 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         verbatim_text = str(claim.get("verbatim_text", "")).strip()
         if not verbatim_text:
             errors.append(f"{claim_id} 的 verbatim_text 为空；原文主张不得写成摘要")
+        if WARNING_TEXT_RE.search(verbatim_text):
+            if claim_type != "warning":
+                errors.append(f"{claim_id} 含禁止食用、请勿食用或遵医嘱等警示语义，claim_type 必须是 warning")
+            if claim.get("critical") is not True:
+                errors.append(f"{claim_id} 含警示语义，critical 必须为 true")
+            if observation is not None and "warning" not in (observation.get("content_flags") or []):
+                errors.append(f"{claim_id} 含警示语义，其观察记录必须保留 warning 内容标记")
         if not str(claim.get("visual_locator", "")).strip():
             errors.append(f"{claim_id} 的 visual_locator 为空")
         if not isinstance(claim.get("critical"), bool):
@@ -919,6 +980,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         for term in DIRECT_QUOTE_TERMS_RE.findall(statement):
             if term not in claim_text:
                 errors.append(f"{fact_id} 的高风险词“{term}”未在所引原文主张中原样出现")
+        for term in SENSORY_LITERAL_RE.findall(statement):
+            if term not in claim_text:
+                errors.append(f"{fact_id} 的口感或感官词“{term}”未在所引原文主张中原样出现；回甜、回甘等近义词不得互换")
         if fact_type == "F-EVIDENCE":
             evidence_missing = missing_fields(fact, EVIDENCE_FACT_FIELDS)
             if evidence_missing:
@@ -1031,6 +1095,40 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             evidence_ids = set(item.get("evidence_fact_ids") or [])
             if not feature_ids.intersection(evidence_ids):
                 errors.append(f"{fabe_id} 标记页面直接支持时，Evidence 必须至少包含一条 Feature 的直接事实")
+        referenced_fact_ids = set(item.get("feature_fact_ids") or []) | set(item.get("evidence_fact_ids") or [])
+        referenced_facts = [facts_by_id[fact_id] for fact_id in referenced_fact_ids if fact_id in facts_by_id]
+        referenced_claims = [
+            claims_by_id[claim_id]
+            for fact in referenced_facts
+            for claim_id in (fact.get("claim_ids") or [])
+            if claim_id in claims_by_id
+        ]
+        referenced_claim_text = " ".join(str(claim.get("verbatim_text", "")) for claim in referenced_claims)
+        referenced_source_types = {
+            str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
+            for fact in referenced_facts
+        }
+        analysis_text = " ".join(
+            str(item.get(key, ""))
+            for key in ("feature", "advantage", "benefit", "evidence", "reference_frame", "user_language", "boundary")
+        )
+        if MISLEADING_COMPARATOR_RE.search(analysis_text):
+            errors.append(
+                f"{fabe_id} 使用了“相对普通/仅达到/添加多种/未明示”等替代性比较；必须改写为页面明确展示的具体对比，或补充真实对照来源"
+            )
+        elif MARKET_COMPARATOR_RE.search(analysis_text):
+            has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
+            has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
+            if not has_comparison_claim and not has_comparator_source:
+                errors.append(f"{fabe_id} 使用市场或产品比较语言，但未引用页面对比原文、竞品页或行业对照")
+        restriction = UNSUPPORTED_RESTRICTION_RE.search(analysis_text)
+        if restriction and restriction.group(0) not in referenced_claim_text:
+            errors.append(f"{fabe_id} 将使用方式扩大为“{restriction.group(0)}”，但所引原文未作该限制")
+        if SULFUR_RESIDUE_RISK_RE.search(analysis_text):
+            errors.append(f"{fabe_id} 不得把“未经二氧化硫熏制工艺”扩大为没有残留风险或零残留")
+        stacking = PROMOTION_STACKING_RE.search(analysis_text)
+        if stacking and not PROMOTION_STACKING_RE.search(referenced_claim_text):
+            errors.append(f"{fabe_id} 声称优惠或权益可以叠加，但所引原文没有明确叠加规则")
 
     allowed_axis = {"high", "medium", "low", "unknown"}
     for value in values:
@@ -1068,7 +1166,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{value_id} 的 cannot_prove 必须是数组")
         if not str(value.get("value_statement", "")).strip():
             errors.append(f"{value_id} 的 value_statement 为空")
-        if value.get("layer") != "deferred" and not fabe_by_value.get(value_id):
+        if (value.get("layer") != "deferred" or value.get("p0_candidate") is True) and not fabe_by_value.get(value_id):
             errors.append(f"{value_id} 缺少 FABE 完整推导链")
 
     for gap in gaps:
@@ -1149,6 +1247,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     if not isinstance(candidate_ids, list):
         errors.append("candidate_value_ids 必须是数组")
         candidate_ids = []
+    if len(candidate_ids) != len(set(candidate_ids)):
+        errors.append("candidate_value_ids 不得重复")
+    declared_candidate_ids = {value_id for value_id, value in values_by_id.items() if value.get("p0_candidate") is True}
+    if set(candidate_ids) != declared_candidate_ids:
+        missing_from_decision = sorted(declared_candidate_ids.difference(candidate_ids))
+        extra_in_decision = sorted(set(candidate_ids).difference(declared_candidate_ids))
+        details = []
+        if missing_from_decision:
+            details.append(f"未进入决策池: {', '.join(missing_from_decision)}")
+        if extra_in_decision:
+            details.append(f"非候选却进入决策池: {', '.join(extra_in_decision)}")
+        errors.append(f"P0 候选标记必须与 candidate_value_ids 完全一致（{'；'.join(details)}）")
     for value_id in candidate_ids:
         if value_id not in value_ids:
             errors.append(f"P0 候选池引用了不存在的 value_id: {value_id}")
@@ -1165,6 +1275,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append("P0 推荐值的 layer 必须是 P0")
             if values_by_id[recommended_id].get("downstream_readiness") == "blocked":
                 errors.append("P0 推荐值不得是 downstream_readiness=blocked")
+    for value_id in candidate_ids:
+        if value_id == recommended_id or value_id not in values_by_id:
+            continue
+        if not any(str(item).strip() for item in (values_by_id[value_id].get("cannot_prove") or [])):
+            errors.append(f"{value_id} 是未入选的 P0 候选，必须在 cannot_prove 中说明当前未入选原因")
 
     analysis_status = manifest.get("analysis_status")
     delivery_status = manifest.get("delivery_status")
@@ -1223,6 +1338,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 含删除内部 ID 后残留的箭头或空括号")
         if PUBLIC_JARGON_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
+        if report_key == "report_01":
+            for value_id in candidate_ids:
+                statement = str(values_by_id.get(value_id, {}).get("value_statement", "")).strip()
+                if statement and statement not in text:
+                    errors.append(f"01_商品价值底座.md 未展示 P0 候选 {value_id} 的候选价值说明")
         unexpected = exact_evidence_values(text).difference(allowed_exact_values)
         if unexpected:
             errors.append(
