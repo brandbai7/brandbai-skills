@@ -79,6 +79,7 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     out = Path(out_value).expanduser().resolve()
     product_root = out / "data" / "商品采集"
     review_root = out / "data" / "评价采集"
+    question_root = out / "data" / "问答采集"
     products = [_load_json(path, {}) for path in sorted(product_root.glob("*/product.json"))] if product_root.is_dir() else []
     review_rows: list[dict[str, Any]] = []
     review_manifests: list[dict[str, Any]] = []
@@ -86,8 +87,17 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
         for path in sorted(review_root.glob("*/reviews.jsonl")):
             review_rows.extend(_load_jsonl(path))
         review_manifests = [_load_json(path, {}) for path in sorted(review_root.glob("*/review_manifest.json"))]
+    question_rows: list[dict[str, Any]] = []
+    answer_rows: list[dict[str, Any]] = []
+    question_manifests: list[dict[str, Any]] = []
+    if question_root.is_dir():
+        for path in sorted(question_root.glob("*/questions.jsonl")):
+            question_rows.extend(_load_jsonl(path))
+        for path in sorted(question_root.glob("*/answers.jsonl")):
+            answer_rows.extend(_load_jsonl(path))
+        question_manifests = [_load_json(path, {}) for path in sorted(question_root.glob("*/question_manifest.json"))]
     run_manifest = _load_json(out / "data" / "run_manifest.json", {})
-    if not products and not review_rows and not review_manifests:
+    if not products and not review_rows and not review_manifests and not question_rows and not question_manifests:
         raise DeliveryError("No Tmall collection data was found in the delivery directory")
 
     product_book = Workbook()
@@ -125,12 +135,6 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
                 row.get("source_url"), row.get("source_url_query_redacted"), row.get("bytes"), row.get("content_type"),
             ])
         completion_rows.append([item_id, "商品资料", product.get("completion_state"), "", product.get("collected_at")])
-    for manifest in review_manifests:
-        completion_rows.append([
-            manifest.get("item_id"), "可见评价", manifest.get("state"),
-            f"保存{manifest.get('saved_reviews', 0)}条；平台折叠{manifest.get('folded_count', 0)}条；exhausted={manifest.get('exhausted')}",
-            manifest.get("finished_at"),
-        ])
     _write_sheet(product_book, "规格参数", ["商品ID", "参数名", "参数值", "来源链接", "采集时间"], parameter_rows)
     _write_sheet(product_book, "SKU快照", ["商品ID", "规格组", "顺序", "页面可见选项", "是否页面选中", "页面选中选项", "当时选中SKU ID", "采集时间"], sku_rows)
     _write_sheet(product_book, "素材索引", ["商品ID", "素材ID", "类型", "顺序", "状态", "文件", "公开来源URL", "查询参数已脱敏", "字节数", "内容类型"], media_rows)
@@ -166,29 +170,74 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     review_book.save(review_path)
     load_workbook(review_path, read_only=True).close()
 
+    question_book = Workbook()
+    question_book.remove(question_book.active)
+    _write_sheet(
+        question_book,
+        "问题清单",
+        ["问题ID", "商品ID", "问题原文", "页面声明回答数", "商品链接", "采集时间"],
+        [[
+            row.get("question_id"), row.get("item_id"), row.get("content"), row.get("declared_answer_count"),
+            row.get("canonical_url"), row.get("collected_at"),
+        ] for row in question_rows],
+    )
+    _write_sheet(
+        question_book,
+        "回答明细",
+        ["回答ID", "问题ID", "商品ID", "回答者匿名ID", "页面遮罩名", "购买或身份标签", "回答原文", "时间与规格原文", "采集时间"],
+        [[
+            row.get("answer_id"), row.get("question_id"), row.get("item_id"), row.get("author_id"),
+            row.get("author_masked"), row.get("buyer_tag"), row.get("content"), row.get("meta_text"), row.get("collected_at"),
+        ] for row in answer_rows],
+    )
+    _write_sheet(
+        question_book,
+        "采集状态",
+        ["商品ID", "完成状态", "页面问题总数提示", "已保存问题", "已保存回答", "是否到达可见源末端", "样本上限", "是否达到上限", "完成时间"],
+        [[
+            row.get("item_id"), row.get("state"), row.get("total_hint"), row.get("saved_questions"),
+            row.get("saved_answers"), row.get("exhausted"), row.get("limit"), row.get("limit_reached"), row.get("finished_at"),
+        ] for row in question_manifests],
+    )
+    _style_workbook(question_book)
+    question_path = out / "03_问大家.xlsx"
+    question_book.save(question_path)
+    load_workbook(question_path, read_only=True).close()
+
+    if not products:
+        product_path.unlink(missing_ok=True)
+    if not review_rows and not review_manifests:
+        review_path.unlink(missing_ok=True)
+    if not question_rows and not question_manifests:
+        question_path.unlink(missing_ok=True)
+
     description = f"""# BrandBAI 天猫商品资料采集说明
 
 ## 本次交付
 
 - 商品数：{len(products)}
 - 已保存评价及追评记录：{len(review_rows)}
+- 已保存问大家问题：{len(question_rows)}
+- 已保存问大家回答：{len(answer_rows)}
 - 采集状态：{run_manifest.get('state', 'unknown')}
 - 构建时间：{utc_now()}
 
 ## 文件说明
 
-- `01_商品资料.xlsx`：商品总览、页面参数、SKU 可见选项、素材索引和完整性状态。
-- `02_评价明细.xlsx`：页面可见评价、追评与每个商品的评价采集状态。
+- `01_商品资料.xlsx`：选择商品资料模式时生成，包含商品总览、页面参数、SKU 可见选项、素材索引和完整性状态。
+- `02_评价明细.xlsx`：独立选择评价模式时生成，包含页面可见评价、追评与采集状态。
+- `03_问大家.xlsx`：独立选择问大家模式时生成，包含问题、回答与采集状态。
 - `03_商品素材/`：按本次选择下载的主图、详情图和可见视频。
 - `data/`：用于断点续跑、复核和后续商品价值 Skill 接力的原始结构化数据。
 
 ## 重要边界
 
 1. 价格、促销、销量、库存、排名和选中 SKU 都是采集时点快照，会随账号、地区、时间和活动变化。
-2. “可见评价采集完成”只表示滚动到页面当前可返回内容的末端。若天猫提示折叠评价，状态会保留为 `partial_platform_folded`，不宣称平台内部绝对全量。
-3. 评价是消费者公开表达，不等于经过核验的商品功效、身份或购买事实。
-4. 本包只做下载、结构化和质量说明，不自动生成商品价值结论、卖点、用户语义标签或商业归因。
-5. 登录资料、Cookie、请求头、验证码、浏览器配置和本地任务缓存不进入交付包。
+2. 商品资料、用户评价和问大家是三个独立数据集；商品资料包不会因为评价或问答面板未打开而被阻塞。
+3. “可见评价/问答采集完成”只表示滚动到页面当前可返回内容的末端；未打开完整面板或页面提示数量未覆盖时会保留部分完成状态。
+4. 评价与问答是用户公开表达，不等于经过核验的商品功效、身份或购买事实。
+5. 本包只做下载、结构化和质量说明，不自动生成商品价值结论、卖点、用户语义标签或商业归因。
+6. 登录资料、Cookie、请求头、验证码、浏览器配置和本地任务缓存不进入交付包。
 """
     (out / "04_采集说明.md").write_text(description, encoding="utf-8")
 
@@ -196,8 +245,11 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
         "built_at": utc_now(),
         "products": len(products),
         "reviews": len(review_rows),
-        "product_workbook": product_path.name,
-        "review_workbook": review_path.name,
+        "questions": len(question_rows),
+        "answers": len(answer_rows),
+        "product_workbook": product_path.name if product_path.is_file() else "",
+        "review_workbook": review_path.name if review_path.is_file() else "",
+        "question_workbook": question_path.name if question_path.is_file() else "",
         "run_state": run_manifest.get("state", "unknown"),
     }
     atomic_write_json(out / "data" / "delivery_manifest.json", summary)

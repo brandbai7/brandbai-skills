@@ -7,9 +7,12 @@ from collector_core import (
     canonical_item_url,
     choose_review_status,
     derived_review_id,
+    derived_question_id,
+    derived_answer_id,
     extract_item_id,
     navigation_item_url,
     pseudonymize_author,
+    pseudonymize_qa_author,
     sanitize_media_url,
 )
 
@@ -66,6 +69,17 @@ class CollectorCoreTests(unittest.TestCase):
         self.assertNotIn("用户", first)
         review_id = derived_review_id("123456789", "某**用户", "2026-08-01", "规格A", "合成评价")
         self.assertTrue(review_id.startswith("derived:"))
+
+    def test_question_answer_ids_and_qa_pseudonym_are_stable(self) -> None:
+        question_id = derived_question_id("123456789", "合成问题：如何冲泡？")
+        self.assertEqual(question_id, derived_question_id("123456789", "合成问题：如何冲泡？"))
+        answer_id = derived_answer_id("123456789", question_id, "合成回答者", "合成回答内容", "已购")
+        self.assertEqual(
+            answer_id,
+            derived_answer_id("123456789", question_id, "合成回答者", "合成回答内容", "已购"),
+        )
+        author_id = pseudonymize_qa_author("合成回答者")
+        self.assertNotIn("回答者", author_id)
 
 
 if __name__ == "__main__":

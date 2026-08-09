@@ -84,7 +84,26 @@ class BrowserCollectTmallTests(unittest.TestCase):
             page.navigated_url,
             "https://detail.tmall.com/item.htm?id=123456789&skuId=987654",
         )
-        self.assertEqual(result["state"], "partial_selector_drift")
+        self.assertEqual(result["state"], "partial_requires_full_review_panel")
+
+    def test_questions_mode_keeps_selected_sku_and_requires_full_panel(self) -> None:
+        page = FakePage()
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp:
+            with patch.object(collector, "_open_question_panel", return_value=None):
+                result = collector.collect_questions(
+                    page,
+                    ITEM_URL,
+                    Path(temp),
+                    limit=0,
+                    max_scroll_actions=1,
+                    retain_masked_author=False,
+                    resume=False,
+                )
+        self.assertEqual(
+            page.navigated_url,
+            "https://detail.tmall.com/item.htm?id=123456789&skuId=987654",
+        )
+        self.assertEqual(result["state"], "partial_requires_full_question_panel")
 
     def test_long_review_panel_uses_overlapping_batch_evaluation(self) -> None:
         raw_card = {

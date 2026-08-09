@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import unittest
+from pathlib import Path
 
 from browser_collect_xiaohongshu import (
     PROFILE_SCRIPT,
@@ -9,12 +11,47 @@ from browser_collect_xiaohongshu import (
     _normalize_comment_rows,
     _public_profile_selection,
     _public_search_snapshot,
+    _collect_visible_list_records,
     normalize_assets,
 )
 from collector_core import CollectionError
 
 
 class BrowserCollectorContractTests(unittest.TestCase):
+    def test_batch_list_records_do_not_require_detail_navigation(self) -> None:
+        out = Path(__file__).resolve().parent / ".xhs_batch_list_test_runtime"
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir()
+        try:
+            states = _collect_visible_list_records(
+                None,
+                out,
+                [{
+                    "note_id": "0123456789abcdef01234567",
+                    "rank": 1,
+                    "title": "合成列表卡片",
+                    "author": "合成作者",
+                    "note_type": "image",
+                    "like_count_text": "12",
+                    "cover_url": "",
+                    "search_snapshot_id": "search-1",
+                    "keyword": "合成关键词",
+                }],
+                source_kind="search",
+                assets=[],
+                resume=False,
+                max_asset_bytes=1024,
+            )
+            self.assertEqual(states["0123456789abcdef01234567"], "complete_visible_list_card")
+            row = json.loads((out / "data" / "notes.jsonl").read_text(encoding="utf-8").strip())
+            self.assertFalse(row["detail_page_opened"])
+            self.assertEqual(row["field_scope"], "visible_list_card_only")
+            self.assertEqual(row["body"], "")
+        finally:
+            if out.exists():
+                shutil.rmtree(out)
+
     def test_derived_comment_id_does_not_change_with_relative_time(self) -> None:
         base = {
             "level": 1,

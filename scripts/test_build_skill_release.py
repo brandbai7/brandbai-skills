@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "brandbai-douyin-download"
 ANALYSIS_SKILL_DIR = ROOT / "skills" / "brandbai-douyin-account-analysis"
 TMALL_SKILL_DIR = ROOT / "skills" / "brandbai-tmall-download"
+XIAOHONGSHU_SKILL_DIR = ROOT / "skills" / "brandbai-xiaohongshu-download"
 PRODUCT_VALUE_SKILL_DIR = ROOT / "skills" / "brandbai-product-value"
 VALUE_EXPRESSION_SKILL_DIR = ROOT / "skills" / "brandbai-value-expression"
 
@@ -35,12 +36,12 @@ def workspace_temp():
 class BuildSkillReleaseTests(unittest.TestCase):
     def test_builds_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(SKILL_DIR, temp, "v0.3.0")
+            result = build_release(SKILL_DIR, temp, "v0.4.0")
             archive_path = temp / ARCHIVE_NAME
             checksum_path = temp / CHECKSUM_NAME
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.3.0")
+            self.assertEqual(result["version"], "0.4.0")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -75,12 +76,12 @@ class BuildSkillReleaseTests(unittest.TestCase):
 
     def test_builds_tmall_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(TMALL_SKILL_DIR, temp, "brandbai-tmall-download-v0.1.1")
+            result = build_release(TMALL_SKILL_DIR, temp, "brandbai-tmall-download-v0.2.0")
             archive_path = temp / "brandbai-tmall-download.zip"
             checksum_path = temp / "brandbai-tmall-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.1.1")
+            self.assertEqual(result["version"], "0.2.0")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -88,6 +89,27 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/build_delivery.py", names)
                 self.assertIn("references/collection-contract.md", names)
                 self.assertFalse(any(name.startswith("brandbai-tmall-download/") for name in names))
+
+    def test_builds_xiaohongshu_skill_at_archive_root(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                XIAOHONGSHU_SKILL_DIR,
+                temp,
+                "brandbai-xiaohongshu-download-v0.4.0",
+            )
+            archive_path = temp / "brandbai-xiaohongshu-download.zip"
+            checksum_path = temp / "brandbai-xiaohongshu-download.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.4.0")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("scripts/browser_collect_xiaohongshu.py", names)
+                self.assertIn("scripts/build_delivery.py", names)
+                self.assertIn("scripts/package_delivery.py", names)
+                self.assertIn("references/collection-contract.md", names)
+                self.assertFalse(any(name.startswith("brandbai-xiaohongshu-download/") for name in names))
 
     def test_builds_product_value_skill_with_contracts_and_validator(self):
         with workspace_temp() as temp:

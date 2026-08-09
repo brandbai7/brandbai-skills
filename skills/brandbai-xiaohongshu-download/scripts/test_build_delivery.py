@@ -15,6 +15,33 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 class BuildDeliveryTests(unittest.TestCase):
+    def test_profile_batch_does_not_create_empty_comment_or_search_workbooks(self) -> None:
+        out = Path(__file__).resolve().parent / ".xhs_batch_delivery_test_runtime"
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir()
+        try:
+            write_jsonl(out / "data" / "notes.jsonl", [{
+                "note_id": "note-batch-1", "title": "合成列表卡片", "body": "",
+                "author_id": "author-1", "author_name": "合成作者", "note_type": "image",
+                "metrics": {"likes": 12}, "is_pinned": True,
+                "canonical_url": "https://www.xiaohongshu.com/explore/note-batch-1",
+                "field_scope": "visible_list_card_only", "detail_page_opened": False,
+                "completion_state": "complete_visible_list_card", "collected_at": "2026-08-07T00:00:00Z",
+            }])
+            (out / "data" / "run_manifest.json").write_text(
+                json.dumps({"state": "complete", "mode": "batch"}), encoding="utf-8"
+            )
+            summary = build_delivery(out)
+            self.assertTrue((out / "01_笔记清单.xlsx").is_file())
+            self.assertFalse((out / "02_评论明细.xlsx").exists())
+            self.assertFalse((out / "03_搜索快照.xlsx").exists())
+            self.assertEqual(summary["comment_workbook"], "")
+            self.assertEqual(summary["search_workbook"], "")
+        finally:
+            if out.exists():
+                shutil.rmtree(out)
+
     def test_builds_three_workbooks_and_notes(self) -> None:
         out = Path(__file__).resolve().parent / ".xhs_delivery_test_runtime"
         if out.exists():

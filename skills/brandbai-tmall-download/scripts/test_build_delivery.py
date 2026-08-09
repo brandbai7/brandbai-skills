@@ -19,8 +19,10 @@ class BuildDeliveryTests(unittest.TestCase):
             item_id = "123456789"
             product_dir = root / "data" / "商品采集" / item_id
             review_dir = root / "data" / "评价采集" / item_id
+            question_dir = root / "data" / "问答采集" / item_id
             product_dir.mkdir(parents=True)
             review_dir.mkdir(parents=True)
+            question_dir.mkdir(parents=True)
             product = {
                 "item_id": item_id,
                 "title": "合成测试商品",
@@ -54,13 +56,36 @@ class BuildDeliveryTests(unittest.TestCase):
                 "privacy_mode": "pseudonymized", "finished_at": "2026-08-07T00:00:00+00:00",
             }
             (review_dir / "review_manifest.json").write_text(json.dumps(review_manifest, ensure_ascii=False), encoding="utf-8")
+            question = {
+                "question_id": "question:synthetic", "item_id": item_id,
+                "content": "这是一条纯合成测试问题。", "declared_answer_count": 1,
+                "canonical_url": f"https://detail.tmall.com/item.htm?id={item_id}",
+                "collected_at": "2026-08-07T00:00:00+00:00",
+            }
+            answer = {
+                "answer_id": "answer:synthetic", "question_id": "question:synthetic", "item_id": item_id,
+                "author_id": "qa_reviewer_123", "author_masked": "", "buyer_tag": "已购",
+                "content": "这是一条纯合成测试回答。", "meta_text": "规格A",
+                "collected_at": "2026-08-07T00:00:00+00:00",
+            }
+            (question_dir / "questions.jsonl").write_text(json.dumps(question, ensure_ascii=False) + "\n", encoding="utf-8")
+            (question_dir / "answers.jsonl").write_text(json.dumps(answer, ensure_ascii=False) + "\n", encoding="utf-8")
+            question_manifest = {
+                "item_id": item_id, "state": "complete_visible_qa_exhausted", "total_hint": 1,
+                "saved_questions": 1, "saved_answers": 1, "exhausted": True,
+                "limit": 0, "limit_reached": False, "finished_at": "2026-08-07T00:00:00+00:00",
+            }
+            (question_dir / "question_manifest.json").write_text(json.dumps(question_manifest, ensure_ascii=False), encoding="utf-8")
             (root / "data" / "run_manifest.json").write_text(json.dumps({"state": "partial"}), encoding="utf-8")
 
             summary = build_delivery(root)
             self.assertEqual(summary["products"], 1)
             self.assertEqual(summary["reviews"], 1)
+            self.assertEqual(summary["questions"], 1)
+            self.assertEqual(summary["answers"], 1)
             self.assertTrue((root / "01_商品资料.xlsx").is_file())
             self.assertTrue((root / "02_评价明细.xlsx").is_file())
+            self.assertTrue((root / "03_问大家.xlsx").is_file())
             self.assertTrue((root / "04_采集说明.md").is_file())
             product_book = load_workbook(root / "01_商品资料.xlsx", read_only=True)
             self.assertEqual(product_book.sheetnames, ["商品总览", "规格参数", "SKU快照", "素材索引", "完整性"])
@@ -68,6 +93,9 @@ class BuildDeliveryTests(unittest.TestCase):
             review_book = load_workbook(root / "02_评价明细.xlsx", read_only=True)
             self.assertEqual(review_book.sheetnames, ["评价明细", "采集状态"])
             review_book.close()
+            question_book = load_workbook(root / "03_问大家.xlsx", read_only=True)
+            self.assertEqual(question_book.sheetnames, ["问题清单", "回答明细", "采集状态"])
+            question_book.close()
 
             package = package_directory(root)
             self.assertTrue(Path(package["zip"]).is_file())
