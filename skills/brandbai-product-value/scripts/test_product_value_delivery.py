@@ -1072,6 +1072,45 @@ def test_literal_claim_grounding(root: Path) -> None:
     write_jsonl(fact_path, facts)
     claim_path = delivery / "data" / "source_claim_ledger.jsonl"
     claims = read_jsonl(claim_path)
+
+    facts[0]["statement"] = "包装标示采用独立小袋分装；如有胀袋，请勿食用。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    warning_fragment = validate_delivery(delivery)
+    assert warning_fragment["status"] == "failed"
+    assert any("关键字段或警示“如有胀袋”" in error for error in warning_fragment["errors"])
+
+    facts[0]["statement"] = "包装标示采用独立小袋分装；生产日期见背面喷码。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    date_fragment = validate_delivery(delivery)
+    assert date_fragment["status"] == "failed"
+    assert any("关键字段或警示“生产日期”" in error for error in date_fragment["errors"])
+
+    original_claim = dict(claims[0])
+    claims[0].update(
+        {
+            "claim_type": "nutrition",
+            "label": "脂肪",
+            "verbatim_text": "独立小袋包装，脂肪0克",
+            "critical": True,
+        }
+    )
+    write_jsonl(claim_path, claims)
+    facts[0]["statement"] = "包装标示采用独立小袋分装；脂肪0克、饱和脂肪0克。"
+    facts[0]["source_quotes"] = ["独立小袋包装，脂肪0克"]
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    nutrition_fragment = validate_delivery(delivery)
+    assert nutrition_fragment["status"] == "failed"
+    assert any("关键字段或警示“饱和脂肪”" in error for error in nutrition_fragment["errors"])
+
+    claims[0] = original_claim
+    write_jsonl(claim_path, claims)
+    facts[0]["statement"] = "包装标示采用独立小袋分装。"
+    facts[0]["source_quotes"] = ["独立小袋包装"]
+    write_jsonl(fact_path, facts)
+
     warning = dict(claims[3])
     warning.update(
         {
