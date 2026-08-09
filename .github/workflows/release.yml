@@ -48,10 +48,5 @@ jobs:
             fi
           done
       - name: Publish GitHub Release
-        run: >-
-          gh release create "${GITHUB_REF_NAME}"
-          dist/*.zip
-          dist/*.sha256
-          --verify-tag
-          --title "BrandBAI Skills ${GITHUB_REF_NAME}"
-          --notes-file "${NOTES_FILE}"
+        shell: bash
+        run: bash scripts/publish_skill_release.sh
