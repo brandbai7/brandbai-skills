@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from collections import Counter
 import hashlib
 import html
 import json
@@ -303,6 +304,11 @@ WARNING_TEXT_RE = re.compile(
 MISLEADING_COMPARATOR_RE = re.compile(
     r"(?:相对|相比)(?:仅达到|普通(?:产地|原料|产品)?|添加多种|未明示|传统(?:产品|工艺)?)"
 )
+UNSUPPORTED_PRODUCT_COMPARATOR_RE = re.compile(
+    r"(?:相对|相比)(?:(?![，。；;]).){0,30}(?:"
+    r"无法确认加工工艺|多配料(?:的)?加工食品|单一食用方式(?:的)?产品|"
+    r"散装或大包装|无检测引用(?:的)?产品|需要煎煮或加工(?:的)?黄精原料)"
+)
 MARKET_COMPARATOR_RE = re.compile(
     r"(?:相对|相比|优于|高于).{0,18}(?:同类|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)"
 )
@@ -315,6 +321,15 @@ SULFUR_RESIDUE_RISK_RE = re.compile(
 PROMOTION_STACKING_RE = re.compile(
     r"(?:优惠|活动|折扣|赠品|券|权益)?.{0,8}(?:可以|可|能够)叠加(?:使用|享受)?|(?:同时|一并)享受.{0,10}(?:优惠|活动|折扣|赠品|券|权益)"
 )
+EATING_RESTRICTION_RE = re.compile(r"(?:不宜|不可|不能|禁止|请勿|勿|不适合)(?:直接)?食用")
+TITLE_EVIDENCE_RE = re.compile(r"(?:商品|页面|下载文件|文件)?标题|文件名|OCR", re.IGNORECASE)
+HIGHER_PRIORITY_SKU_RE = re.compile(r"SKU\s*选择|包装|规格(?:栏|表|选择)|商品信息|成交单元|订单", re.IGNORECASE)
+SKU_CONFLICT_RE = re.compile(r"不一致|冲突|无法确认|待核对|待确认")
+INFERRED_DYNAMIC_YEAR_RE = re.compile(
+    r"年份.{0,12}(?:根据|依据|按).{0,20}(?:抓取|采集|截图|下载|访问|页面保存).{0,12}(?:推定|推断|补全|确定)"
+)
+TIME_OF_DAY_RE = re.compile(r"(?<!\d)\d{1,2}:\d{2}(?!\d)")
+TZ_DATETIME_RE = re.compile(r"T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})")
 DISALLOWED_TOP_LEVEL_SCRIPT_SUFFIXES = {".py", ".pyw", ".ps1", ".bat", ".cmd", ".exe", ".js", ".vbs"}
 
 
@@ -349,6 +364,30 @@ def parse_datetime(value: Any) -> datetime | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed.tzinfo is not None else None
+
+
+def timestamp_after_file(timestamp: datetime | None, path: Path, tolerance_seconds: float = 5.0) -> bool:
+    """Return true when a recorded event occurs after the ledger was written."""
+
+    if timestamp is None or not path.is_file():
+        return False
+    return timestamp.timestamp() > path.stat().st_mtime + tolerance_seconds
+
+
+def suspicious_fixed_cadence(timestamps: list[datetime]) -> bool:
+    """Detect dominant machine-generated intervals without rejecting short runs."""
+
+    if len(timestamps) < 5:
+        return False
+    deltas = [
+        round((current - previous).total_seconds(), 3)
+        for previous, current in zip(timestamps, timestamps[1:])
+    ]
+    positive = [delta for delta in deltas if delta > 0]
+    if len(positive) != len(deltas):
+        return True
+    dominant_count = Counter(positive).most_common(1)[0][1]
+    return dominant_count >= max(4, int(len(deltas) * 0.8 + 0.999))
 
 
 def classify_time_scope(value: Any, reference: date | None) -> str | None:
@@ -513,10 +552,28 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         sku_basis = str(manifest.get("sku_basis", ""))
         if not re.search(r"SKU\s*选择|规格(?:栏|表|选择)|包装|商品信息|成交单元|订单", sku_basis, re.IGNORECASE):
             errors.append("sku_status=confirmed 时，sku_basis 必须来自 SKU 选择器、包装、规格表、商品信息区或订单成交单元")
+    sku_basis = str(manifest.get("sku_basis", ""))
+    sku_text = str(manifest.get("sku", "")).strip()
+    if (
+        sku_text
+        and manifest.get("sku_status") in {"partial", "unverified"}
+        and TITLE_EVIDENCE_RE.search(sku_basis)
+        and HIGHER_PRIORITY_SKU_RE.search(sku_basis)
+        and SKU_CONFLICT_RE.search(sku_basis)
+        and sku_text in sku_basis
+    ):
+        errors.append("标题或文件名与包装、规格表或商品信息区冲突时，不得继续把标题片段写成当前 SKU；应改用可确认的标准成交单元或明确待确认")
     if manifest.get("analysis_status") == "draft":
         errors.append("analysis_status=draft，不得作为正式交付")
     if not isinstance(manifest.get("limitations"), list):
         errors.append("limitations 必须是数组")
+    manifest_updated_at = parse_datetime(manifest.get("updated_at"))
+    if timestamp_after_file(manifest_updated_at, paths["manifest"]):
+        errors.append("product_manifest.updated_at 晚于 manifest 文件实际写入时间，存在事后生成或未来时间")
+    if manifest_updated_at is not None:
+        for report_key in ("report_01", "report_02"):
+            if timestamp_after_file(manifest_updated_at, paths[report_key]):
+                errors.append(f"product_manifest.updated_at 晚于 {paths[report_key].name} 实际生成时间")
 
     ledger_specs = (
         ("source_inventory", source_inventory, "source_file_id", SOURCE_INVENTORY_FIELDS, r"SF-\d{3,}"),
@@ -790,6 +847,21 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             ]
             if second_time_order != expected_sequences:
                 errors.append("图片逆序复核时间必须按 second_pass_sequence=1..N 真实递进；不得事后批量回填序号与时间")
+            ordered_first_times = [
+                parse_datetime(item.get("inspected_at"))
+                for item in sorted(image_observations, key=lambda record: int(record.get("first_pass_sequence")))
+            ]
+            ordered_second_times = [
+                parse_datetime(item.get("second_pass_at"))
+                for item in sorted(image_observations, key=lambda record: int(record.get("second_pass_sequence")))
+            ]
+            if suspicious_fixed_cadence([item for item in ordered_first_times if item is not None]):
+                errors.append("图片正序初检时间呈固定间隔批量生成，不能作为真实逐张视觉检查记录")
+            if suspicious_fixed_cadence([item for item in ordered_second_times if item is not None]):
+                errors.append("图片逆序复核时间呈固定间隔批量生成，不能作为真实逐张视觉复核记录")
+        all_image_times = [item for item in first_times + second_times if item is not None]
+        if any(timestamp_after_file(item, paths["source_observations"]) for item in all_image_times):
+            errors.append("图片核对时间晚于 source_observation.jsonl 实际写入时间，存在未来时间或事后批量回填")
 
     claims_by_id = {item.get("claim_id"): item for item in source_claims}
     claims_by_observation_id: dict[str, list[dict[str, Any]]] = {}
@@ -879,6 +951,24 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(
                     f"{observation_id} 标记 {flag}，至少需要 {minimum} 条 {claim_type} 原文主张"
                 )
+
+    claim_check_times = [parse_datetime(item.get("claimed_at")) for item in source_claims]
+    claim_recheck_times = [parse_datetime(item.get("rechecked_at")) for item in source_claims]
+    valid_claim_check_times = [item for item in claim_check_times if item is not None]
+    valid_claim_recheck_times = [item for item in claim_recheck_times if item is not None]
+    if len(set(valid_claim_check_times)) != len(valid_claim_check_times):
+        errors.append("每条原文主张的第三遍摘录时间必须独立记录，不得复用同一时间")
+    if len(set(valid_claim_recheck_times)) != len(valid_claim_recheck_times):
+        errors.append("每条原文主张的第四遍复核时间必须独立记录，不得复用同一时间")
+    if suspicious_fixed_cadence(sorted(valid_claim_check_times)):
+        errors.append("原文主张摘录时间呈固定间隔批量生成，不能作为真实逐条摘录记录")
+    if suspicious_fixed_cadence(sorted(valid_claim_recheck_times)):
+        errors.append("原文主张复核时间呈固定间隔批量生成，不能作为真实逐条复核记录")
+    if any(
+        timestamp_after_file(item, paths["source_claims"])
+        for item in valid_claim_check_times + valid_claim_recheck_times
+    ):
+        errors.append("原文主张摘录或复核时间晚于 source_claim_ledger.jsonl 实际写入时间，存在未来时间或事后批量回填")
 
     for source in sources:
         source_id = str(source.get("source_id", ""))
@@ -1033,9 +1123,26 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if fact_type == "DYN" and not str(fact.get("time_scope", "")).strip():
             errors.append(f"{fact_id} 是动态交易事实，必须填写 time_scope")
         if fact_type == "DYN":
+            dyn_claim_text = " ".join(str(item.get("verbatim_text", "")) for item in selected_claims)
+            time_scope_text = str(fact.get("time_scope", ""))
+            scope_years = {item[0] for item in DATE_RE.findall(time_scope_text)}
+            claim_years = {item[0] for item in DATE_RE.findall(dyn_claim_text)}
+            inferred_years = scope_years.difference(claim_years)
+            if inferred_years:
+                captured = parse_datetime(source.get("captured_at"))
+                if captured is None or str(captured.year) not in inferred_years:
+                    errors.append(f"{fact_id} 补全的年份与来源 captured_at 不一致，不能据此判断活动状态")
+                if not INFERRED_DYNAMIC_YEAR_RE.search(str(fact.get("boundary", ""))):
+                    errors.append(f"{fact_id} 的年份未出现在所引活动原文中；如按采集时间推定，必须在 boundary 明确披露推定依据")
+            if TIME_OF_DAY_RE.search(dyn_claim_text) and not TZ_DATETIME_RE.search(time_scope_text):
+                errors.append(f"{fact_id} 的活动原文包含具体时刻，time_scope 必须保留完整日期、时刻和时区")
             expected = classify_time_scope(fact.get("time_scope"), snapshot_date)
             if expected is None:
-                warnings.append(f"{fact_id} 的 time_scope 无法按完整日期自动核验，须人工确认年份和时区")
+                status = str(fact.get("status", "")).strip().lower()
+                if status in {"active", "confirmed", "current", "upcoming", "expired"}:
+                    errors.append(f"{fact_id} 的 time_scope 缺少可核验的完整年份，status 不得标记为 {status}")
+                if not re.search(r"年份.{0,8}(?:未显示|缺失|待确认)|时区.{0,8}(?:未显示|缺失|待确认)", str(fact.get("boundary", ""))):
+                    errors.append(f"{fact_id} 的 time_scope 无法自动核验时，boundary 必须明确年份或时区缺口")
             else:
                 dyn_expected_states[fact_id] = expected
                 status = str(fact.get("status", "")).strip().lower()
@@ -1116,6 +1223,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(
                 f"{fabe_id} 使用了“相对普通/仅达到/添加多种/未明示”等替代性比较；必须改写为页面明确展示的具体对比，或补充真实对照来源"
             )
+        elif UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(analysis_text):
+            errors.append(f"{fabe_id} 使用了虚构的产品替代对象；必须改写为用户旧习惯，或补充页面对比、竞品页或行业对照")
         elif MARKET_COMPARATOR_RE.search(analysis_text):
             has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
             has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
@@ -1183,6 +1292,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if expected == "active" and (fact_id in limitation_text or "DYN" in limitation_text) and EXPIRY_WORDS_RE.search(limitation_text):
             errors.append(f"limitations 把仍处活动期的 {fact_id} 写成已过期")
 
+    all_claim_text = " ".join(str(item.get("verbatim_text", "")) for item in source_claims)
     for location, text in iter_analysis_texts(facts, fabe, anchors, values, decision):
         for pattern, explanation in RISKY_INFERENCE_RULES:
             if pattern.search(text):
@@ -1199,6 +1309,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{location} 存在越界表达：缺少竞品或行业对照，不能写最强、唯一、独有或领先")
         if AGGREGATE_USER_RE.search(text) and not any(fact.get("fact_type") == "U" for fact in facts):
             errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称很多或多数用户存在该问题")
+        for restriction in set(EATING_RESTRICTION_RE.findall(text)):
+            if restriction not in all_claim_text:
+                errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
 
     exact_value_surfaces = (
         ("fabe_ledger", fabe),
@@ -1243,6 +1356,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("public_rationale 不得包含内部资产 ID")
     if PUBLIC_JARGON_RE.search(str(decision.get("public_rationale", ""))):
         errors.append("public_rationale 不得包含内部英文字段或技术状态")
+    decided_at = parse_datetime(decision.get("decided_at"))
+    if timestamp_after_file(decided_at, paths["decision"]):
+        errors.append("p0_decision.decided_at 晚于决策文件实际写入时间，存在未来时间")
     candidate_ids = decision.get("candidate_value_ids")
     if not isinstance(candidate_ids, list):
         errors.append("candidate_value_ids 必须是数组")
@@ -1338,6 +1454,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 含删除内部 ID 后残留的箭头或空括号")
         if PUBLIC_JARGON_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
+        for restriction in set(EATING_RESTRICTION_RE.findall(text)):
+            if restriction not in all_claim_text:
+                errors.append(f"{paths[report_key].name} 新增了原文没有的限制性结论“{restriction}”")
         if report_key == "report_01":
             for value_id in candidate_ids:
                 statement = str(values_by_id.get(value_id, {}).get("value_statement", "")).strip()

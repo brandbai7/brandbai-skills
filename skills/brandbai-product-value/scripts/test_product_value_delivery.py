@@ -12,17 +12,22 @@ from build_source_audit_cards import build_cards
 from index_product_sources import index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
-from validate_product_value_delivery import validate_delivery
+from validate_product_value_delivery import suspicious_fixed_cadence, validate_delivery
 
 
 def populate_valid_partial(delivery: Path) -> None:
     data = delivery / "data"
-    timestamp = now_iso()
+    clock_now = datetime.now().astimezone().replace(microsecond=0)
+    timestamp = (clock_now - timedelta(minutes=20)).isoformat()
+    event_start = (clock_now - timedelta(days=1)).replace(hour=0, minute=0, second=0)
+    event_end = (clock_now + timedelta(days=1)).replace(hour=23, minute=59, second=59)
+    dynamic_claim_text = f"活动时间{event_start.isoformat()}至{event_end.isoformat()}"
+    dynamic_time_scope = f"{event_start.isoformat()}/{event_end.isoformat()}"
     source_dir = delivery.parent / f"{delivery.name}-source-materials"
     source_dir.mkdir()
     (source_dir / "商品包装.txt").write_text("独立小袋包装", encoding="utf-8")
     (source_dir / "品牌方向.txt").write_text("外出携带", encoding="utf-8")
-    (source_dir / "活动信息.txt").write_text("虚构活动日期", encoding="utf-8")
+    (source_dir / "活动信息.txt").write_text(dynamic_claim_text, encoding="utf-8")
     (source_dir / "详情页主图.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400" fill="white"/><text x="30" y="80">独立小袋包装</text><text x="30" y="130">外出拿取更清楚</text></svg>',
         encoding="utf-8",
@@ -53,12 +58,12 @@ def populate_valid_partial(delivery: Path) -> None:
     }
     long_card_path = data / audit_cards[inventory_ids["详情页工艺图.svg"]]["audit_card_path"]
     assert 'height="13460" viewBox="0 0 1400 13460"' in long_card_path.read_text(encoding="utf-8")
-    first_pass_at = datetime.now().astimezone().replace(microsecond=0)
-    second_image_first_pass_at = first_pass_at + timedelta(seconds=1)
-    second_pass_at = first_pass_at + timedelta(seconds=2)
-    first_image_second_pass_at = first_pass_at + timedelta(seconds=3)
-    claim_pass_at = first_pass_at + timedelta(seconds=4)
-    claim_recheck_at = first_pass_at + timedelta(seconds=5)
+    first_pass_at = clock_now - timedelta(minutes=10)
+    second_image_first_pass_at = first_pass_at + timedelta(seconds=2)
+    second_pass_at = first_pass_at + timedelta(seconds=7)
+    first_image_second_pass_at = first_pass_at + timedelta(seconds=11)
+    claim_pass_times = [first_pass_at + timedelta(seconds=value) for value in (19, 23, 28, 34, 41)]
+    claim_recheck_times = [first_pass_at + timedelta(seconds=value) for value in (52, 59, 67, 76, 86)]
     write_jsonl(
         data / "source_observation.jsonl",
         [
@@ -110,8 +115,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "relative_path": "活动信息.txt",
                 "content_type": "promotion",
                 "title": "虚构限时活动信息",
-                "visible_heading": "虚构活动日期",
-                "visible_text_excerpt": "虚构活动日期",
+                "visible_heading": dynamic_claim_text,
+                "visible_text_excerpt": dynamic_claim_text,
                 "inspection_method": "document_text",
                 "inspection_status": "inspected",
                 "inspected_at": timestamp,
@@ -184,8 +189,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "visual_locator": "文本第1行",
                 "critical": False,
                 "claim_status": "match",
-                "claimed_at": claim_pass_at.isoformat(),
-                "rechecked_at": claim_recheck_at.isoformat(),
+                "claimed_at": claim_pass_times[0].isoformat(),
+                "rechecked_at": claim_recheck_times[0].isoformat(),
             },
             {
                 "claim_id": "CLM-002",
@@ -199,8 +204,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "visual_locator": "文本第1行",
                 "critical": False,
                 "claim_status": "match",
-                "claimed_at": claim_pass_at.isoformat(),
-                "rechecked_at": claim_recheck_at.isoformat(),
+                "claimed_at": claim_pass_times[1].isoformat(),
+                "rechecked_at": claim_recheck_times[1].isoformat(),
             },
             {
                 "claim_id": "CLM-003",
@@ -208,14 +213,14 @@ def populate_valid_partial(delivery: Path) -> None:
                 "observation_id": "OBS-003",
                 "claim_type": "transaction",
                 "label": "活动信息",
-                "verbatim_text": "虚构活动日期",
+                "verbatim_text": dynamic_claim_text,
                 "normalized_value": "",
                 "unit": "",
                 "visual_locator": "文本第1行",
                 "critical": False,
                 "claim_status": "match",
-                "claimed_at": claim_pass_at.isoformat(),
-                "rechecked_at": claim_recheck_at.isoformat(),
+                "claimed_at": claim_pass_times[2].isoformat(),
+                "rechecked_at": claim_recheck_times[2].isoformat(),
             },
             {
                 "claim_id": "CLM-004",
@@ -229,8 +234,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "visual_locator": "主图上部",
                 "critical": False,
                 "claim_status": "match",
-                "claimed_at": claim_pass_at.isoformat(),
-                "rechecked_at": claim_recheck_at.isoformat(),
+                "claimed_at": claim_pass_times[3].isoformat(),
+                "rechecked_at": claim_recheck_times[3].isoformat(),
             },
             {
                 "claim_id": "CLM-005",
@@ -244,8 +249,8 @@ def populate_valid_partial(delivery: Path) -> None:
                 "visual_locator": "长图上部",
                 "critical": False,
                 "claim_status": "match",
-                "claimed_at": claim_pass_at.isoformat(),
-                "rechecked_at": claim_recheck_at.isoformat(),
+                "claimed_at": claim_pass_times[4].isoformat(),
+                "rechecked_at": claim_recheck_times[4].isoformat(),
             },
         ],
     )
@@ -383,10 +388,10 @@ def populate_valid_partial(delivery: Path) -> None:
                 "statement": "虚构活动在本次交付日期内有效。",
                 "source_id": "SRC-003",
                 "claim_ids": ["CLM-003"],
-                "source_quotes": ["虚构活动日期"],
+                "source_quotes": [dynamic_claim_text],
                 "locator": "活动图片",
                 "sku_scope": "示例规格A",
-                "time_scope": f"{(datetime.now().astimezone().date() - timedelta(days=1)).isoformat()}~{(datetime.now().astimezone().date() + timedelta(days=1)).isoformat()}",
+                "time_scope": dynamic_time_scope,
                 "status": "active",
                 "boundary": "仅在完整日期区间内有效。",
             },
@@ -617,6 +622,27 @@ def test_dynamic_and_semantic_guardrails(root: Path) -> None:
     fact_path = delivery / "data" / "fact_ledger.jsonl"
     facts = read_jsonl(fact_path)
     dyn = next(item for item in facts if item["fact_id"] == "DYN-001")
+    original_time_scope = dyn["time_scope"]
+    original_boundary = dyn["boundary"]
+
+    current_year = datetime.now().astimezone().year
+    dyn["time_scope"] = f"{current_year + 1}-08-04T00:00:00+08:00/{current_year + 1}-08-19T23:59:59+08:00"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    inferred_year_broken = validate_delivery(delivery)
+    assert inferred_year_broken["status"] == "failed"
+    assert any("补全的年份与来源 captured_at 不一致" in error for error in inferred_year_broken["errors"])
+    assert any("必须在 boundary 明确披露推定依据" in error for error in inferred_year_broken["errors"])
+
+    dyn["time_scope"] = f"{current_year}-08-04/{current_year}-08-19"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    lost_time_broken = validate_delivery(delivery)
+    assert lost_time_broken["status"] == "failed"
+    assert any("必须保留完整日期、时刻和时区" in error for error in lost_time_broken["errors"])
+
+    dyn["time_scope"] = original_time_scope
+    dyn["boundary"] = original_boundary
     dyn["boundary"] = "该活动已过期。"
     write_jsonl(fact_path, facts)
     build_delivery(delivery, write=True)
@@ -796,6 +822,53 @@ def test_visual_observation_and_evidence_boundaries(root: Path) -> None:
     assert any("未由原件级 F-EVIDENCE" in error for error in leaked_exact_value["errors"])
 
 
+def test_audit_timestamp_and_sku_guardrails(root: Path) -> None:
+    delivery = root / "audit-time-sku"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+
+    evenly_spaced = [
+        datetime.now().astimezone().replace(microsecond=0) + timedelta(seconds=15 * index)
+        for index in range(8)
+    ]
+    assert suspicious_fixed_cadence(evenly_spaced)
+    assert not suspicious_fixed_cadence(
+        [evenly_spaced[0] + timedelta(seconds=value) for value in (0, 4, 9, 15, 22, 31, 43, 58)]
+    )
+
+    claim_path = delivery / "data" / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    base = datetime.now().astimezone().replace(microsecond=0) - timedelta(minutes=4)
+    for index, claim in enumerate(claims):
+        claim["claimed_at"] = (base + timedelta(seconds=index * 15)).isoformat()
+        claim["rechecked_at"] = (base + timedelta(minutes=2, seconds=index * 20)).isoformat()
+    write_jsonl(claim_path, claims)
+    cadence_broken = validate_delivery(delivery)
+    assert cadence_broken["status"] == "failed"
+    assert any("摘录时间呈固定间隔批量生成" in error for error in cadence_broken["errors"])
+    assert any("复核时间呈固定间隔批量生成" in error for error in cadence_broken["errors"])
+
+    future_base = datetime.now().astimezone().replace(microsecond=0) + timedelta(days=1)
+    for index, claim in enumerate(claims):
+        claim["claimed_at"] = (future_base + timedelta(seconds=(0, 4, 9, 15, 22)[index])).isoformat()
+        claim["rechecked_at"] = (future_base + timedelta(minutes=1, seconds=(0, 7, 15, 24, 34)[index])).isoformat()
+    write_jsonl(claim_path, claims)
+    future_broken = validate_delivery(delivery)
+    assert future_broken["status"] == "failed"
+    assert any("晚于 source_claim_ledger.jsonl 实际写入时间" in error for error in future_broken["errors"])
+
+    manifest_path = delivery / "data" / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest["sku"] = "九独立装"
+    manifest["sku_status"] = "partial"
+    manifest["sku_basis"] = "商品标题标注九独立装；商品信息区标示150g约10-12小袋，二者不一致，待核对"
+    write_json(manifest_path, manifest)
+    sku_broken = validate_delivery(delivery)
+    assert sku_broken["status"] == "failed"
+    assert any("不得继续把标题片段写成当前 SKU" in error for error in sku_broken["errors"])
+
+
 def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     delivery = root / "public-copy"
     init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
@@ -854,6 +927,26 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     unsupported_usage = validate_delivery(delivery)
     assert unsupported_usage["status"] == "failed"
     assert any("所引原文未作该限制" in error for error in unsupported_usage["errors"])
+
+    chains[0]["benefit"] = original_benefit
+    chains[0]["advantage"] = "相比散装或大包装，独立小袋更利于外出携带。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    invented_product_comparison = validate_delivery(delivery)
+    assert invented_product_comparison["status"] == "failed"
+    assert any("虚构的产品替代对象" in error for error in invented_product_comparison["errors"])
+
+    chains[0]["advantage"] = original_advantage
+    write_jsonl(fabe_path, chains)
+    decision["public_rationale"] = "生黄精不宜直接食用，当前商品可减少准备步骤。"
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    invented_restriction = validate_delivery(delivery)
+    assert invented_restriction["status"] == "failed"
+    assert any("新增了原文没有的限制性结论" in error for error in invented_restriction["errors"])
+
+    decision["public_rationale"] = "外出前少一步分装与品牌当前方向一致，但仍需真实用户和同类商品对照验证。"
+    write_json(decision_path, decision)
 
     chains[0]["benefit"] = "未经二氧化硫熏制，因此不引入二氧化硫残留风险。"
     write_jsonl(fabe_path, chains)
@@ -1009,6 +1102,7 @@ def main() -> int:
         test_partial_delivery(root)
         test_dynamic_and_semantic_guardrails(root)
         test_visual_observation_and_evidence_boundaries(root)
+        test_audit_timestamp_and_sku_guardrails(root)
         test_fabe_and_public_copy_guardrails(root)
         test_literal_claim_grounding(root)
         test_insufficient_delivery(root)

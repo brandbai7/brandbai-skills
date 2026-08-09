@@ -77,7 +77,7 @@ fc, sc, pkg_level, analysis_status, delivery_status,
 limitations, created_at, updated_at
 ```
 
-`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
+`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。标题或文件名与包装、规格表、商品信息区冲突时，不得继续把标题片段写成当前 SKU；只能写可确认的标准成交单元，或明确待确认。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
 
 ### source_inventory.jsonl
 
@@ -114,7 +114,7 @@ second_pass_sequence, second_pass_heading, second_pass_excerpt,
 second_pass_status, second_pass_at
 ```
 
-`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须独立、带时区，第二遍整体晚于第一遍整体。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。固定间隔批量生成、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
 
 每条观察另填 `text_density` 和 `content_flags`。`text_density` 使用 `none/low/medium/high`；`content_flags` 从 `identity/sku/ingredient/nutrition_table/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other` 中选择。中高文字密度来源不得遗漏内容类型。
 
@@ -130,7 +130,7 @@ label, verbatim_text, normalized_value, unit, visual_locator,
 critical, claim_status, claimed_at, rechecked_at
 ```
 
-`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。第三遍摘录后稍后第四遍重新打开同一来源，只有一致时写 `claim_status=match`，两个带时区时间均晚于前两遍观察。
+`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。第三遍摘录后稍后第四遍重新打开同一来源，只有一致时写 `claim_status=match`；每条 `claimed_at` 和 `rechecked_at` 均由宿主在实际操作当下独立取时，带时区并晚于前两遍观察。重复时间、固定间隔批量生成、未来时间或晚于 `source_claim_ledger.jsonl` 实际写入时间的记录无效。
 
 营养表逐行登记，FAQ 每个问答分别登记，对比页分别登记双方原文。SKU、配料、营养、储存和警示主张必须写 `critical=true`，并进入至少一条事实；看不清时不得猜测或补全，改为资料缺口。页面图片中的报告编号、日期、批次、证书编号和检测方法等精确小字仍不得进入原文主张账本。
 
@@ -167,7 +167,7 @@ evidence_detail_confidence, exact_fields_verified, verification_locator
 
 `evidence_detail_confidence` 允许 `high`、`medium`、`low`。详情页截图和图片中的证据细节最高只能是 `medium`，`exact_fields_verified` 必须为 `false`，并省略报告编号、日期、批次、证书编号和检测方法等小字精确字段；这项禁令适用于事实的全部字段，而不仅是 statement。仍可记录清楚可见的机构、检测项目、结果或页面主张。只有报告原件/PDF可定位文本或官方验证页，才允许 `high` 与 `exact_fields_verified=true`，并必须填写可复核的 `verification_locator`。任何精确证据值进入 FABE、价值、P0 决策、缺口、限制或普通版前，都必须先由这种原件级事实核验。
 
-`DYN.time_scope` 使用含年份的完整日期或日期区间。以 `product_manifest.updated_at` 所在时区判断 `upcoming/active/expired`，并确保事实状态、边界、缺口和 limitations 不互相矛盾。
+`DYN.time_scope` 使用含年份的完整日期或日期区间。原文没有年份、但依据来源 `captured_at` 补全年份时，必须在 `boundary` 明示推定依据，且补全年份必须与采集年份一致；原文包含具体时刻时，`time_scope` 必须保留日期、时刻与时区。以 `product_manifest.updated_at` 所在时区判断 `upcoming/active/expired`，并确保事实状态、边界、缺口和 limitations 不互相矛盾。
 
 ### fabe_ledger.jsonl
 
