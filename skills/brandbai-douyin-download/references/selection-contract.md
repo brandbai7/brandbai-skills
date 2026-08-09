@@ -6,7 +6,7 @@ Read this reference when the task starts from a Chrome plugin export, a Douyin s
 
 Use exactly one works input per task:
 
-1. `--selection-file <作品清单.xlsx>`: preferred bridge from BrandBAI Chrome extension v0.3.0. The workbook must contain a `作品清单` sheet and a `作品ID` column.
+1. `--selection-file <作品清单.xlsx>`: preferred bridge from the current BrandBAI Chrome extension. The workbook must contain a `作品清单` sheet and a `作品ID` column.
 2. `--selection-file <selection.json>`: portable selection contract for other hosts or future plugin versions.
 3. Repeated `--video <URL>`: one or more explicit `/video/`, `/note/`, or `modal_id` work URLs.
 4. `--source-page <URL>`: directly observe a visible creator or search page. Use `--selected-id` to freeze specific works, or `--limit` to bound all observed works.

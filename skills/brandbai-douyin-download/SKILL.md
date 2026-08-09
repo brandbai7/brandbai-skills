@@ -4,7 +4,7 @@ description: Download public Douyin account, search-result, or explicitly select
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.3.0"
+  version: "0.4.0"
   category: content-commerce
 ---
 
@@ -67,7 +67,7 @@ python -m pip install -r requirements-browser.txt
 ```
 
 不要把登录资料夹放进 Git 仓库、同步盘、压缩包或客户交付目录。
-当前版本自动寻找 Windows 上的 Chrome；macOS 或 Linux 运行时给命令增加 `--chrome-path "<Chrome可执行文件>"`。首发版本已在 Windows Chrome 实测，其他桌面系统需要宿主自行验证。
+当前版本自动寻找 Windows 上的 Chrome；macOS 或 Linux 运行时给命令增加 `--chrome-path "<Chrome可执行文件>"`。Windows Chrome 已完成主要路线验证，其他桌面系统需要宿主自行验证。
 
 ## 先做 Dry Run
 

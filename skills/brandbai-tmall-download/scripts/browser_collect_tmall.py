@@ -24,11 +24,14 @@ from collector_core import (
     canonical_item_url,
     choose_review_status,
     dedupe_preserve_order,
+    derived_answer_id,
+    derived_question_id,
     derived_review_id,
     extract_item_id,
     navigation_item_url,
     normalize_item_targets,
     pseudonymize_author,
+    pseudonymize_qa_author,
     read_jsonl_ids,
     safe_filename,
     sanitize_media_url,
@@ -163,6 +166,25 @@ REVIEW_CARD_SCRIPT = r"""
     src: el.currentSrc || el.src || el.getAttribute('src') || ''
   })).filter((row) => /^(https?:)?\/\/(img|gw)\.alicdn\.com\//i.test(row.src) || /^(https?:)?\/\/(cloud\.video\.taobao\.com|video\.alicdn\.com)\//i.test(row.src));
   return {username, contents, dates, purchased_sku: purchased, platform_review_id: platformId, media};
+}
+"""
+
+
+QA_CARDS_SCRIPT = r"""
+(root) => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  return [...root.querySelectorAll('[class*="qaItem--"]')].map((card) => {
+    const question = clean(card.querySelector('[class*="questionTitle--"]')?.textContent);
+    const cardText = clean(card.innerText || card.textContent);
+    const declared = Number((cardText.match(/(?:查看全部|共)\s*(\d+)\s*(?:个|条)?回答/) || [])[1] || 0);
+    const answers = [...card.querySelectorAll('[class*="answerItem--"]')].map((answer) => ({
+      author: clean(answer.querySelector('[class*="userNick--"]')?.textContent),
+      buyer_tag: clean(answer.querySelector('[class*="userTag--"]')?.textContent || answer.querySelector('[class*="timeAgo--"]')?.textContent),
+      content: clean(answer.querySelector('[class*="answerContent--"]')?.textContent),
+      meta_text: clean(answer.querySelector('[class*="answerMeta--"]')?.textContent)
+    })).filter((row) => row.content);
+    return {question, declared_answer_count: Math.max(declared, answers.length), answers};
+  }).filter((row) => row.question);
 }
 """
 
@@ -390,7 +412,7 @@ def _find_review_root(page: Any) -> Any | None:
     return best
 
 
-def _open_review_panel(page: Any) -> Any | None:
+def _open_review_panel(page: Any, wait_seconds: int = 0) -> Any | None:
     root = _find_review_root(page)
     if root is not None:
         try:
@@ -404,11 +426,14 @@ def _open_review_panel(page: Any) -> Any | None:
         for index in range(min(candidates.count(), 5)):
             candidate = candidates.nth(index)
             if candidate.is_visible():
-                candidate.click(timeout=10_000)
-                page.wait_for_timeout(1_500)
-                root = _find_review_root(page)
-                if root is not None:
-                    return root
+                candidate.scroll_into_view_if_needed(timeout=10_000)
+                candidate.evaluate("el => { el.style.outline='4px solid #ff7a00'; el.style.outlineOffset='5px'; }")
+                print("Please click 查看全部评价 in the visible product page, then return to this task.")
+                if wait_seconds > 0:
+                    page.wait_for_timeout(wait_seconds * 1_000)
+                    root = _find_review_root(page)
+                    if root is not None:
+                        return root
     return None
 
 
@@ -478,6 +503,7 @@ def collect_reviews(
     max_scroll_actions: int,
     retain_masked_author: bool,
     resume: bool,
+    panel_wait: int = 0,
 ) -> dict[str, Any]:
     item_id = extract_item_id(source_url)
     canonical_url = canonical_item_url(source_url)
@@ -491,13 +517,13 @@ def collect_reviews(
     saved_ids = read_jsonl_ids(rows_path, "review_id") if resume else set()
     if not resume and rows_path.exists():
         rows_path.unlink()
-    root = _open_review_panel(page)
+    root = _open_review_panel(page, panel_wait)
     if root is None:
         manifest = {
             "schema_version": "1.0",
             "item_id": item_id,
             "canonical_url": canonical_url,
-            "state": "partial_selector_drift",
+            "state": "partial_requires_full_review_panel",
             "saved_reviews": len(saved_ids),
             "folded_count": 0,
             "exhausted": False,
@@ -583,6 +609,200 @@ def collect_reviews(
     return manifest
 
 
+def _find_question_root(page: Any) -> Any | None:
+    roots = page.locator('[class*="AskAnswersWrap--"]')
+    for index in range(roots.count()):
+        candidate = roots.nth(index)
+        try:
+            if candidate.is_visible() and candidate.locator('[class*="qaItem--"]').count():
+                return candidate
+        except Exception:
+            continue
+    return None
+
+
+def _open_question_panel(page: Any, wait_seconds: int = 0) -> Any | None:
+    root = _find_question_root(page)
+    if root is not None:
+        return root
+    candidates = page.get_by_text("查看全部问答", exact=True)
+    for index in range(min(candidates.count(), 5)):
+        candidate = candidates.nth(index)
+        try:
+            if not candidate.is_visible():
+                continue
+            candidate.scroll_into_view_if_needed(timeout=10_000)
+            candidate.evaluate("el => { el.style.outline='4px solid #ff7a00'; el.style.outlineOffset='5px'; }")
+            print("Please click 查看全部问答 in the visible product page, then return to this task.")
+            if wait_seconds > 0:
+                page.wait_for_timeout(wait_seconds * 1_000)
+                return _find_question_root(page)
+        except Exception:
+            continue
+    return None
+
+
+def _question_scroll_root(root: Any) -> Any:
+    candidates = root.locator("*")
+    best = root
+    best_gap = 0
+    for index in range(candidates.count()):
+        candidate = candidates.nth(index)
+        try:
+            if not candidate.is_visible():
+                continue
+            state = candidate.evaluate("el => ({height: el.scrollHeight, client: el.clientHeight})")
+            gap = int(state.get("height") or 0) - int(state.get("client") or 0)
+            if gap > best_gap:
+                best, best_gap = candidate, gap
+        except Exception:
+            continue
+    return best
+
+
+def _append_jsonl_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            handle.flush()
+
+
+def collect_questions(
+    page: Any,
+    source_url: str,
+    out: Path,
+    *,
+    limit: int,
+    max_scroll_actions: int,
+    retain_masked_author: bool,
+    resume: bool,
+    panel_wait: int = 0,
+) -> dict[str, Any]:
+    item_id = extract_item_id(source_url)
+    canonical_url = canonical_item_url(source_url)
+    navigation_url = navigation_item_url(source_url)
+    if extract_item_id(page.url) != item_id if "item.htm" in page.url else True:
+        page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
+        page.wait_for_timeout(3_500)
+    question_dir = out / "data" / "问答采集" / item_id
+    question_dir.mkdir(parents=True, exist_ok=True)
+    questions_path = question_dir / "questions.jsonl"
+    answers_path = question_dir / "answers.jsonl"
+    question_ids = read_jsonl_ids(questions_path, "question_id") if resume else set()
+    answer_ids = read_jsonl_ids(answers_path, "answer_id") if resume else set()
+    if not resume:
+        questions_path.unlink(missing_ok=True)
+        answers_path.unlink(missing_ok=True)
+    root = _open_question_panel(page, panel_wait)
+    if root is None:
+        manifest = {
+            "schema_version": "1.0", "item_id": item_id, "canonical_url": canonical_url,
+            "state": "partial_requires_full_question_panel", "saved_questions": len(question_ids),
+            "saved_answers": len(answer_ids), "total_hint": 0, "exhausted": False,
+            "limit": limit, "limit_reached": False, "finished_at": utc_now(),
+        }
+        atomic_write_json(question_dir / "question_manifest.json", manifest)
+        return manifest
+
+    scroll_root = _question_scroll_root(root)
+    no_growth_rounds = 0
+    exhausted = False
+    limit_reached = False
+    scroll_actions = 0
+    while scroll_actions <= max_scroll_actions:
+        before = len(question_ids)
+        expanders = root.get_by_text(re.compile(r"^查看全部回答$"))
+        for index in range(min(expanders.count(), 6)):
+            try:
+                candidate = expanders.nth(index)
+                if candidate.is_visible():
+                    candidate.click(timeout=5_000)
+                    page.wait_for_timeout(120)
+            except Exception:
+                continue
+        raw_cards = root.evaluate(QA_CARDS_SCRIPT)
+        new_questions: list[dict[str, Any]] = []
+        new_answers: list[dict[str, Any]] = []
+        for raw in raw_cards or []:
+            content = str(raw.get("question") or "").strip()
+            if not content:
+                continue
+            question_id = derived_question_id(item_id, content)
+            if limit > 0 and len(question_ids) >= limit and question_id not in question_ids:
+                limit_reached = True
+                break
+            if question_id not in question_ids:
+                new_questions.append({
+                    "question_id": question_id,
+                    "item_id": item_id,
+                    "product_id": f"tmall:{item_id}",
+                    "content": content,
+                    "declared_answer_count": int(raw.get("declared_answer_count") or 0),
+                    "canonical_url": canonical_url,
+                    "collected_at": utc_now(),
+                })
+                question_ids.add(question_id)
+            for answer in raw.get("answers") or []:
+                answer_content = str(answer.get("content") or "").strip()
+                if not answer_content:
+                    continue
+                author = str(answer.get("author") or "")
+                meta_text = str(answer.get("meta_text") or "")
+                answer_id = derived_answer_id(item_id, question_id, author, answer_content, meta_text)
+                if answer_id in answer_ids:
+                    continue
+                new_answers.append({
+                    "answer_id": answer_id,
+                    "question_id": question_id,
+                    "item_id": item_id,
+                    "author_id": pseudonymize_qa_author(author),
+                    "author_masked": author if retain_masked_author else "",
+                    "buyer_tag": str(answer.get("buyer_tag") or ""),
+                    "content": answer_content,
+                    "meta_text": meta_text,
+                    "collected_at": utc_now(),
+                })
+                answer_ids.add(answer_id)
+        _append_jsonl_rows(questions_path, new_questions)
+        _append_jsonl_rows(answers_path, new_answers)
+        if limit_reached:
+            break
+        state = scroll_root.evaluate("el => ({top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight})")
+        at_bottom = state["top"] + state["client"] >= state["height"] - 4
+        no_growth_rounds = no_growth_rounds + 1 if len(question_ids) == before else 0
+        if at_bottom and no_growth_rounds >= 3:
+            exhausted = True
+            break
+        scroll_root.evaluate("el => el.scrollTo({top: Math.min(el.scrollHeight, el.scrollTop + Math.max(420, el.clientHeight * .78)), behavior: 'instant'})")
+        page.wait_for_timeout(420)
+        scroll_actions += 1
+
+    body_text = page.locator("body").inner_text(timeout=10_000)
+    total_match = re.search(r"问大家\s*[·・]?\s*(\d+)", body_text)
+    total_hint = int(total_match.group(1)) if total_match else 0
+    if limit_reached:
+        status = "partial_limit_sample"
+    elif exhausted and (not total_hint or len(question_ids) >= total_hint):
+        status = "complete_visible_qa_exhausted"
+    elif exhausted:
+        status = "partial_visible_count_below_page_hint"
+    else:
+        status = "partial_not_exhausted"
+    manifest = {
+        "schema_version": "1.0", "item_id": item_id, "canonical_url": canonical_url,
+        "state": status, "saved_questions": len(question_ids), "saved_answers": len(answer_ids),
+        "total_hint": total_hint, "exhausted": exhausted, "limit": limit,
+        "limit_reached": limit_reached, "scroll_actions": scroll_actions,
+        "privacy_mode": "masked_author_retained" if retain_masked_author else "pseudonymized",
+        "finished_at": utc_now(),
+    }
+    atomic_write_json(question_dir / "question_manifest.json", manifest)
+    return manifest
+
+
 def collect(
     *,
     item_urls: list[str],
@@ -591,6 +811,7 @@ def collect(
     mode: str,
     assets: list[str],
     review_limit: int,
+    question_limit: int,
     max_scroll_actions: int,
     login_wait: int,
     retain_masked_author: bool,
@@ -646,16 +867,31 @@ def collect(
                             max_scroll_actions=max_scroll_actions,
                             retain_masked_author=retain_masked_author,
                             resume=resume,
+                            panel_wait=login_wait,
                         )
                         manifest.review_states[item_id] = review["state"]
                     except Exception as exc:
                         manifest.review_states[item_id] = "partial_runtime_error"
                         manifest.warnings.append(f"{item_id}: review collection failed ({type(exc).__name__})")
+                if mode in {"questions", "all"}:
+                    try:
+                        question = collect_questions(
+                            page, url, out,
+                            limit=question_limit,
+                            max_scroll_actions=max_scroll_actions,
+                            retain_masked_author=retain_masked_author,
+                            resume=resume,
+                            panel_wait=login_wait,
+                        )
+                        manifest.question_states[item_id] = question["state"]
+                    except Exception as exc:
+                        manifest.question_states[item_id] = "partial_runtime_error"
+                        manifest.warnings.append(f"{item_id}: question collection failed ({type(exc).__name__})")
                 atomic_write_json(manifest_path, manifest.as_dict())
         finally:
             context.close()
 
-    states = list(manifest.product_states.values()) + list(manifest.review_states.values())
+    states = list(manifest.product_states.values()) + list(manifest.review_states.values()) + list(manifest.question_states.values())
     manifest.state = "complete" if states and all(value.startswith("complete") for value in states) else "partial"
     manifest.finished_at = utc_now()
     atomic_write_json(manifest_path, manifest.as_dict())
@@ -664,12 +900,13 @@ def collect(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect visible Tmall product facts and reviews")
-    parser.add_argument("mode", choices=["product", "reviews", "all"])
+    parser.add_argument("mode", choices=["product", "reviews", "questions", "all"])
     parser.add_argument("--item", action="append", required=True, help="Tmall/Taobao item URL or numeric item id")
     parser.add_argument("--profile-dir", required=True, type=Path, help="Private persistent Chrome profile outside the delivery folder")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--assets", default="main_images,detail_images", help="main_images,detail_images,video,review_media,none")
     parser.add_argument("--review-limit", type=int, default=0, help="0 means continue until the visible source is exhausted")
+    parser.add_argument("--question-limit", type=int, default=0, help="0 means continue until the visible question panel is exhausted")
     parser.add_argument("--max-scroll-actions", type=int, default=800)
     parser.add_argument("--login-wait", type=int, default=0)
     parser.add_argument("--retain-masked-author", action="store_true")
@@ -689,6 +926,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             assets=normalize_assets(args.assets),
             review_limit=max(0, args.review_limit),
+            question_limit=max(0, args.question_limit),
             max_scroll_actions=max(1, args.max_scroll_actions),
             login_wait=max(0, args.login_wait),
             retain_masked_author=args.retain_masked_author,

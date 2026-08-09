@@ -128,6 +128,19 @@ def derived_review_id(
     return "derived:" + stable_hash(item_id, author, date_text, purchased_sku, content, role)
 
 
+def derived_question_id(item_id: str, content: str) -> str:
+    return "question:" + stable_hash(item_id, content)
+
+
+def derived_answer_id(item_id: str, question_id: str, author: str, content: str, meta_text: str) -> str:
+    return "answer:" + stable_hash(item_id, question_id, author, content, meta_text)
+
+
+def pseudonymize_qa_author(name: str, *, salt: str = "brandbai-tmall-qa-public") -> str:
+    name = str(name or "").strip()
+    return f"answerer_{stable_hash(salt, name, length=12)}" if name else ""
+
+
 def dedupe_preserve_order(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -200,6 +213,7 @@ class RunManifest:
     state: str = "running"
     product_states: dict[str, str] = field(default_factory=dict)
     review_states: dict[str, str] = field(default_factory=dict)
+    question_states: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -214,5 +228,6 @@ class RunManifest:
             "state": self.state,
             "product_states": self.product_states,
             "review_states": self.review_states,
+            "question_states": self.question_states,
             "warnings": self.warnings,
         }

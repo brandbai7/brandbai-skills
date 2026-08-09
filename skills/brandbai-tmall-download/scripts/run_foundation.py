@@ -15,12 +15,13 @@ from package_delivery import PackageError, package_directory
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect Tmall product evidence into a BrandBAI ordinary delivery")
-    parser.add_argument("mode", choices=["product", "reviews", "all"])
+    parser.add_argument("mode", choices=["product", "reviews", "questions", "all"])
     parser.add_argument("--item", action="append", required=True, help="Repeat for more products")
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--assets", default="main_images,detail_images")
     parser.add_argument("--review-limit", type=int, default=0)
+    parser.add_argument("--question-limit", type=int, default=0)
     parser.add_argument("--max-scroll-actions", type=int, default=800)
     parser.add_argument("--login-wait", type=int, default=0)
     parser.add_argument("--retain-masked-author", action="store_true")
@@ -50,6 +51,14 @@ def main(argv: list[str] | None = None) -> int:
             } for url in urls],
             "assets": assets,
             "review_limit": max(0, args.review_limit),
+            "question_limit": max(0, args.question_limit),
+            "delivery_scope": {
+                "product": ["product"],
+                "reviews": ["reviews"],
+                "questions": ["questions"],
+                "all": ["product", "reviews", "questions"],
+            }[args.mode],
+            "dataset_independence": "product_package_excludes_reviews_and_questions",
             "privacy_mode": "masked_author_retained" if args.retain_masked_author else "pseudonymized",
             "profile_dir": str(profile),
             "out": str(out),
@@ -67,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             assets=assets,
             review_limit=max(0, args.review_limit),
+            question_limit=max(0, args.question_limit),
             max_scroll_actions=max(1, args.max_scroll_actions),
             login_wait=max(0, args.login_wait),
             retain_masked_author=args.retain_masked_author,

@@ -13,9 +13,9 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
-| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.3.0 | DataTool 式抖音下载总入口：达人、搜索结果、插件自选或明确作品的视频图文、封面、原声、发布文案和评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
-| [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.1.1 | 天猫／淘宝明确商品链接的详情、主图、详情图、可见视频、规格、SKU 快照与页面可见评价，保留平台折叠和快照边界 | Prototype · Noncommercial |
-| [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.3.0 | 单笔记、账号主页全部当前可见置顶加最近 N 条，以及关键词搜索前 N 条的图文、视频、素材、可见评论与搜索快照普通版交付 | Alpha · Noncommercial |
+| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.4.0 | 抖音单篇、主页、搜索结果或插件自选作品的视频图文、封面、原声、发布文案和一级评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
+| [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.2.0 | 天猫／淘宝商品资料包、评价和问大家三项独立下载，含素材、规格、SKU 快照、Excel、ZIP 与完成状态 | Prototype · Noncommercial |
+| [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.0 | 单篇完整笔记与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.11 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、跨阶段真实四遍审计、规格冲突阻断、复合事实逐字段回链、FABE、完整P0候选比较、表达边界与资料缺口 | Prototype · Noncommercial |
 | [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.1 | 继承有效商品价值，逐项扫描六条翻译路径与十二类感知槽位，形成画面、动作、声音、字幕、道具等原子呈现及验证计划 | Prototype · Noncommercial |
@@ -59,13 +59,18 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 ```
 
 ```text
-使用 brandbai-tmall-download，下载这些天猫商品链接的商品详情、主图、详情图、规格、SKU 快照
-和页面当前可返回的评价，生成 BrandBAI 普通版 Excel 与 ZIP；不要生成商品价值或卖点结论。
+使用 brandbai-tmall-download，先下载这些天猫商品链接的商品资料包；评价和问大家分别独立下载，
+只有我打开“查看全部评价／查看全部问答”后再继续滚动。生成普通版 Excel 与 ZIP，不生成商品价值结论。
 ```
 
 ```text
 使用 brandbai-xiaohongshu-download，下载这个小红书笔记的全部图文、标题、正文、话题、互动快照
 和页面当前可返回的一级评论，生成 BrandBAI 普通版 Excel；不要生成用户语义或内容结论。
+```
+
+```text
+使用 brandbai-xiaohongshu-download，批量整理这个小红书账号全部当前可见置顶和最近 20 条非置顶笔记；
+只下载列表页可见卡片、封面和基础互动数据，不逐篇进入详情，生成 Excel 与 ZIP。
 ```
 
 ```text
@@ -84,9 +89,11 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 腾讯 WorkBuddy 用户可点击下面的链接唤起自定义 Skill 安装：
 
-[在 WorkBuddy 安装 brandbai-douyin-download v0.3.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fv0.3.0%2Fbrandbai-douyin-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-douyin-download v0.4.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fv0.4.0%2Fbrandbai-douyin-download.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-tmall-download v0.1.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.1.1%2Fbrandbai-tmall-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-xiaohongshu-download v0.4.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-xiaohongshu-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-xiaohongshu-download-v0.4.0%2Fbrandbai-xiaohongshu-download.zip&channelType=github)
+
+[在 WorkBuddy 安装 brandbai-tmall-download v0.2.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.2.0%2Fbrandbai-tmall-download.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-product-value v0.1.11](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.11%2Fbrandbai-product-value.zip&channelType=github)
 
@@ -94,8 +101,9 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 同一仓库会分别发布多个 Skill，因此安装链接固定到各自版本，不使用仓库级 `latest`。如果宿主不支持网页唤起，可从对应版本的 GitHub Release 手动下载 ZIP：
 
-- [Douyin Download v0.3.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.3.0)
-- [Tmall Download v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.1.1)
+- [Douyin Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.4.0)
+- [Xiaohongshu Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.0)
+- [Tmall Download v0.2.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.2.0)
 - [Product Value v0.1.11](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.11)
 - [Value Expression v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.1)
 

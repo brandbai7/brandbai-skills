@@ -368,7 +368,7 @@ def _discover_search_results(
         raise CollectionError("Search tab must be one of: 全部, 图文, 视频")
     requested_filters = filters or ["综合"]
     if requested_filters != ["综合"]:
-        raise CollectionError("v0.3.0 currently supports the default 综合 search ordering only")
+        raise CollectionError("The current stable route supports the default 综合 search ordering only")
     navigation_url = "https://www.xiaohongshu.com/search_result?" + urlencode({
         "keyword": query,
         "source": "web_search_result_notes",
@@ -904,6 +904,129 @@ def _collect_one_note(
     return note, comment_manifest
 
 
+def _collect_visible_list_records(
+    context: Any,
+    out: Path,
+    records: list[dict[str, Any]],
+    *,
+    source_kind: str,
+    assets: list[str],
+    resume: bool,
+    max_asset_bytes: int,
+) -> dict[str, str]:
+    """Save only facts already visible on a profile/search list page.
+
+    This deliberately does not open note detail pages. It mirrors the fast batch
+    contract used by the browser extension and reduces navigation volume and
+    anti-abuse pressure. Missing detail-only fields remain blank rather than being
+    inferred from the card.
+    """
+    notes_path = out / "data" / "notes.jsonl"
+    assets_path = out / "data" / "assets.jsonl"
+    known_notes = _read_jsonl_ids(notes_path, "note_id") if resume else set()
+    known_assets = _read_jsonl_ids(assets_path, "asset_id") if resume else set()
+    if not resume:
+        for path in [notes_path, assets_path]:
+            if path.exists():
+                path.unlink()
+
+    states: dict[str, str] = {}
+    for record in records:
+        note_id = str(record.get("note_id") or "").strip()
+        if not note_id:
+            continue
+        author_name = str(record.get("author_name") or record.get("author") or "")
+        author_key = str(record.get("author_platform_id") or author_name or note_id)
+        cover_url = str(record.get("cover_url") or "")
+        cover_requested = "cover" in assets
+        completion_state = "complete_visible_list_card"
+        completion_note = "已保存列表页可见卡片字段；未进入笔记详情页"
+        asset_row: dict[str, Any] | None = None
+        if cover_url:
+            try:
+                clean_url, redacted = sanitize_media_url(cover_url)
+                asset_row = {
+                    "asset_id": f"xhs:{note_id}:cover:001",
+                    "note_id": note_id,
+                    "kind": "cover",
+                    "order": 1,
+                    "status": "observed_not_requested",
+                    "local_file": "",
+                    "source_url": clean_url,
+                    "source_url_query_redacted": redacted,
+                    "width": 0,
+                    "height": 0,
+                    "bytes": 0,
+                    "sha256": "",
+                    "error_reason": "",
+                    "requested": cover_requested,
+                }
+                if cover_requested:
+                    try:
+                        downloaded = _download_asset(
+                            context,
+                            cover_url,
+                            out / "04_笔记素材" / note_id / "001_cover",
+                            kind="image",
+                            max_bytes=max_asset_bytes,
+                        )
+                        downloaded["local_file"] = str(Path(downloaded["local_file"]).relative_to(out))
+                        asset_row.update(downloaded)
+                    except Exception as exc:
+                        asset_row["status"] = "failed"
+                        asset_row["error_reason"] = type(exc).__name__
+                        completion_state = "partial_cover_failure"
+                        completion_note = "列表页卡片字段已保存，但请求的封面未能保存"
+            except CollectionError:
+                completion_state = "partial_cover_url_unavailable" if cover_requested else completion_state
+                completion_note = "列表页卡片字段已保存，但封面地址不可交付" if cover_requested else completion_note
+        elif cover_requested:
+            completion_state = "partial_cover_not_observed"
+            completion_note = "列表页卡片字段已保存，但当前卡片未观察到封面地址"
+
+        rank = int(record.get("rank") or 0)
+        search_snapshot_id = str(record.get("search_snapshot_id") or "")
+        note = {
+            "note_id": note_id,
+            "title": str(record.get("title") or ""),
+            "body": "",
+            "author_id": stable_pseudonym(author_key),
+            "author_name": author_name,
+            "note_type": str(record.get("note_type") or "unknown"),
+            "published_at_text": str(record.get("published_at_text") or ""),
+            "region_text": "",
+            "topics": [],
+            "mentions": [],
+            "metrics": {
+                "likes": str(record.get("like_count_text") or ""),
+                "collects": "",
+                "comments": "",
+                "shares": "",
+            },
+            "profile_id": str(record.get("profile_id") or ""),
+            "profile_rank": rank if source_kind == "profile" else 0,
+            "search_snapshot_id": search_snapshot_id,
+            "search_rank": rank if source_kind == "search" else 0,
+            "search_keyword": str(record.get("keyword") or ""),
+            "selection_reason": str(record.get("selection_reason") or f"{source_kind}_list_card"),
+            "is_pinned": bool(record.get("is_pinned")),
+            "canonical_url": canonical_note_url(note_id),
+            "collected_at": utc_now(),
+            "completion_state": completion_state,
+            "completion_note": completion_note,
+            "detail_page_opened": False,
+            "field_scope": "visible_list_card_only",
+        }
+        if note_id not in known_notes:
+            _append_jsonl(notes_path, [note])
+            known_notes.add(note_id)
+        if asset_row and asset_row["asset_id"] not in known_assets:
+            _append_jsonl(assets_path, [asset_row])
+            known_assets.add(asset_row["asset_id"])
+        states[note_id] = completion_state
+    return states
+
+
 def collect(
     *,
     note_targets: list[str] | None = None,
@@ -935,6 +1058,10 @@ def collect(
 
     if sum(bool(value) for value in [note_targets, profile_target, search_query]) != 1:
         raise CollectionError("Choose exactly one source: note targets, one profile target, or one search keyword")
+    if (profile_target or search_query) and mode != "batch":
+        raise CollectionError("Profile and search collection require mode=batch; list pages are not expanded into note details")
+    if note_targets and mode == "batch":
+        raise CollectionError("mode=batch is only valid for profile or search list pages")
     targets = normalize_note_targets(note_targets or []) if note_targets else []
     out.mkdir(parents=True, exist_ok=True)
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -942,7 +1069,7 @@ def collect(
     manifest: dict[str, Any] = {
         "schema_version": "1.0",
         "collector": "brandbai-xiaohongshu-download",
-        "collector_version": "0.3.0",
+        "collector_version": "0.4.0",
         "mode": mode,
         "target_kind": "search" if search_query else ("profile" if profile_target else "notes"),
         "requested_note_ids": note_ids,
@@ -1040,7 +1167,35 @@ def collect(
                     for record in snapshot["results"]
                 }
                 atomic_write_json(manifest_path, manifest)
-            for target_index, target in enumerate(targets):
+            if mode == "batch":
+                if profile_target:
+                    list_records = [
+                        {**record, "profile_id": selection["profile_id"]}
+                        for record in selection["selected"]
+                    ]
+                    source_kind = "profile"
+                else:
+                    list_records = [
+                        {
+                            **record,
+                            "search_snapshot_id": snapshot["search_snapshot_id"],
+                            "keyword": snapshot["keyword"],
+                            "selection_reason": "search_list_card",
+                        }
+                        for record in snapshot["results"]
+                    ]
+                    source_kind = "search"
+                manifest["note_states"].update(_collect_visible_list_records(
+                    context,
+                    out,
+                    list_records,
+                    source_kind=source_kind,
+                    assets=assets,
+                    resume=resume,
+                    max_asset_bytes=max(1, max_asset_mb) * 1024 * 1024,
+                ))
+                atomic_write_json(manifest_path, manifest)
+            for target_index, target in enumerate([] if mode == "batch" else targets):
                 note_id = canonical_note_id(target)
                 try:
                     note, comments = _collect_one_note(
@@ -1085,7 +1240,7 @@ def collect(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect visible Xiaohongshu note facts, media and comments")
-    parser.add_argument("mode", choices=["note", "comments", "all"])
+    parser.add_argument("mode", choices=["note", "comments", "all", "batch"])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--note", action="append", help="Repeat for more note URLs or note ids")
     source.add_argument("--profile", help="One Xiaohongshu profile URL or profile id")
@@ -1094,7 +1249,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-profile-scroll-actions", type=int, default=80)
     parser.add_argument("--search-limit", type=int, default=10, help="First N source-visible search-result notes")
     parser.add_argument("--search-tab", choices=["全部", "图文", "视频"], default="全部")
-    parser.add_argument("--search-filter", action="append", default=None, help="v0.3.0 supports 综合 only")
+    parser.add_argument("--search-filter", action="append", default=None, help="Current stable route supports 综合 only")
     parser.add_argument("--max-search-scroll-actions", type=int, default=80)
     parser.add_argument("--profile-dir", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)

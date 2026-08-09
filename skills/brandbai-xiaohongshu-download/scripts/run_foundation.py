@@ -17,11 +17,12 @@ from collector_core import (
     canonical_profile_url,
     normalize_note_targets,
 )
+from package_delivery import PackageError, package_directory
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect Xiaohongshu notes into a BrandBAI ordinary delivery")
-    parser.add_argument("mode", choices=["note", "comments", "all"])
+    parser.add_argument("mode", choices=["note", "comments", "all", "batch"])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--note", action="append", help="Repeat for more note URLs or note ids")
     source.add_argument("--profile", help="One Xiaohongshu profile URL or profile id")
@@ -30,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-profile-scroll-actions", type=int, default=80)
     parser.add_argument("--search-limit", type=int, default=10, help="First N source-visible search-result notes")
     parser.add_argument("--search-tab", choices=["全部", "图文", "视频"], default="全部")
-    parser.add_argument("--search-filter", action="append", default=None, help="v0.3.0 supports 综合 only")
+    parser.add_argument("--search-filter", action="append", default=None, help="Current stable route supports 综合 only")
     parser.add_argument("--max-search-scroll-actions", type=int, default=80)
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -43,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--chrome-path")
     parser.add_argument("--max-asset-mb", type=int, default=200)
+    parser.add_argument("--zip", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -51,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         targets = normalize_note_targets(args.note) if args.note else []
+        if (args.profile or args.search) and args.mode != "batch":
+            raise CollectionError("Profile and search collection use mode=batch so the collector stays on the visible list page")
+        if targets and args.mode == "batch":
+            raise CollectionError("mode=batch is for profile or search list pages; use note/comments/all for explicit notes")
         assets = normalize_assets(args.assets)
         profile = args.profile_dir.expanduser().resolve()
         out = args.out.expanduser().resolve()
@@ -79,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             "profile_dir": str(profile),
             "out": str(out),
             "resume": bool(args.resume),
+            "zip": bool(args.zip),
             "dry_run": bool(args.dry_run),
         }
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -108,9 +115,10 @@ def main(argv: list[str] | None = None) -> int:
             max_asset_mb=max(1, args.max_asset_mb),
         )
         delivery = build_delivery(out)
-        print(json.dumps({"collection": result, "delivery": delivery}, ensure_ascii=False, indent=2))
+        package = package_directory(out) if args.zip else None
+        print(json.dumps({"collection": result, "delivery": delivery, "package": package}, ensure_ascii=False, indent=2))
         return 0 if result.get("state") == "complete" else 3
-    except (CollectionError, DeliveryError, OSError, ValueError) as exc:
+    except (CollectionError, DeliveryError, PackageError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 

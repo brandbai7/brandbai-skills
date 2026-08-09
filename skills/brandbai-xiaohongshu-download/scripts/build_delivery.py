@@ -174,6 +174,9 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     comment_path = out / "02_评论明细.xlsx"
     comment_book.save(comment_path)
     load_workbook(comment_path, read_only=True).close()
+    comment_states = run_manifest.get("comment_states") or {}
+    if not comments and not comment_states:
+        comment_path.unlink(missing_ok=True)
 
     search_book = Workbook()
     search_book.remove(search_book.active)
@@ -196,6 +199,8 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     search_path = out / "03_搜索快照.xlsx"
     search_book.save(search_path)
     load_workbook(search_path, read_only=True).close()
+    if not searches:
+        search_path.unlink(missing_ok=True)
 
     (out / "04_笔记素材").mkdir(parents=True, exist_ok=True)
     description = f"""# BrandBAI 小红书采集说明
@@ -215,10 +220,11 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
 
 1. 主页范围只对应采集时点页面可见置顶和最近非置顶笔记；置顶为额外项，不占最近 N 篇名额。
 2. 搜索结果仅对应指定关键词、标签页、筛选和采集时点的页面可见顺序，不代表平台全量结果。
-3. 评论完成只表示页面当前可返回内容收到终止信号；回复未逐楼展开时会保留部分完成状态。
-4. 笔记与评论中的身份、购买、效果和体验主张未经本下载阶段核验。
-5. 本包只做下载、结构化和质量说明，不自动生成用户语义、账号画像、内容机制、商品匹配或商业归因。
-6. 登录资料、Cookie、请求头、验证码、页面临时令牌和本地任务缓存不进入交付包。
+3. 主页与搜索批量模式只读取列表卡片可见字段和所选封面，不逐篇进入详情；正文、全部素材和评论没有请求时不写成采集失败。
+4. 单篇评论完成只表示页面当前可返回内容收到终止信号；回复未逐楼展开时会保留部分完成状态。
+5. 笔记与评论中的身份、购买、效果和体验主张未经本下载阶段核验。
+6. 本包只做下载、结构化和质量说明，不自动生成用户语义、账号画像、内容机制、商品匹配或商业归因。
+7. 登录资料、Cookie、请求头、验证码、页面临时令牌和本地任务缓存不进入交付包。
 """
     (out / "05_采集说明.md").write_text(description, encoding="utf-8")
     summary = {
@@ -226,6 +232,9 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
         "run_state": run_manifest.get("state", "unknown"),
         "profile_selection": bool(profile_selection),
         "profile_selected_notes": len(profile_selection.get("selected") or []),
+        "note_workbook": note_path.name,
+        "comment_workbook": comment_path.name if comment_path.is_file() else "",
+        "search_workbook": search_path.name if search_path.is_file() else "",
     }
     atomic_write_json(data / "delivery_manifest.json", summary)
     return summary

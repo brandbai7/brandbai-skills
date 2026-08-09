@@ -67,7 +67,7 @@ class RunFoundationTests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 code = main([
-                    "note",
+                    "batch",
                     "--profile", "https://www.xiaohongshu.com/user/profile/profile-1?xsec_token=secret",
                     "--recent", "5",
                     "--profile-dir", str(base / "private-profile"),
@@ -97,7 +97,7 @@ class RunFoundationTests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 code = main([
-                    "all", "--search", "合成关键词", "--search-limit", "5", "--search-tab", "视频",
+                    "batch", "--search", "合成关键词", "--search-limit", "5", "--search-tab", "视频",
                     "--profile-dir", str(base / "private-profile"), "--out", str(base / "delivery"),
                     "--assets", "video,cover", "--dry-run",
                 ])
@@ -109,6 +109,23 @@ class RunFoundationTests(unittest.TestCase):
             self.assertEqual(plan["search"]["first_visible_results"], 5)
             self.assertEqual(plan["notes"], [])
             self.assertFalse((base / "delivery").exists())
+        finally:
+            if base.exists():
+                shutil.rmtree(base)
+
+    def test_profile_rejects_detail_mode(self) -> None:
+        base = Path(__file__).resolve().parent / ".xhs_profile_mode_test_runtime"
+        if base.exists():
+            shutil.rmtree(base)
+        base.mkdir()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = main([
+                    "all", "--profile", "profile-1",
+                    "--profile-dir", str(base / "private-profile"),
+                    "--out", str(base / "delivery"), "--dry-run",
+                ])
+            self.assertEqual(code, 2)
         finally:
             if base.exists():
                 shutil.rmtree(base)

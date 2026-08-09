@@ -1,8 +1,14 @@
 # 小红书平台字段
 
+## 字段范围
+
+- 明确单笔记详情：可以写正文、话题、全部已观察素材、指标和评论。
+- 主页／搜索批量：只写列表卡片已经展示的标题、作者、类型、互动、封面、位次和选择上下文，并写 `field_scope=visible_list_card_only`、`detail_page_opened=false`。
+- 列表页未展示的正文、全部素材和评论不得从标题、封面或缓存推断。
+
 ## 笔记
 
-必需字段：`note_id`、`canonical_url`、`note_type`、`title`、`body`、`author_id`、`author_name`、`published_at_text`、`region_text`、`topics`、`mentions`、`metrics`、`profile_id`、`profile_rank`、`selection_reason`、`is_pinned`、`collected_at`、`completion_state`。
+必需字段：`note_id`、`canonical_url`、`note_type`、`title`、`author_id`、`author_name`、`metrics`、`profile_id`、`profile_rank`、`selection_reason`、`is_pinned`、`field_scope`、`detail_page_opened`、`collected_at`、`completion_state`。`body`、`published_at_text`、`region_text`、`topics` 和 `mentions` 只在详情页实际观察到时填写。
 
 `note_type` 取值：`image`、`video`、`live_photo`、`unknown`。正文、话题和提及必须分栏；页面只显示编辑时间时保留原文，不伪造发布时间。
 
