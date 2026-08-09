@@ -187,6 +187,7 @@ def build_svg(row: dict[str, Any], source_bytes: bytes) -> bytes:
   <text x="48" y="132" fill="#ffffff" font-family="Arial, Microsoft YaHei, sans-serif" font-size="50" font-weight="700">{html.escape(source_file_id)}</text>
   <text x="48" y="190" fill="#ffffff" font-family="Arial, Microsoft YaHei, sans-serif" font-size="25">{''.join(tspans)}</text>
   <text x="48" y="330" fill="#d8c8bd" font-family="Consolas, monospace" font-size="20">SHA-256 {source_sha256}</text>
+  <text x="760" y="330" fill="#f4ca68" font-family="Arial, Microsoft YaHei, sans-serif" font-size="18">PASS 3: REOPEN AND COPY EXACT VISIBLE CLAIMS. DO NOT SUMMARIZE TABLES / FAQ.</text>
   <rect x="30" y="390" width="1340" height="{display_height + 40}" rx="12" fill="#ffffff" stroke="#7d5b4d" stroke-width="4"/>
   <image x="50" y="410" width="{DISPLAY_WIDTH}" height="{display_height}" preserveAspectRatio="none" href="data:{html.escape(media_type)};base64,{encoded}"/>
 </svg>

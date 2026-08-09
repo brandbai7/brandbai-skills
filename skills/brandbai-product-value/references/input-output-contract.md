@@ -51,6 +51,7 @@
     ├── source_audit_cards/
     │   └── SF-xxx.svg
     ├── source_observation.jsonl
+    ├── source_claim_ledger.jsonl
     ├── source_ledger.jsonl
     ├── fact_ledger.jsonl
     ├── fabe_ledger.jsonl
@@ -115,7 +116,23 @@ second_pass_status, second_pass_at
 
 `relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须独立、带时区，第二遍整体晚于第一遍整体。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
 
+每条观察另填 `text_density` 和 `content_flags`。`text_density` 使用 `none/low/medium/high`；`content_flags` 从 `identity/sku/ingredient/nutrition_table/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other` 中选择。中高文字密度来源不得遗漏内容类型。
+
 不得把 SVG 审计卡当文本读取；必须实际渲染并视觉查看其中原图。禁止用文件名、页序、旧交付、缩略图、批量 OCR 摘要或一次看多张后统一回填，代替逐图核对。图片中的报告编号、日期、批次、证书编号和检测方法等精确小字，不得抄录到观察记录。
+
+### source_claim_ledger.jsonl
+
+两遍逐图观察结束后，重新打开所有含文字来源，逐条建立原文主张：
+
+```text
+claim_id, source_file_id, observation_id, claim_type,
+label, verbatim_text, normalized_value, unit, visual_locator,
+critical, claim_status, claimed_at, rechecked_at
+```
+
+`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。第三遍摘录后稍后第四遍重新打开同一来源，只有一致时写 `claim_status=match`，两个带时区时间均晚于前两遍观察。
+
+营养表逐行登记，FAQ 每个问答分别登记，对比页分别登记双方原文。SKU、配料、营养、储存和警示主张必须写 `critical=true`，并进入至少一条事实；看不清时不得猜测或补全，改为资料缺口。页面图片中的报告编号、日期、批次、证书编号和检测方法等精确小字仍不得进入原文主张账本。
 
 ### source_ledger.jsonl
 
@@ -133,9 +150,12 @@ captured_at, sku_scope, status, notes
 每行至少包含：
 
 ```text
-fact_id, fact_type, statement, source_id, locator,
+fact_id, fact_type, statement, source_id,
+claim_ids, source_quotes, locator,
 sku_scope, time_scope, status, boundary
 ```
+
+除 `H` 分析推导外，每条事实必须引用至少一个 `claim_id`，并在 `source_quotes` 逐条原样保留所引主张的 `verbatim_text`。事实中的阿拉伯数字必须在所引原文中出现；“好吸收、道地、无添加、适合某人群、禁止食用、不宜食用、遵医嘱、建议冷藏、无需熬煮”等高风险词只有在原文逐字出现时才能写成直接事实。
 
 `fact_type` 允许：`F-PAGE`、`F-EVIDENCE`、`STRAT`、`DYN`、`U`、`EX`、`H`。
 
@@ -224,6 +244,7 @@ minimum_needed, priority, state
 PV-<12位十六进制>
 SF-001
 OBS-001
+CLM-001
 SRC-001
 ID-001
 ANCHOR-001
