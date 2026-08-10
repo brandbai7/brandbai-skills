@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI 微博明星营销下载"
+  short_description: "下载微博明星账号、博文、评论、转发、超话与热搜证据"
+  default_prompt: "使用 $brandbai-weibo-download 下载这个微博明星营销对象的主页、博文、评论、转发、普通话题、超话与热搜榜单快照，并保留采集范围和完成状态。"
