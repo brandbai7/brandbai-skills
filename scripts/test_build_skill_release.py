@@ -109,6 +109,7 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/build_delivery.py", names)
                 self.assertIn("scripts/package_delivery.py", names)
                 self.assertIn("references/collection-contract.md", names)
+                self.assertIn("references/release-notes.md", names)
                 self.assertFalse(any(name.startswith("brandbai-xiaohongshu-download/") for name in names))
 
     def test_builds_product_value_skill_with_contracts_and_validator(self):
