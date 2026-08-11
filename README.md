@@ -16,6 +16,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.4.0 | 抖音单篇、主页、搜索结果或插件自选作品的视频图文、封面、原声、发布文案和一级评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.2.0 | 天猫／淘宝商品资料包、评价和问大家三项独立下载，含素材、规格、SKU 快照、Excel、ZIP 与完成状态 | Prototype · Noncommercial |
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.0 | 单篇完整笔记与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
+| [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.1 | TikTok 视频、图集、达人主页、搜索与可见一级评论；支持海外市场、达人候选、创意对标、官宣接收、联盟内容预设和本机中英双语证据 | Prototype · Noncommercial |
 | [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.2 | 微博明星／工作室／品牌账号、单微博、搜索、普通话题、明星超话和热搜榜单的正文、素材、互动、评论、回复与转发证据 | Prototype · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.14 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、跨阶段真实四遍审计、归档来源隔离、规格冲突阻断、FABE内生任务优势与P0证据门槛、结构化账本—普通版一致性、表达边界与资料缺口 | Prototype · Noncommercial |
@@ -75,6 +76,18 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 ```
 
 ```text
+使用 brandbai-tiktok-download，下载这个 TikTok 达人主页全部当前可见置顶作品和最近 20 条非置顶作品，
+包括视频或图集、封面、可用原声、平台发布文案、基础互动数据和页面可检索一级评论；生成 Excel、ZIP
+与完整性说明，不做自动语音转写、用户语义或商业结论。
+```
+
+```text
+使用 brandbai-tiktok-download 的 market-scan 预设，对美国市场关键词 sensitive skin moisturizer
+分别冻结综合、视频和照片页当前可见前 20 条，保留市场、语言、原始位次、原文和中英双语文案，
+只生成采集证据包，不自动推算市场份额、搜索趋势或投放结论。
+```
+
+```text
 使用 brandbai-weibo-download，下载这个微博明星账号当前可见的全部置顶微博和最近 5 条非置顶微博，
 保存正文、图片、封面、互动快照、可见评论和转发记录；同时留存相关普通话题、明星超话及文娱热搜榜快照，
 生成 BrandBAI 普通版交付；不要生成舆情或代言结论。
@@ -102,6 +115,8 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 [在 WorkBuddy 安装 brandbai-tmall-download v0.2.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.2.0%2Fbrandbai-tmall-download.zip&channelType=github)
 
+[在 WorkBuddy 安装 brandbai-tiktok-download v0.2.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-tiktok-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tiktok-download-v0.2.1%2Fbrandbai-tiktok-download.zip&channelType=github)
+
 [在 WorkBuddy 安装 brandbai-product-value v0.1.14](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.14%2Fbrandbai-product-value.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-value-expression v0.1.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.1%2Fbrandbai-value-expression.zip&channelType=github)
@@ -111,6 +126,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 - [Douyin Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.4.0)
 - [Xiaohongshu Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.0)
 - [Tmall Download v0.2.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.2.0)
+- [TikTok Download v0.2.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tiktok-download-v0.2.1)
 - [Product Value v0.1.14](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.14)
 - [Value Expression v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.1)
 
@@ -139,14 +155,15 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 1. BrandBAI Douyin Download：抖音作品、媒体和评论下载。
 2. BrandBAI Tmall Download：天猫详情页、主图、规格、评价与商品事实下载。
 3. BrandBAI Xiaohongshu Download：笔记、素材、搜索快照与可见评论下载。
-4. BrandBAI Weibo Download：明星、工作室、品牌和粉丝内容账号，以及微博、搜索话题、超话、热搜、评论与转发证据下载。
-5. BrandBAI Douyin Account Analysis：抖音账号作品基线、视频表达、用户接收与候选机制。
-6. BrandBAI Product Value：商品事实、商品价值、P0/P1/P2、证据边界与资料缺口。
-7. BrandBAI Value Expression：把已确认价值转成用户看得见、听得懂、感受得到的卖点呈现。
-8. BrandBAI Influence–Product Fit：连接影响力对象与商品价值，形成有证据边界的匹配判断。
-9. BrandBAI User Semantics：评论与用户语义证据。
-10. BrandBAI Influence Intelligence：KOC、KOL、达人、明星艺人等影响力对象洞察。
-11. BrandBAI Content & Performance：内容诊断、千川测试与复盘。
+4. BrandBAI TikTok Download：TikTok 视频、图集、达人主页、搜索结果、素材、发布文案、数据与评论下载。
+5. BrandBAI Weibo Download：明星、工作室、品牌和粉丝内容账号，以及微博、搜索话题、超话、热搜、评论与转发证据下载。
+6. BrandBAI Douyin Account Analysis：抖音账号作品基线、视频表达、用户接收与候选机制。
+7. BrandBAI Product Value：商品事实、商品价值、P0/P1/P2、证据边界与资料缺口。
+8. BrandBAI Value Expression：把已确认价值转成用户看得见、听得懂、感受得到的卖点呈现。
+9. BrandBAI Influence–Product Fit：连接影响力对象与商品价值，形成有证据边界的匹配判断。
+10. BrandBAI User Semantics：评论与用户语义证据。
+11. BrandBAI Influence Intelligence：KOC、KOL、达人、明星艺人等影响力对象洞察。
+12. BrandBAI Content & Performance：内容诊断、千川测试与复盘。
 
 详细能力边界与现有方法资产的迁移规则见 [`SKILL_SYSTEM.md`](SKILL_SYSTEM.md)。每个新 Skill 都按一个顶层用户任务组织子能力，独立触发、独立验证、独立版本化，避免把每个提示词拆成一个 Skill，也避免把所有方法论塞进一个万能提示词。
 
@@ -164,6 +181,8 @@ cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-xiaohongshu-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
+cd ../../brandbai-tiktok-download/scripts
+python -m unittest test_collector_core.py test_browser_collect_tiktok.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-weibo-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
 cd ../../brandbai-product-value/scripts

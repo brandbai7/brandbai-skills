@@ -13,6 +13,7 @@ SKILL_DIR = ROOT / "skills" / "brandbai-douyin-download"
 ANALYSIS_SKILL_DIR = ROOT / "skills" / "brandbai-douyin-account-analysis"
 TMALL_SKILL_DIR = ROOT / "skills" / "brandbai-tmall-download"
 XIAOHONGSHU_SKILL_DIR = ROOT / "skills" / "brandbai-xiaohongshu-download"
+TIKTOK_SKILL_DIR = ROOT / "skills" / "brandbai-tiktok-download"
 PRODUCT_VALUE_SKILL_DIR = ROOT / "skills" / "brandbai-product-value"
 VALUE_EXPRESSION_SKILL_DIR = ROOT / "skills" / "brandbai-value-expression"
 
@@ -111,6 +112,29 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("references/collection-contract.md", names)
                 self.assertIn("references/release-notes.md", names)
                 self.assertFalse(any(name.startswith("brandbai-xiaohongshu-download/") for name in names))
+
+    def test_builds_tiktok_skill_at_archive_root(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                TIKTOK_SKILL_DIR,
+                temp,
+                "brandbai-tiktok-download-v0.2.1",
+            )
+            archive_path = temp / "brandbai-tiktok-download.zip"
+            checksum_path = temp / "brandbai-tiktok-download.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.2.1")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("agents/openai.yaml", names)
+                self.assertIn("scripts/browser_collect_tiktok.py", names)
+                self.assertIn("scripts/build_delivery.py", names)
+                self.assertIn("scripts/package_delivery.py", names)
+                self.assertIn("references/business-scenarios.md", names)
+                self.assertIn("references/translation-policy.md", names)
+                self.assertFalse(any(name.startswith("brandbai-tiktok-download/") for name in names))
 
     def test_builds_product_value_skill_with_contracts_and_validator(self):
         with workspace_temp() as temp:
