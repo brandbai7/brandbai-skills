@@ -116,6 +116,7 @@ def init_delivery(
         "rationale": "",
         "public_rationale": "",
         "current_execution_axis": "",
+        "current_execution_value_ids": [],
         "cannot_prove": [],
         "validation_questions": [],
         "decided_at": "",

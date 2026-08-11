@@ -184,6 +184,8 @@ derivation_status, boundary
 
 `derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，不能用无关检测页支撑另一种体验利益。Advantage 与 Benefit 不得只把参数换一种说法。Advantage 不得使用“本品（基于页面内对比信息）”等占位文本；当前资料不足以形成可核对优势时，写“当前资料不足以形成可核对的相对优势，A层暂不成立”，并使用 `to_validate`。所有叙述字段必须是完整客户文本，禁止空括号和缺少结论对象的“不扩大到；”“不自动等于；”“不直接推导；”“不等同于；”“易越界为。”等残句。
 
+没有竞品或行业资料，只禁止市场领先、同类优越和虚构产品替代结论，不禁止依据当前页面事实形成带边界的内生任务优势。页面事实能够说明商品已处理形态减少当次准备、明确使用方式增加当前商品内选择等任务差异时，Advantage 应使用 `reasoned` 并写清边界；可调用价值不得全部用“A层暂不成立”代替分析。
+
 把“用户旧习惯、消费者原有习惯”等行为写成 `reference_frame` 时，必须引用至少一条 `U` 用户原声或研究事实。没有 `U` 证据时，改写为页面内具体对比或明确标注的内生任务假设。Benefit、用户语言和价值陈述不得使用“不用担心、无需担心、不必担心”等绝对化保证，应改为“减少顾虑”并保留条件。
 
 ### anchor_ledger.jsonl
@@ -212,6 +214,8 @@ cannot_prove, downstream_readiness
 
 `sku_scope` 和 `scope` 默认限定当前已分析 SKU。写“全 SKU/所有 SKU”时，`supporting_fact_ids` 引用的每一条事实都必须明确覆盖全 SKU。
 
+优惠、券、赠品和权益的叠加主张必须由 `supporting_fact_ids` 所引原文明确支持。`user_task`、`value_statement`、`user_perception_goal` 或 `scope` 声称“叠加优惠/可叠加”，同时 `cannot_prove` 承认原文未说明叠加规则，属于结构化矛盾，任何层级包括 `deferred` 都不得通过。
+
 ### p0_decision.json
 
 至少包含：
@@ -219,6 +223,7 @@ cannot_prove, downstream_readiness
 ```text
 decision_id, candidate_value_ids, recommended_value_id,
 status, rationale, public_rationale, current_execution_axis,
+current_execution_value_ids,
 cannot_prove, validation_questions,
 decided_at, valid_until, supersedes
 ```
@@ -226,6 +231,8 @@ decided_at, valid_until, supersedes
 状态允许：`P0-CANDIDATE`、`P0-HYPOTHESIS`、`P0-SELECTED`、`P0-VALIDATING`、`P0-BOUNDARY-VALIDATED`、`P0-REOPEN`、`P0-REPLACED`、`P0-STOPPED`。
 
 `rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题。战略信息仅为 `SC0/SC1` 且没有竞品页或行业对照时，决策和推荐价值都只能标为 `P0-HYPOTHESIS`，不得写成已选择、验证中或已验证；商品页内部或同品牌产品对比可支撑对应 FABE，但不能单独证明战略优先级。
+
+`current_execution_value_ids` 必须列出 `current_execution_axis` 实际调用的价值，至少包含当前推荐 P0；不得包含 `layer=deferred` 或 `downstream_readiness=blocked` 的价值。活动在 `updated_at` 快照时为 `active`，可以有边界地写“当前有效”，不得在 `cannot_prove` 或限制中反向否定其快照状态。
 
 ### gap_ledger.jsonl
 
