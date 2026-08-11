@@ -178,6 +178,7 @@ DECISION_FIELDS = {
     "rationale",
     "public_rationale",
     "current_execution_axis",
+    "current_execution_value_ids",
     "cannot_prove",
     "validation_questions",
     "decided_at",
@@ -233,12 +234,14 @@ METHOD_VALUE_RE = re.compile(
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
+    r"\bP0-(?:HYPOTHESIS|SELECTED|VALIDATING|BOUNDARY-VALIDATED|REOPEN|REPLACED|STOPPED)\b|"
     r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|current_listing|reference_frame|source_inventory\.jsonl|source_claim_ledger\.jsonl|"
     r"sku_status\s*=\s*(?:confirmed|partial|unverified)|证据细节可信度\s*=\s*(?:high|medium|low)|"
     r"\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|"
     r"\b(?:FC[0-3]|SC[0-3]|PKG-L[0-4])\b|\bmedium\b|"
     r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only)\b|"
-    r"`(?:active|expired|verified|unverified|template|deferred|blocked|conditional|ready|stale)`",
+    r"`(?:active|expired|verified|unverified|template|deferred|blocked|conditional|ready|stale)`|"
+    r"(?<![A-Za-z0-9_])(?:F-EVIDENCE|STRAT|DYN|U|H|ZIP|updated_at|partial)(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url", "unsupported_archive"}
@@ -334,7 +337,8 @@ MARKET_COMPARATOR_RE = re.compile(
 UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"多配料(?:的)?(?:加工|复合)?食品|配料(?:未公开|不透明|多元).{0,12}同类(?:加工)?食品|"
     r"仅支持单一食用方式(?:的)?产品|单一食用方式(?:的)?产品|"
-    r"另购不同形态(?:的)?产品"
+    r"另购不同形态(?:的)?产品|"
+    r"(?:不需要|无需|不用)(?:再|为)?(?:不同形态|多种形态).{0,10}(?:单独)?(?:准备|购买|配备)"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
 ARCHIVE_MEDIA_RE = re.compile(r"(?:zip|rar|7z|tar|gzip|x-compressed|x-zip)", re.IGNORECASE)
@@ -351,7 +355,16 @@ SULFUR_RESIDUE_RISK_RE = re.compile(
     r"(?:不引入|避免|没有|不存在|无).{0,6}二氧化硫.{0,6}(?:残留)?风险|二氧化硫.{0,6}(?:零残留|无残留)"
 )
 PROMOTION_STACKING_RE = re.compile(
-    r"(?:优惠|活动|折扣|赠品|券|权益)?.{0,8}(?:可以|可|能够)叠加(?:使用|享受)?|(?:同时|一并)享受.{0,10}(?:优惠|活动|折扣|赠品|券|权益)"
+    r"(?:优惠|活动|折扣|赠品|券|权益)?.{0,8}(?:可以|(?<!不)可|能够)叠加(?:使用|享受)?|"
+    r"(?:叠加(?:使用|享受)?|可叠加的).{0,8}(?:优惠|活动|折扣|赠品|券|权益)|"
+    r"(?:同时|一并)享受.{0,10}(?:优惠|活动|折扣|赠品|券|权益)"
+)
+PROMOTION_STACKING_DENIAL_RE = re.compile(
+    r"(?:原文|资料|页面).{0,10}(?:未明确|未说明|没有说明).{0,14}叠加|"
+    r"(?:不得|不能|不可|不应).{0,10}(?:写|声称|表述)?.{0,6}(?:可叠加|叠加优惠|优惠叠加)"
+)
+ACTIVE_DENIAL_RE = re.compile(
+    r"(?:不得|不能|不可|不应).{0,16}(?:写|标记|表述|称为)?.{0,8}(?:当前有效|仍然有效|仍有效|活动中)"
 )
 EATING_RESTRICTION_RE = re.compile(r"(?:不宜|不可|不能|禁止|请勿|勿|不适合)(?:直接)?食用")
 TITLE_EVIDENCE_RE = re.compile(r"(?:商品|页面|下载文件|文件)?标题|文件名|OCR", re.IGNORECASE)
@@ -377,6 +390,7 @@ MALFORMED_OCR_RE = re.compile(
 )
 PUBLIC_FRAGMENT_RE = re.compile(
     r"仅在\s+出现|与\s*等(?:工艺|页面|信息|主张|口径)?|"
+    r"在中(?:以|被|为|记录|说明)|"
     r"(?:不同|冲突|差异|不一致)[^。！？\n|]{0,30}[，,；;：:]\s*$"
 )
 EMPTY_PARENS_RE = re.compile(r"[（(]\s*[)）]")
@@ -510,6 +524,18 @@ def file_written_long_after(path: Path, anchor_path: Path, tolerance_seconds: fl
     if not path.is_file() or not anchor_path.is_file():
         return False
     return path.stat().st_mtime > anchor_path.stat().st_mtime + tolerance_seconds
+
+
+def file_written_long_after_timestamp(
+    path: Path,
+    timestamp: datetime | None,
+    tolerance_seconds: float = 300.0,
+) -> bool:
+    """Return true when an artifact was finalized long after logical updated_at."""
+
+    if timestamp is None or not path.is_file():
+        return False
+    return path.stat().st_mtime > timestamp.timestamp() + tolerance_seconds
 
 
 def suspicious_fixed_cadence(timestamps: list[datetime]) -> bool:
@@ -810,6 +836,27 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append(
             "以下正式账本或报告在 product_manifest.json 之后超过 5 分钟仍被修改："
             f"{', '.join(late_artifacts)}；完成最终建账和报告生成后必须刷新 updated_at 并重写 manifest"
+        )
+    logically_late_artifacts: list[str] = []
+    for artifact_key in (
+        "source_observations",
+        "source_claims",
+        "sources",
+        "facts",
+        "fabe",
+        "anchors",
+        "values",
+        "decision",
+        "gaps",
+        "report_01",
+        "report_02",
+    ):
+        if file_written_long_after_timestamp(paths[artifact_key], manifest_updated_at):
+            logically_late_artifacts.append(paths[artifact_key].name)
+    if logically_late_artifacts:
+        errors.append(
+            "以下正式账本或报告在 product_manifest.updated_at 之后超过 5 分钟才生成或修改："
+            f"{', '.join(logically_late_artifacts)}；updated_at 必须覆盖最终账本与报告收口时间"
         )
 
     ledger_specs = (
@@ -1707,6 +1754,54 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{value_id} 的 value_statement 为空")
         if (value.get("layer") != "deferred" or value.get("p0_candidate") is True) and not fabe_by_value.get(value_id):
             errors.append(f"{value_id} 缺少 FABE 完整推导链")
+        value_positive_text = " ".join(
+            str(value.get(key, ""))
+            for key in ("user_task", "value_statement", "user_perception_goal", "scope")
+        )
+        value_denial_text = " ".join(str(item) for item in (value.get("cannot_prove") or []))
+        value_facts = [
+            facts_by_id[fact_id]
+            for fact_id in (value.get("supporting_fact_ids") or [])
+            if fact_id in facts_by_id
+        ]
+        value_claims = [
+            claims_by_id[claim_id]
+            for fact in value_facts
+            for claim_id in (fact.get("claim_ids") or [])
+            if claim_id in claims_by_id
+        ]
+        value_claim_text = " ".join(str(claim.get("verbatim_text", "")) for claim in value_claims)
+        value_source_types = {
+            str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
+            for fact in value_facts
+        }
+        value_has_comparison_support = any(
+            claim.get("claim_type") == "comparison" for claim in value_claims
+        ) or bool(value_source_types.intersection(COMPETITOR_SOURCE_TYPES))
+        if (
+            UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(value_positive_text)
+            or UNSUPPORTED_PRODUCT_TARGET_RE.search(value_positive_text)
+        ) and not value_has_comparison_support:
+            errors.append(
+                f"{value_id} 使用了无来源的产品替代对象；"
+                "必须由该价值自身引用页面对比、竞品页或行业对照，不能借用其他价值的比较资料"
+            )
+        if PROMOTION_STACKING_RE.search(value_positive_text) and not PROMOTION_STACKING_RE.search(value_claim_text):
+            errors.append(f"{value_id} 声称优惠或权益可以叠加，但支撑事实所引原文没有明确叠加规则")
+        if PROMOTION_STACKING_RE.search(value_positive_text) and PROMOTION_STACKING_DENIAL_RE.search(value_denial_text):
+            errors.append(f"{value_id} 一方面声称优惠可叠加，另一方面又在 cannot_prove 中否定叠加依据，结构化结论自相矛盾")
+
+    usable_value_ids = {
+        str(value.get("value_id", ""))
+        for value in values
+        if value.get("layer") != "deferred" and value.get("downstream_readiness") != "blocked"
+    }
+    usable_fabe = [item for item in fabe if str(item.get("value_id", "")) in usable_value_ids]
+    if usable_fabe and all(UNESTABLISHED_ADVANTAGE_RE.search(str(item.get("advantage", ""))) for item in usable_fabe):
+        errors.append(
+            "全部可用价值的 Advantage 都被写成 A 层暂不成立；"
+            "应区分需要竞品证据的市场领先结论，与可由页面事实有边界推导的内生任务优势"
+        )
 
     for gap in gaps:
         gap_id = str(gap.get("gap_id", ""))
@@ -1721,6 +1816,47 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     for fact_id, expected in dyn_expected_states.items():
         if expected == "active" and (fact_id in limitation_text or "DYN" in limitation_text) and EXPIRY_WORDS_RE.search(limitation_text):
             errors.append(f"limitations 把仍处活动期的 {fact_id} 写成已过期")
+
+    active_dynamic_ids = {fact_id for fact_id, expected in dyn_expected_states.items() if expected == "active"}
+    if active_dynamic_ids:
+        dynamic_surfaces: list[tuple[str, str, bool]] = [
+            ("product_manifest.limitations", limitation_text, "DYN" in limitation_text),
+            ("p0_decision.rationale", str(decision.get("rationale", "")), "DYN" in str(decision.get("rationale", ""))),
+            ("p0_decision.public_rationale", str(decision.get("public_rationale", "")), "DYN" in str(decision.get("public_rationale", ""))),
+            ("p0_decision.current_execution_axis", str(decision.get("current_execution_axis", "")), "DYN" in str(decision.get("current_execution_axis", ""))),
+            (
+                "p0_decision.cannot_prove",
+                " ".join(str(item) for item in (decision.get("cannot_prove") or [])),
+                "DYN" in " ".join(str(item) for item in (decision.get("cannot_prove") or [])),
+            ),
+        ]
+        dynamic_surfaces.extend(
+            (
+                f"{value.get('value_id')}.narrative",
+                record_text(value),
+                bool(active_dynamic_ids.intersection(str(item) for item in (value.get("supporting_fact_ids") or []))),
+            )
+            for value in values
+        )
+        dynamic_surfaces.extend(
+            (
+                f"{gap.get('gap_id')}.narrative",
+                record_text(gap),
+                "DYN" in record_text(gap) or any(fact_id in record_text(gap) for fact_id in active_dynamic_ids),
+            )
+            for gap in gaps
+        )
+        for location, text, explicitly_linked in dynamic_surfaces:
+            refers_to_active_dynamic = (
+                explicitly_linked
+                or "DYN" in text
+                or any(fact_id in text for fact_id in active_dynamic_ids)
+            )
+            if refers_to_active_dynamic and ACTIVE_DENIAL_RE.search(text):
+                errors.append(
+                    f"{location} 否定了快照时仍处活动期的动态权益；"
+                    "允许在明确快照时间和截止日期的前提下写当前有效，不得与活动状态自相矛盾"
+                )
 
     all_claim_text = " ".join(str(item.get("verbatim_text", "")) for item in source_claims)
     has_any_comparison_support = any(claim.get("claim_type") == "comparison" for claim in source_claims) or any(
@@ -1803,6 +1939,23 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("decision_id 格式无效")
     if decision.get("status") not in P0_STATUSES:
         errors.append("P0 决策状态不在允许范围")
+    execution_value_ids = decision.get("current_execution_value_ids")
+    if not isinstance(execution_value_ids, list):
+        errors.append("current_execution_value_ids 必须是数组")
+        execution_value_ids = []
+    if len(execution_value_ids) != len(set(execution_value_ids)):
+        errors.append("current_execution_value_ids 不得重复")
+    if str(decision.get("current_execution_axis", "")).strip() and decision.get("recommended_value_id") and not execution_value_ids:
+        errors.append("已有当前执行主轴时，current_execution_value_ids 不得为空")
+    for value_id in execution_value_ids:
+        if value_id not in values_by_id:
+            errors.append(f"当前执行主轴引用了不存在的 value_id: {value_id}")
+            continue
+        value = values_by_id[value_id]
+        if value.get("layer") == "deferred" or value.get("downstream_readiness") == "blocked":
+            errors.append(f"当前执行主轴不得引用暂缓或禁止调用的价值: {value_id}")
+    if decision.get("recommended_value_id") and execution_value_ids and decision.get("recommended_value_id") not in execution_value_ids:
+        errors.append("current_execution_value_ids 必须包含当前推荐 P0")
     has_external_comparison_support = any(
         source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources
     )

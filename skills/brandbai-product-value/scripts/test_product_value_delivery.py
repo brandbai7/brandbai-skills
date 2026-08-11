@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import uuid
 from datetime import datetime, timedelta
@@ -544,6 +545,7 @@ def populate_valid_partial(delivery: Path) -> None:
             "rationale": "V-001的外出准备任务与品牌方向一致；相比V-002仍缺少用户和竞争验证。",
             "public_rationale": "外出前少一步分装与品牌当前方向一致，但仍需真实用户和同类商品对照验证。",
             "current_execution_axis": "先说明独立小袋如何减少外出前的分装步骤。",
+            "current_execution_value_ids": ["V-001"],
             "cannot_prove": ["不能写成消费者已经认可的核心心智。"],
             "validation_questions": ["目标用户是否真实存在临时分装负担？", "同类商品是否普遍采用相同结构？"],
             "decided_at": timestamp,
@@ -1529,6 +1531,101 @@ def test_v013_p0_archive_comparator_and_report_regressions(root: Path) -> None:
     assert "/005/006" not in cleaned and "reference_frame" not in cleaned
 
 
+def test_v014_client_semantic_and_cross_field_regressions(root: Path) -> None:
+    cleaned = public_text(
+        "小包数在F-002中以partial状态说明；无STRAT与U；F-EVIDENCE为页面图示；"
+        "DYN截至updated_at仍有效；ZIP未读取；P0-HYPOTHESIS。"
+    )
+    assert "在相关事实中以部分确认状态说明" in cleaned
+    assert "品牌战略资料" in cleaned and "用户原声" in cleaned
+    assert "证据资料" in cleaned and "动态交易信息" in cleaned
+    assert "本次更新时间" in cleaned and "压缩包" in cleaned
+    assert "优先验证的核心价值" in cleaned
+    assert "partial" not in cleaned and "STRAT" not in cleaned and "updated_at" not in cleaned
+
+    delivery = root / "v014-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    values_path = data / "value_ledger.jsonl"
+    values = read_jsonl(values_path)
+    original_values = [dict(value) for value in values]
+
+    values[0]["user_task"] = "场景切换中不需要为不同形态再单独准备"
+    write_jsonl(values_path, values)
+    build_delivery(delivery, write=True)
+    paraphrased_comparator = validate_delivery(delivery)
+    assert paraphrased_comparator["status"] == "failed"
+    assert any("无来源的产品替代对象" in error for error in paraphrased_comparator["errors"])
+    values = [dict(value) for value in original_values]
+
+    values[1]["user_task"] = "在活动窗口内叠加优惠"
+    values[1]["user_perception_goal"] = "用户感知可叠加的优惠"
+    values[1]["cannot_prove"] = ["原文未明确说明权益可与其他优惠叠加，不得写可叠加"]
+    write_jsonl(values_path, values)
+    build_delivery(delivery, write=True)
+    stacking_contradiction = validate_delivery(delivery)
+    assert stacking_contradiction["status"] == "failed"
+    assert any("支撑事实所引原文没有明确叠加规则" in error for error in stacking_contradiction["errors"])
+    assert any("结构化结论自相矛盾" in error for error in stacking_contradiction["errors"])
+    write_jsonl(values_path, original_values)
+
+    decision_path = data / "p0_decision.json"
+    decision = read_json(decision_path)
+    original_decision = dict(decision)
+    decision["cannot_prove"] = list(decision["cannot_prove"]) + [
+        "不能把DYN-001活动写成当前有效，虽然本次快照仍处活动期"
+    ]
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    active_contradiction = validate_delivery(delivery)
+    assert active_contradiction["status"] == "failed"
+    assert any("否定了快照时仍处活动期" in error for error in active_contradiction["errors"])
+    write_json(decision_path, original_decision)
+
+    values = read_jsonl(values_path)
+    values[1]["downstream_readiness"] = "blocked"
+    write_jsonl(values_path, values)
+    decision = dict(original_decision)
+    decision["current_execution_value_ids"] = ["V-001", "V-002"]
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    blocked_axis = validate_delivery(delivery)
+    assert blocked_axis["status"] == "failed"
+    assert any("当前执行主轴不得引用暂缓或禁止调用" in error for error in blocked_axis["errors"])
+    write_jsonl(values_path, original_values)
+    write_json(decision_path, original_decision)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    chains = read_jsonl(fabe_path)
+    original_chains = [dict(chain) for chain in chains]
+    for chain in chains:
+        chain["advantage"] = "当前资料不足以形成可核对的相对优势，A层暂不成立。"
+        chain["derivation_status"] = "to_validate"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    all_advantages_removed = validate_delivery(delivery)
+    assert all_advantages_removed["status"] == "failed"
+    assert any("全部可用价值的 Advantage" in error for error in all_advantages_removed["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    timestamp_delivery = root / "v014-updated-at"
+    init_delivery(timestamp_delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(timestamp_delivery)
+    build_delivery(timestamp_delivery, write=True)
+    manifest = read_json(timestamp_delivery / "data" / "product_manifest.json")
+    logical_time = datetime.fromisoformat(manifest["updated_at"]).timestamp()
+    report_path = timestamp_delivery / "01_商品价值底座.md"
+    os.utime(report_path, (logical_time + 360, logical_time + 360))
+    late_report = validate_delivery(timestamp_delivery)
+    assert late_report["status"] == "failed"
+    assert any("updated_at 之后超过 5 分钟" in error for error in late_report["errors"])
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -1577,6 +1674,7 @@ def main() -> int:
         test_literal_claim_grounding(root)
         test_sku_conflict_propagation_and_customer_fragments(root)
         test_v013_p0_archive_comparator_and_report_regressions(root)
+        test_v014_client_semantic_and_cross_field_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

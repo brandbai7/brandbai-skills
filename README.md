@@ -18,7 +18,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.0 | 单篇完整笔记与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.2 | 微博明星／工作室／品牌账号、单微博、搜索、普通话题、明星超话和热搜榜单的正文、素材、互动、评论、回复与转发证据 | Prototype · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
-| [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.13 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、跨阶段真实四遍审计、归档来源隔离、规格冲突阻断、FABE与P0证据门槛、结构化账本—普通版一致性、表达边界与资料缺口 | Prototype · Noncommercial |
+| [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.14 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实、跨阶段真实四遍审计、归档来源隔离、规格冲突阻断、FABE内生任务优势与P0证据门槛、结构化账本—普通版一致性、表达边界与资料缺口 | Prototype · Noncommercial |
 | [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.1 | 继承有效商品价值，逐项扫描六条翻译路径与十二类感知槽位，形成画面、动作、声音、字幕、道具等原子呈现及验证计划 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
@@ -102,7 +102,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 [在 WorkBuddy 安装 brandbai-tmall-download v0.2.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.2.0%2Fbrandbai-tmall-download.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-product-value v0.1.13](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.13%2Fbrandbai-product-value.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-product-value v0.1.14](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.14%2Fbrandbai-product-value.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-value-expression v0.1.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.1%2Fbrandbai-value-expression.zip&channelType=github)
 
@@ -111,7 +111,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 - [Douyin Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.4.0)
 - [Xiaohongshu Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.0)
 - [Tmall Download v0.2.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.2.0)
-- [Product Value v0.1.13](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.13)
+- [Product Value v0.1.14](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.14)
 - [Value Expression v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.1)
 
 每个压缩包根目录都直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。

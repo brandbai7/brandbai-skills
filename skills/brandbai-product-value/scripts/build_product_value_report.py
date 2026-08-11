@@ -21,7 +21,7 @@ STATUS_ZH = {
     "conditional": "有条件调用",
     "blocked": "禁止下游调用",
     "P0-CANDIDATE": "候选中",
-    "P0-HYPOTHESIS": "优先验证假设",
+    "P0-HYPOTHESIS": "优先验证的核心价值",
     "P0-SELECTED": "当前业务选择",
     "P0-VALIDATING": "验证中",
     "P0-BOUNDARY-VALIDATED": "边界内已验证",
@@ -114,6 +114,11 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "对应回答已在相关事实中登记",
         text,
     )
+    text = re.sub(
+        rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])\s*中",
+        "相关事实中",
+        text,
+    )
     text = re.sub(rf"(?:参见|见)\s*{INTERNAL_ID}(?![A-Za-z0-9])", "", text)
     text = re.sub(rf"相比\s*{INTERNAL_ID}(?![A-Za-z0-9])", "与其他候选相比", text)
     text = re.sub(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])的", "", text)
@@ -142,6 +147,9 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         flags=re.IGNORECASE,
     )
     replacements = {
+        "P0-HYPOTHESIS": "优先验证的核心价值",
+        "P0-SELECTED": "当前业务选择",
+        "P0-VALIDATING": "验证中",
         "HYPOTHESIS": "优先验证假设",
         "SELECTED": "当前业务选择",
         "VALIDATING": "验证中",
@@ -161,6 +169,7 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "snapshot_only": "仅代表当前时点",
         "current_listing": "当前公开商品页",
         "reference_frame": "参照系",
+        "updated_at": "本次更新时间",
         "P0-BOUNDARY-VALIDATED": "边界内已验证",
         "P0-REOPEN": "重新评估",
     }
@@ -177,9 +186,25 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "conditional": "有条件调用",
         "ready": "可正式调用",
         "stale": "已失效",
+        "partial": "部分确认",
     }
     for source, target in status_words.items():
         text = re.sub(rf"(?<![A-Za-z0-9_]){source}(?![A-Za-z0-9_])", target, text, flags=re.IGNORECASE)
+    public_tokens = {
+        "F-EVIDENCE": "证据资料",
+        "STRAT": "品牌战略资料",
+        "DYN": "动态交易信息",
+        "ZIP": "压缩包",
+        "U": "用户原声",
+        "H": "分析推导",
+    }
+    for source, target in public_tokens.items():
+        text = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(source)}(?![A-Za-z0-9_])",
+            target,
+            text,
+            flags=re.IGNORECASE,
+        )
     text = re.sub(r"[（(]\s*(?:→\s*)+[)）]", "", text)
     text = re.sub(r"→\s*→+", "→", text)
     text = re.sub(r"/{2,}\s*(?:reference_frame|参照系)", "参照系", text, flags=re.IGNORECASE)
@@ -500,7 +525,7 @@ def build_report_02(data: dict[str, Any]) -> str:
 
     cannot_do = [
         "公开商品页可以直接支撑当前商品价值，但不能把它改写成第三方独立验证结论。",
-        "不能把 STRAT、U 或 H 自动写成已证实的商品事实或用户共识。",
+        "不能把品牌战略资料、用户原声或分析推导自动写成已证实的商品事实或用户共识。",
         "不能混用其他 SKU、历史版本或过期交易权益。",
         "不能在本阶段生成画面、脚本、Brief 或达人匹配结论。",
         *(manifest.get("limitations") or []),

@@ -41,6 +41,9 @@ jobs:
       - name: Run Douyin account analysis unit tests
         working-directory: skills/brandbai-douyin-account-analysis/scripts
         run: python -m unittest test_analysis_dataset.py test_analysis_delivery.py
+      - name: Run Product Value delivery unit tests
+        working-directory: skills/brandbai-product-value/scripts
+        run: python -B test_product_value_delivery.py
       - name: Run Tmall collector unit tests
         working-directory: skills/brandbai-tmall-download/scripts
         run: python -m unittest test_collector_core.py test_build_delivery.py test_run_foundation.py
