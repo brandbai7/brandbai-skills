@@ -114,7 +114,7 @@ second_pass_sequence, second_pass_heading, second_pass_excerpt,
 second_pass_status, second_pass_at
 ```
 
-`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔批量生成、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔批量生成、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。ZIP、RAR、7z、tar 等归档文件使用 `unsupported_archive`，`inspection_status=unreadable`、`text_density=none`、`content_flags=[]`，只记录文件身份与实际检查时间；归档本身不得进入原文主张、来源、事实或普通版。需要使用其内容时，先解压并在全新交付中重新索引解压后的文件。
 
 每条观察另填 `text_density` 和 `content_flags`。`text_density` 使用 `none/low/medium/high`；`content_flags` 从 `identity/sku/ingredient/nutrition_table/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other` 中选择。中高文字密度来源不得遗漏内容类型。
 
@@ -225,7 +225,7 @@ decided_at, valid_until, supersedes
 
 状态允许：`P0-CANDIDATE`、`P0-HYPOTHESIS`、`P0-SELECTED`、`P0-VALIDATING`、`P0-BOUNDARY-VALIDATED`、`P0-REOPEN`、`P0-REPLACED`、`P0-STOPPED`。
 
-`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题。
+`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题。战略信息仅为 `SC0/SC1` 且没有竞品页或行业对照时，决策和推荐价值都只能标为 `P0-HYPOTHESIS`，不得写成已选择、验证中或已验证；商品页内部或同品牌产品对比可支撑对应 FABE，但不能单独证明战略优先级。
 
 ### gap_ledger.jsonl
 

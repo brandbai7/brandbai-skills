@@ -99,16 +99,26 @@ STATUS_ZH = {
 INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|CLM|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
 INTERNAL_ID_RE = re.compile(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])")
 INTERNAL_ID_GROUP_RE = re.compile(rf"\(\s*{INTERNAL_ID}(?:\s*[,/;+、，]\s*{INTERNAL_ID})*\s*\)")
+SHARED_ID_SERIES = r"(?:SF|SRC|ID|ANCHOR|FABE|CLM|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,}(?:\s*/\s*\d{3,})+"
+SHARED_ID_SERIES_RE = re.compile(rf"(?<![A-Za-z0-9]){SHARED_ID_SERIES}(?![A-Za-z0-9])")
 
 
 def public_text(value: Any, empty: str = "未提供") -> str:
     """Hide internal IDs without leaving punctuation fragments in human reports."""
 
     text = md(value, empty)
+    text = re.sub(rf"{SHARED_ID_SERIES}\s*的\s*A\s*层", "相关价值的 A 层", text, flags=re.IGNORECASE)
+    text = re.sub(rf"{SHARED_ID_SERIES}\s*的\s*reference_frame", "相关价值的参照系", text, flags=re.IGNORECASE)
+    text = re.sub(
+        rf"对应的?回答已登记为\s*{INTERNAL_ID}(?![A-Za-z0-9])",
+        "对应回答已在相关事实中登记",
+        text,
+    )
     text = re.sub(rf"(?:参见|见)\s*{INTERNAL_ID}(?![A-Za-z0-9])", "", text)
     text = re.sub(rf"相比\s*{INTERNAL_ID}(?![A-Za-z0-9])", "与其他候选相比", text)
     text = re.sub(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])的", "", text)
     text = INTERNAL_ID_GROUP_RE.sub("", text)
+    text = SHARED_ID_SERIES_RE.sub("", text)
     text = INTERNAL_ID_RE.sub("", text)
     text = re.sub(r"[（(]\s*[,/;+、，;；:：\s]*[)）]", "", text)
     text = re.sub(r"([（(])\s*[,/;+、，;；:：]+\s*", r"\1", text)
@@ -149,6 +159,8 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "exact fields unverified": "精确字段未核验",
         "dietary": "饮食",
         "snapshot_only": "仅代表当前时点",
+        "current_listing": "当前公开商品页",
+        "reference_frame": "参照系",
         "P0-BOUNDARY-VALIDATED": "边界内已验证",
         "P0-REOPEN": "重新评估",
     }
@@ -170,6 +182,8 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         text = re.sub(rf"(?<![A-Za-z0-9_]){source}(?![A-Za-z0-9_])", target, text, flags=re.IGNORECASE)
     text = re.sub(r"[（(]\s*(?:→\s*)+[)）]", "", text)
     text = re.sub(r"→\s*→+", "→", text)
+    text = re.sub(r"/{2,}\s*(?:reference_frame|参照系)", "参照系", text, flags=re.IGNORECASE)
+    text = re.sub(r"对应的?回答已登记为\s*[。.]", "对应回答尚未形成可公开结论。", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 

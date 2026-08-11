@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from build_product_value_report import build_delivery
+from build_product_value_report import build_delivery, public_text
 from build_source_audit_cards import build_cards
 from index_product_sources import index_sources
 from init_product_value_delivery import build_plan, init_delivery
@@ -29,6 +29,7 @@ def populate_valid_partial(delivery: Path) -> None:
     (source_dir / "商品包装.txt").write_text("独立小袋包装", encoding="utf-8")
     (source_dir / "品牌方向.txt").write_text("外出携带", encoding="utf-8")
     (source_dir / "活动信息.txt").write_text(dynamic_claim_text, encoding="utf-8")
+    (source_dir / "原始资料包.zip").write_bytes(b"synthetic archive container")
     (source_dir / "详情页主图.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400" fill="white"/><text x="30" y="80">独立小袋包装</text><text x="30" y="130">外出拿取更清楚</text></svg>',
         encoding="utf-8",
@@ -43,7 +44,7 @@ def populate_valid_partial(delivery: Path) -> None:
     assert read_jsonl(data / "source_observation.jsonl") == []
     assert read_jsonl(data / "source_claim_ledger.jsonl") == []
     indexed = index_sources(source_dir, delivery, write=True)
-    assert indexed["file_count"] == 5
+    assert indexed["file_count"] == 6
     card_dry_run = build_cards(source_dir, delivery, write=False)
     assert card_dry_run["status"] == "dry_run"
     assert card_dry_run["audit_cards"] == 2
@@ -172,6 +173,27 @@ def populate_valid_partial(delivery: Path) -> None:
                 "second_pass_at": second_pass_at.isoformat(),
                 "text_density": "low",
                 "content_flags": ["process"],
+            },
+            {
+                "observation_id": "OBS-006",
+                "source_file_id": inventory_ids["原始资料包.zip"],
+                "relative_path": "原始资料包.zip",
+                "content_type": "archive_container",
+                "title": "原始资料包归档文件",
+                "visible_heading": "",
+                "visible_text_excerpt": "",
+                "inspection_method": "unsupported_archive",
+                "inspection_status": "unreadable",
+                "inspected_at": timestamp,
+                "audit_card_sha256": "",
+                "first_pass_sequence": 0,
+                "second_pass_sequence": 0,
+                "second_pass_heading": "",
+                "second_pass_excerpt": "",
+                "second_pass_status": "not_applicable",
+                "second_pass_at": "",
+                "text_density": "none",
+                "content_flags": [],
             },
         ],
     )
@@ -1373,6 +1395,140 @@ def test_sku_conflict_propagation_and_customer_fragments(root: Path) -> None:
     assert any("客户残句" in error for error in fragment_broken["errors"])
 
 
+def test_v013_p0_archive_comparator_and_report_regressions(root: Path) -> None:
+    delivery = root / "v013-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    inventory = read_jsonl(data / "source_inventory.jsonl")
+    archive = next(item for item in inventory if item["filename"] == "原始资料包.zip")
+    observations = read_jsonl(data / "source_observation.jsonl")
+    archive_observation = next(item for item in observations if item["source_file_id"] == archive["source_file_id"])
+
+    sources_path = data / "source_ledger.jsonl"
+    sources = read_jsonl(sources_path)
+    sources.append(
+        {
+            "source_id": "SRC-006",
+            "source_file_id": archive["source_file_id"],
+            "observation_id": archive_observation["observation_id"],
+            "source_type": "F-PAGE",
+            "title": archive_observation["title"],
+            "locator": "原始资料包.zip｜归档文件",
+            "captured_at": archive_observation["inspected_at"],
+            "sku_scope": "示例规格A",
+            "status": "active",
+            "notes": "错误地把归档容器当成页面来源",
+        }
+    )
+    write_jsonl(sources_path, sources)
+    build_delivery(delivery, write=True)
+    archive_as_page = validate_delivery(delivery)
+    assert archive_as_page["status"] == "failed"
+    assert any("压缩包或归档文件当成了可调用来源" in error for error in archive_as_page["errors"])
+    write_jsonl(sources_path, sources[:-1])
+
+    observations_path = data / "source_observation.jsonl"
+    archive_observation["inspection_method"] = "document_text"
+    archive_observation["inspection_status"] = "inspected"
+    archive_observation["visible_heading"] = "归档文件"
+    archive_observation["visible_text_excerpt"] = "错误地声称已读取"
+    write_jsonl(observations_path, observations)
+    build_delivery(delivery, write=True)
+    archive_marked_read = validate_delivery(delivery)
+    assert archive_marked_read["status"] == "failed"
+    assert any("必须明确标记 unreadable" in error for error in archive_marked_read["errors"])
+    archive_observation.update(
+        {
+            "inspection_method": "unsupported_archive",
+            "inspection_status": "unreadable",
+            "visible_heading": "",
+            "visible_text_excerpt": "",
+        }
+    )
+    write_jsonl(observations_path, observations)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    chains = read_jsonl(fabe_path)
+    original_chain = dict(chains[0])
+    chains[0]["advantage"] = "相较仅支持单一食用方式的产品，当前商品提供更多选择。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    expanded_comparator = validate_delivery(delivery)
+    assert expanded_comparator["status"] == "failed"
+    assert any("无来源的产品替代对象" in error for error in expanded_comparator["errors"])
+
+    chains[0].update(original_chain)
+    chains[0]["advantage"] = "当前资料不足以形成可核对的相对优势，A层暂不成立。"
+    chains[0]["benefit"] = "无需另购不同形态产品。"
+    chains[0]["derivation_status"] = "to_validate"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unavailable_advantage_leak = validate_delivery(delivery)
+    assert unavailable_advantage_leak["status"] == "failed"
+    assert any("A 层暂不成立" in error for error in unavailable_advantage_leak["errors"])
+    chains[0].update(original_chain)
+    write_jsonl(fabe_path, chains)
+
+    values_path = data / "value_ledger.jsonl"
+    values = read_jsonl(values_path)
+    original_value_statement = values[0]["value_statement"]
+    values[0]["value_statement"] = "减少对多配料加工食品的查询顾虑。"
+    write_jsonl(values_path, values)
+    build_delivery(delivery, write=True)
+    bare_target = validate_delivery(delivery)
+    assert bare_target["status"] == "failed"
+    assert any("无来源的产品替代对象" in error for error in bare_target["errors"])
+    values[0]["value_statement"] = original_value_statement
+
+    decision_path = data / "p0_decision.json"
+    decision = read_json(decision_path)
+    decision["status"] = "P0-SELECTED"
+    values[0]["p0_status"] = "P0-SELECTED"
+    write_json(decision_path, decision)
+    write_jsonl(values_path, values)
+    build_delivery(delivery, write=True)
+    over_selected = validate_delivery(delivery)
+    assert over_selected["status"] == "failed"
+    assert any("只能标记为 P0-HYPOTHESIS" in error for error in over_selected["errors"])
+    decision["status"] = "P0-HYPOTHESIS"
+    values[0]["p0_status"] = "P0-HYPOTHESIS"
+    write_json(decision_path, decision)
+    write_jsonl(values_path, values)
+
+    chains = read_jsonl(fabe_path)
+    chains[0]["user_language"] = "由难入口温和转为难入口温和。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    contradiction = validate_delivery(delivery)
+    assert contradiction["status"] == "failed"
+    assert any("语义矛盾残句" in error for error in contradiction["errors"])
+    chains[0].update(original_chain)
+    write_jsonl(fabe_path, chains)
+
+    build_delivery(delivery, write=True)
+    report_path = delivery / "01_商品价值底座.md"
+    report_path.write_text(
+        report_path.read_text(encoding="utf-8")
+        + "\n/005/006 //reference_frame 对应的回答已登记为 。\n",
+        encoding="utf-8",
+    )
+    report_drift = validate_delivery(delivery)
+    assert report_drift["status"] == "failed"
+    assert any("与当前结构化账本不一致" in error for error in report_drift["errors"])
+    assert any("内部删减残片" in error for error in report_drift["errors"])
+
+    cleaned = public_text("FABE-004/005/006的A层；FABE-004/005/006的reference_frame；对应的回答已登记为 F-004。")
+    assert "相关价值的 A 层" in cleaned
+    assert "相关价值的参照系" in cleaned
+    assert "对应回答已在相关事实中登记" in cleaned
+    assert "/005/006" not in cleaned and "reference_frame" not in cleaned
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -1420,6 +1576,7 @@ def main() -> int:
         test_narrative_integrity_and_advantage_quality(root)
         test_literal_claim_grounding(root)
         test_sku_conflict_propagation_and_customer_fragments(root)
+        test_v013_p0_archive_comparator_and_report_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
