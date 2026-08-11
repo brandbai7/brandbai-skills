@@ -1039,6 +1039,78 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     write_jsonl(fabe_path, chains)
 
 
+def test_narrative_integrity_and_advantage_quality(root: Path) -> None:
+    delivery = root / "narrative-integrity"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    fabe_path = delivery / "data" / "fabe_ledger.jsonl"
+    residual_cases = (
+        ("boundary", "消除刺激性不扩大到 ；不预设/"),
+        ("boundary", "多糖含量高低不直接推导；"),
+        ("boundary", "单一原料不自动等于 ；不预设安全/健康收益"),
+        ("boundary", "工艺描述不扩大到无残留风险，零残留不等同于；"),
+        ("user_language", "食用安心（）"),
+    )
+    for field, residual in residual_cases:
+        chains = read_jsonl(fabe_path)
+        original = chains[0][field]
+        chains[0][field] = residual
+        write_jsonl(fabe_path, chains)
+        build_delivery(delivery, write=True)
+        broken = validate_delivery(delivery)
+        assert broken["status"] == "failed"
+        assert any(
+            "不完整客户文本" in error or "空括号" in error
+            for error in broken["errors"]
+        ), broken
+        chains[0][field] = original
+        write_jsonl(fabe_path, chains)
+
+    decision_path = delivery / "data" / "p0_decision.json"
+    decision = read_json(decision_path)
+    original_rationale = decision["rationale"]
+    decision["rationale"] = "候选战略价值潜力低（工艺描述易越界为）。"
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    rationale_broken = validate_delivery(delivery)
+    assert rationale_broken["status"] == "failed"
+    assert any("p0_decision.rationale" in error and "不完整客户文本" in error for error in rationale_broken["errors"])
+    decision["rationale"] = original_rationale
+    write_json(decision_path, decision)
+
+    chains = read_jsonl(fabe_path)
+    original_advantage = chains[0]["advantage"]
+    original_status = chains[0]["derivation_status"]
+    chains[0]["advantage"] = "本品（基于页面内对比信息）"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    placeholder_broken = validate_delivery(delivery)
+    assert placeholder_broken["status"] == "failed"
+    assert any("占位式 Advantage" in error for error in placeholder_broken["errors"])
+
+    chains[0]["advantage"] = "当前资料不足以形成可核对的相对优势，A层暂不成立。"
+    chains[0]["derivation_status"] = "reasoned"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    status_broken = validate_delivery(delivery)
+    assert status_broken["status"] == "failed"
+    assert any("derivation_status 必须是 to_validate" in error for error in status_broken["errors"])
+
+    chains[0]["derivation_status"] = "to_validate"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    explicit_gap = validate_delivery(delivery)
+    assert explicit_gap["status"] == "passed", explicit_gap
+
+    chains[0]["advantage"] = original_advantage
+    chains[0]["derivation_status"] = original_status
+    write_jsonl(fabe_path, chains)
+
+
 def test_literal_claim_grounding(root: Path) -> None:
     delivery = root / "literal-claims"
     init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
@@ -1345,6 +1417,7 @@ def main() -> int:
         test_visual_observation_and_evidence_boundaries(root)
         test_audit_timestamp_and_sku_guardrails(root)
         test_fabe_and_public_copy_guardrails(root)
+        test_narrative_integrity_and_advantage_quality(root)
         test_literal_claim_grounding(root)
         test_sku_conflict_propagation_and_customer_fragments(root)
         test_insufficient_delivery(root)

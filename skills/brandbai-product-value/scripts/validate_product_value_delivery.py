@@ -363,6 +363,22 @@ PUBLIC_FRAGMENT_RE = re.compile(
     r"仅在\s+出现|与\s*等(?:工艺|页面|信息|主张|口径)?|"
     r"(?:不同|冲突|差异|不一致)[^。！？\n|]{0,30}[，,；;：:]\s*$"
 )
+EMPTY_PARENS_RE = re.compile(r"[（(]\s*[)）]")
+DANGLING_ANALYSIS_RE = re.compile(
+    r"(?:不扩大(?:到|为)|不自动等于|不等同于|不直接推导(?:为|成)?|"
+    r"不推导(?:为|成)?|不能推导(?:为|成)?|不得扩大(?:到|为)|"
+    r"不得等同于|易越界为|不预设)\s*(?:[/／]\s*)?"
+    r"(?=(?:[)）]\s*)?(?:[，,；;。.!！?？]|$))"
+)
+GENERIC_ADVANTAGE_RE = re.compile(
+    r"^\s*(?:(?:本品|本商品|当前商品)\s*)?(?:[（(]\s*)?"
+    r"基于(?:页面内|当前页面|页面)?(?:对比信息|对比|资料|信息)(?:\s*[)）])?\s*[。.]?\s*$|"
+    r"^\s*(?:本品|本商品|当前商品)\s*[。.]?\s*$"
+)
+UNESTABLISHED_ADVANTAGE_RE = re.compile(
+    r"(?:(?:相对|比较)?优势.{0,18}|A\s*层.{0,12})(?:暂不成立|尚未成立|待验证)",
+    re.IGNORECASE,
+)
 INFERRED_DYNAMIC_YEAR_RE = re.compile(
     r"年份.{0,12}(?:根据|依据|按).{0,20}(?:抓取|采集|截图|下载|访问|页面保存).{0,12}(?:推定|推断|补全|确定)"
 )
@@ -537,6 +553,73 @@ def iter_analysis_texts(
         (f"p0_decision.{key}", str(decision.get(key, "")))
         for key in ("rationale", "public_rationale", "current_execution_axis")
     )
+    return texts
+
+
+def iter_client_narrative_texts(
+    manifest: dict[str, Any],
+    facts: list[dict[str, Any]],
+    fabe: list[dict[str, Any]],
+    anchors: list[dict[str, Any]],
+    values: list[dict[str, Any]],
+    decision: dict[str, Any],
+    gaps: list[dict[str, Any]],
+) -> list[tuple[str, str]]:
+    """Return authored narrative fields that may reach clients or downstream Skills."""
+
+    texts: list[tuple[str, str]] = [
+        ("product_manifest.sku_basis", str(manifest.get("sku_basis", ""))),
+    ]
+    texts.extend(
+        (f"product_manifest.limitations[{index}]", str(value))
+        for index, value in enumerate(manifest.get("limitations") or [])
+    )
+    for item in facts:
+        texts.extend(
+            (f"{item.get('fact_id')}.{key}", str(item.get(key, "")))
+            for key in ("statement", "boundary")
+        )
+    for item in fabe:
+        texts.extend(
+            (f"{item.get('fabe_id')}.{key}", str(item.get(key, "")))
+            for key in (
+                "feature",
+                "advantage",
+                "benefit",
+                "evidence",
+                "reference_frame",
+                "user_language",
+                "boundary",
+            )
+        )
+    for item in anchors:
+        texts.extend(
+            (f"{item.get('anchor_id')}.{key}", str(item.get(key, "")))
+            for key in ("statement", "boundary")
+        )
+    for item in values:
+        texts.extend(
+            (f"{item.get('value_id')}.{key}", str(item.get(key, "")))
+            for key in ("user_task", "value_statement", "user_perception_goal", "scope")
+        )
+        texts.extend(
+            (f"{item.get('value_id')}.cannot_prove[{index}]", str(value))
+            for index, value in enumerate(item.get("cannot_prove") or [])
+        )
+    texts.extend(
+        (f"p0_decision.{key}", str(decision.get(key, "")))
+        for key in ("rationale", "public_rationale", "current_execution_axis")
+    )
+    for key in ("cannot_prove", "validation_questions"):
+        texts.extend(
+            (f"p0_decision.{key}[{index}]", str(value))
+            for index, value in enumerate(decision.get(key) or [])
+        )
+    for item in gaps:
+        texts.extend(
+            (f"{item.get('gap_id')}.{key}", str(item.get(key, "")))
+            for key in ("missing", "impact", "minimum_needed")
+        )
     return texts
 
 
@@ -1461,6 +1544,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         for key in ("feature", "advantage", "benefit", "evidence", "reference_frame", "user_language", "boundary"):
             if not str(item.get(key, "")).strip():
                 errors.append(f"{fabe_id} 的 {key} 为空")
+        advantage_text = str(item.get("advantage", "")).strip()
+        if GENERIC_ADVANTAGE_RE.fullmatch(advantage_text):
+            errors.append(
+                f"{fabe_id}.advantage 使用了占位式 Advantage；必须写明具体任务差异，"
+                "或明确写相对优势暂不成立"
+            )
+        if UNESTABLISHED_ADVANTAGE_RE.search(advantage_text) and item.get("derivation_status") != "to_validate":
+            errors.append(f"{fabe_id}.advantage 明确写暂不成立或待验证时，derivation_status 必须是 to_validate")
         if item.get("derivation_status") not in allowed_derivation_statuses:
             errors.append(f"{fabe_id} 的 derivation_status 必须是 page_supported/reasoned/to_validate")
         if item.get("derivation_status") == "page_supported":
@@ -1608,6 +1699,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if restriction not in all_claim_text:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
 
+    for location, text in iter_client_narrative_texts(manifest, facts, fabe, anchors, values, decision, gaps):
+        if EMPTY_PARENS_RE.search(text):
+            errors.append(f"{location} 含空括号，属于未完成的客户文本")
+        if DANGLING_ANALYSIS_RE.search(text):
+            errors.append(f"{location} 含缺少结论对象的不完整客户文本：{text}")
+
     exact_value_surfaces = (
         ("fabe_ledger", fabe),
         ("anchor_ledger", anchors),
@@ -1753,6 +1850,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 的表格单元格含多余的 > 符号")
         if re.search(r"→\s*→|[（(]\s*(?:→\s*)+[)）]", text):
             errors.append(f"{paths[report_key].name} 含删除内部 ID 后残留的箭头或空括号")
+        if EMPTY_PARENS_RE.search(text):
+            errors.append(f"{paths[report_key].name} 含空括号，属于未完成的客户文本")
+        if DANGLING_ANALYSIS_RE.search(text):
+            errors.append(f"{paths[report_key].name} 含缺少结论对象的不完整客户文本")
         if PUBLIC_JARGON_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
         if MALFORMED_OCR_RE.search(text):
