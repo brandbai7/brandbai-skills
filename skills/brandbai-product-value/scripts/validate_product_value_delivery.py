@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from build_source_audit_cards import DISPLAY_WIDTH, image_dimensions
+from build_product_value_report import build_report_01, build_report_02, load_delivery
 from product_value_common import (
     ANALYSIS_STATUSES,
     DELIVERY_STATUSES,
@@ -232,14 +233,15 @@ METHOD_VALUE_RE = re.compile(
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
-    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|source_inventory\.jsonl|source_claim_ledger\.jsonl|"
+    r"(?<!P0-)\b(?:HYPOTHESIS|SELECTED|VALIDATING)\b|evidence_detail_confidence|exact_fields_verified|current_listing|reference_frame|source_inventory\.jsonl|source_claim_ledger\.jsonl|"
     r"sku_status\s*=\s*(?:confirmed|partial|unverified)|证据细节可信度\s*=\s*(?:high|medium|low)|"
     r"\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|"
+    r"\b(?:FC[0-3]|SC[0-3]|PKG-L[0-4])\b|\bmedium\b|"
     r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only)\b|"
     r"`(?:active|expired|verified|unverified|template|deferred|blocked|conditional|ready|stale)`",
     re.IGNORECASE,
 )
-OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url"}
+OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url", "unsupported_archive"}
 OBSERVATION_STATUSES = {"inspected", "unreadable", "not_applicable"}
 TEXT_DENSITIES = {"none", "low", "medium", "high"}
 CONTENT_FLAGS = {
@@ -315,18 +317,32 @@ SENSORY_LITERAL_RE = re.compile(
 WARNING_TEXT_RE = re.compile(
     r"禁止食用|请勿食用|不宜食用|不可食用|不能食用|勿食用|遵医嘱|谨遵医嘱|过敏.{0,8}(?:禁用|禁止|勿食)"
 )
+COMPARISON_PREFIX = r"(?:相对|相比|相较于?|对比|较之|优于|高于|低于|不同于)"
 MISLEADING_COMPARATOR_RE = re.compile(
-    r"(?:相对|相比)(?:仅达到|普通(?:产地|原料|产品)?|添加多种|未明示|传统(?:产品|工艺)?)"
+    rf"{COMPARISON_PREFIX}(?:仅达到|普通(?:产地|原料|产品)?|添加多种|未明示|传统(?:产品|工艺)?)"
 )
 UNSUPPORTED_PRODUCT_COMPARATOR_RE = re.compile(
-    r"(?:相对|相比)(?:(?![，。；;]).){0,30}(?:"
+    rf"{COMPARISON_PREFIX}(?:(?![，。；;]).){{0,30}}(?:"
     r"无法确认加工工艺|多配料(?:的)?(?:加工|复合)?食品|单一食用方式(?:的)?产品|"
     r"(?:散装|整袋)(?:或)?大包装|无检测引用(?:的)?产品|一般(?:产区|产品|原料)|"
     r"部分(?:使用|采用)?硫熏(?:工艺)?(?:保色保鲜)?(?:的)?(?:加工方式|产品)?|"
     r"需要煎煮或加工(?:的)?黄精原料)"
 )
 MARKET_COMPARATOR_RE = re.compile(
-    r"(?:相对|相比|优于|高于).{0,18}(?:同类|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)"
+    rf"{COMPARISON_PREFIX}.{{0,18}}(?:同类|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)"
+)
+UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
+    r"多配料(?:的)?(?:加工|复合)?食品|配料(?:未公开|不透明|多元).{0,12}同类(?:加工)?食品|"
+    r"仅支持单一食用方式(?:的)?产品|单一食用方式(?:的)?产品|"
+    r"另购不同形态(?:的)?产品"
+)
+COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
+ARCHIVE_MEDIA_RE = re.compile(r"(?:zip|rar|7z|tar|gzip|x-compressed|x-zip)", re.IGNORECASE)
+ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
+PUBLIC_CONTRADICTION_RE = re.compile(r"转为难入口温和|难入口温和")
+PUBLIC_ID_RESIDUE_RE = re.compile(
+    r"/(?:\d{3,})(?:/\d{3,})+|//\s*(?:reference_frame|参照系)|对应的?回答已登记为\s*[。.]",
+    re.IGNORECASE,
 )
 UNSUPPORTED_RESTRICTION_RE = re.compile(
     r"仅适合泡水|只能泡水|(?:需要|必须).{0,6}长时间(?:炖煮|熬煮)"
@@ -403,6 +419,14 @@ def record_text(record: dict[str, Any]) -> str:
         elif isinstance(value, (str, int, float)):
             values.append(str(value))
     return " ".join(values)
+
+
+def is_archive_source(record: dict[str, Any]) -> bool:
+    """Return whether an inventory record is a container, not directly readable evidence."""
+
+    media_type = str(record.get("media_type", ""))
+    relative_path = str(record.get("relative_path", ""))
+    return bool(ARCHIVE_MEDIA_RE.search(media_type)) or Path(relative_path).suffix.lower() in ARCHIVE_SUFFIXES
 
 
 def package_count_ranges(claim: dict[str, Any]) -> list[tuple[int, int, str]]:
@@ -954,6 +978,15 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for key in ("content_type", "title", "visible_heading", "visible_text_excerpt", "inspected_at"):
                 if not str(observation.get(key, "")).strip():
                     errors.append(f"{observation_id} 已标记 inspected，但 {key} 为空")
+        if indexed and is_archive_source(indexed):
+            if observation.get("inspection_method") != "unsupported_archive":
+                errors.append(f"{observation_id} 是压缩包或归档文件，inspection_method 必须是 unsupported_archive")
+            if observation.get("inspection_status") != "unreadable":
+                errors.append(f"{observation_id} 是压缩包或归档文件，必须明确标记 unreadable，不能当作已读取页面")
+            if not str(observation.get("title", "")).strip() or not str(observation.get("inspected_at", "")).strip():
+                errors.append(f"{observation_id} 是压缩包或归档文件，仍须记录文件标题和实际检查时间")
+            if text_density != "none" or content_flags:
+                errors.append(f"{observation_id} 是未解压归档文件，不得登记正文密度或页面内容类型")
         if indexed and str(indexed.get("media_type", "")).startswith("image/"):
             image_observations.append(observation)
             card = audit_cards_by_file_id.get(source_file_id, {})
@@ -1093,6 +1126,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             )
             if not official_url_claim:
                 errors.append(f"{claim_id} 引用了不存在的 source_file_id: {source_file_id}")
+        elif is_archive_source(indexed):
+            errors.append(f"{claim_id} 来自未解压的压缩包或归档文件；不得摘录原文主张")
         if observation is None:
             errors.append(f"{claim_id} 引用了不存在的 observation_id: {observation_id}")
         elif observation.get("source_file_id") != source_file_id:
@@ -1304,6 +1339,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{source_id} 引用了不存在的 source_file_id: {source_file_id}")
             elif str(indexed.get("relative_path", "")) not in locator:
                 errors.append(f"{source_id} 的 locator 必须保留 {source_file_id} 的真实 relative_path")
+            if indexed is not None and is_archive_source(indexed):
+                errors.append(
+                    f"{source_id} 把压缩包或归档文件当成了可调用来源；"
+                    "归档文件只能保留在清单并标记不可读，解压后须在全新交付中逐文件重新索引"
+                )
             observation = observations_by_id.get(observation_id)
             if observation is None:
                 errors.append(f"{source_id} 必须绑定该原文件的 observation_id")
@@ -1552,6 +1592,15 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             )
         if UNESTABLISHED_ADVANTAGE_RE.search(advantage_text) and item.get("derivation_status") != "to_validate":
             errors.append(f"{fabe_id}.advantage 明确写暂不成立或待验证时，derivation_status 必须是 to_validate")
+        if UNESTABLISHED_ADVANTAGE_RE.search(advantage_text):
+            other_comparison_text = " ".join(
+                str(item.get(key, ""))
+                for key in ("benefit", "reference_frame", "user_language", "boundary")
+            )
+            if COMPARISON_LANGUAGE_RE.search(other_comparison_text):
+                errors.append(
+                    f"{fabe_id}.advantage 已声明 A 层暂不成立，Benefit、参照系和用户语言不得继续使用产品替代对象或比较结论"
+                )
         if item.get("derivation_status") not in allowed_derivation_statuses:
             errors.append(f"{fabe_id} 的 derivation_status 必须是 page_supported/reasoned/to_validate")
         if item.get("derivation_status") == "page_supported":
@@ -1593,7 +1642,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(
                 f"{fabe_id} 使用了“相对普通/仅达到/添加多种/未明示”等替代性比较；必须改写为页面明确展示的具体对比，或补充真实对照来源"
             )
-        elif UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(analysis_text):
+        elif UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(analysis_text) or UNSUPPORTED_PRODUCT_TARGET_RE.search(analysis_text):
             has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
             has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
             if not has_comparison_claim and not has_comparator_source:
@@ -1695,6 +1744,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称最常见、主流、普遍或多数用户存在该问题")
         if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(text) and not has_any_comparison_support:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
+        elif UNSUPPORTED_PRODUCT_TARGET_RE.search(text) and not has_any_comparison_support:
+            errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
         for restriction in set(EATING_RESTRICTION_RE.findall(text)):
             if restriction not in all_claim_text:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
@@ -1704,6 +1755,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{location} 含空括号，属于未完成的客户文本")
         if DANGLING_ANALYSIS_RE.search(text):
             errors.append(f"{location} 含缺少结论对象的不完整客户文本：{text}")
+        if PUBLIC_CONTRADICTION_RE.search(text):
+            errors.append(f"{location} 含“难入口温和”等语义矛盾残句，必须回到原文重新表述")
+        if PUBLIC_ID_RESIDUE_RE.search(text):
+            errors.append(f"{location} 含内部 ID 删减后的残余片段，必须重写完整客户句")
 
     exact_value_surfaces = (
         ("fabe_ledger", fabe),
@@ -1748,6 +1803,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("decision_id 格式无效")
     if decision.get("status") not in P0_STATUSES:
         errors.append("P0 决策状态不在允许范围")
+    has_external_comparison_support = any(
+        source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources
+    )
+    low_strategy_without_comparison = manifest.get("sc") in {"SC0", "SC1"} and not has_external_comparison_support
+    if (
+        low_strategy_without_comparison
+        and decision.get("recommended_value_id")
+        and decision.get("status") != "P0-HYPOTHESIS"
+    ):
+        errors.append(
+            "战略信息仅为 SC0/SC1 且没有竞品页或行业对照时，P0 决策只能标记为 P0-HYPOTHESIS；商品页自有对比不足以证明战略优先级"
+        )
     if not str(decision.get("public_rationale", "")).strip() and decision.get("recommended_value_id"):
         errors.append("已有推荐 P0 时 public_rationale 不得为空")
     if INTERNAL_ID_RE.search(str(decision.get("public_rationale", ""))):
@@ -1789,6 +1856,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append("P0 推荐值的 layer 必须是 P0")
             if values_by_id[recommended_id].get("downstream_readiness") == "blocked":
                 errors.append("P0 推荐值不得是 downstream_readiness=blocked")
+            if low_strategy_without_comparison and values_by_id[recommended_id].get("p0_status") != "P0-HYPOTHESIS":
+                errors.append(
+                    f"{recommended_id} 在低战略信息且无竞争对照时，p0_status 必须是 P0-HYPOTHESIS"
+                )
     for value_id in candidate_ids:
         if value_id == recommended_id or value_id not in values_by_id:
             continue
@@ -1836,8 +1907,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if delivery_status != "stale":
             errors.append("analysis_status=stale 时 delivery_status 必须是 stale")
 
+    report_data = load_delivery(delivery)
+    expected_reports = {
+        "report_01": build_report_01(report_data).rstrip() + "\n",
+        "report_02": build_report_02(report_data).rstrip() + "\n",
+    }
     for report_key in ("report_01", "report_02"):
         text = paths[report_key].read_text(encoding="utf-8")
+        if text != expected_reports[report_key]:
+            errors.append(
+                f"{paths[report_key].name} 与当前结构化账本不一致；禁止手工改报告，必须修正账本后重新生成"
+            )
         if "{{" in text or "}}" in text:
             errors.append(f"{paths[report_key].name} 仍包含模板占位符")
         if re.search(r"[A-Za-z]:\\(?:Users|Documents|Desktop)\\", text, re.IGNORECASE):
@@ -1856,9 +1936,15 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 含缺少结论对象的不完整客户文本")
         if PUBLIC_JARGON_RE.search(text):
             errors.append(f"{paths[report_key].name} 暴露了客户无需理解的内部字段或英文状态")
+        if PUBLIC_ID_RESIDUE_RE.search(text):
+            errors.append(f"{paths[report_key].name} 含 /005/006、//reference_frame 或空回答等内部删减残片")
+        if PUBLIC_CONTRADICTION_RE.search(text):
+            errors.append(f"{paths[report_key].name} 含“难入口温和”等语义矛盾残句")
         if MALFORMED_OCR_RE.search(text):
             errors.append(f"{paths[report_key].name} 含 oneBag 或斜杠拼接等疑似 OCR 残片，不能作为客户稿")
-        if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(text) and not has_any_comparison_support:
+        if (
+            UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(text) or UNSUPPORTED_PRODUCT_TARGET_RE.search(text)
+        ) and not has_any_comparison_support:
             errors.append(f"{paths[report_key].name} 含无来源的产品替代对象，不能作为客户结论")
         for cell in markdown_public_cells(text):
             clean_cell = cell.strip("`*_ ")
