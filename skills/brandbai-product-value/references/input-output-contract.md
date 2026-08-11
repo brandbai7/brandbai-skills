@@ -182,7 +182,7 @@ reference_frame, user_language,
 derivation_status, boundary
 ```
 
-`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，不能用无关检测页支撑另一种体验利益。Advantage 与 Benefit 不得只把参数换一种说法。
+`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，不能用无关检测页支撑另一种体验利益。Advantage 与 Benefit 不得只把参数换一种说法。Advantage 不得使用“本品（基于页面内对比信息）”等占位文本；当前资料不足以形成可核对优势时，写“当前资料不足以形成可核对的相对优势，A层暂不成立”，并使用 `to_validate`。所有叙述字段必须是完整客户文本，禁止空括号和缺少结论对象的“不扩大到；”“不自动等于；”“不直接推导；”“不等同于；”“易越界为。”等残句。
 
 把“用户旧习惯、消费者原有习惯”等行为写成 `reference_frame` 时，必须引用至少一条 `U` 用户原声或研究事实。没有 `U` 证据时，改写为页面内具体对比或明确标注的内生任务假设。Benefit、用户语言和价值陈述不得使用“不用担心、无需担心、不必担心”等绝对化保证，应改为“减少顾虑”并保留条件。
 

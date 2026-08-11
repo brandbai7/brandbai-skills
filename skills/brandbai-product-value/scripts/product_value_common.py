@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 
 SCHEMA_VERSION = "0.1.5"
-SKILL_VERSION = "0.1.11"
+SKILL_VERSION = "0.1.12"
 
 INPUT_MODES = {
     "link",
