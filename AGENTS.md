@@ -46,6 +46,8 @@ cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-xiaohongshu-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
+cd ../../brandbai-tiktok-download/scripts
+python -m unittest test_collector_core.py test_browser_collect_tiktok.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-weibo-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
 cd ../../brandbai-product-value/scripts

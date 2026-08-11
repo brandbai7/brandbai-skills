@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI TikTok 下载"
+  short_description: "为 TikTok 海外市场、达人、内容和评论研究建立采集包"
+  default_prompt: "使用 $brandbai-tiktok-download，先冻结目标市场、语言、对象、关键词、范围和下游用途，再从当前可见且已登录的 TikTok 页面下载作品、素材、发布文案、公开指标与一级评论，生成保留原文的中英双语 Excel、ZIP 和明确完整性状态，不自动推算官方经营指标或商业结论。"

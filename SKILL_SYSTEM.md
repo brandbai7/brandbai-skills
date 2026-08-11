@@ -20,6 +20,7 @@ BrandBAI Skills 面向内容电商，把既有专家方法、确定性脚本、�
 | `brandbai-douyin-download` | 下载公开抖音作品、媒体和评论 | 主页、搜索结果、插件自选、视频、图文、封面、原声、发布文案、评论、普通版与分析准备版 |
 | `brandbai-tmall-download` | 下载公开天猫商品事实与用户评价 | 详情页、主图、详情图、SKU、规格参数、价格快照、评价、商品事实交接包 |
 | `brandbai-xiaohongshu-download` | 下载公开小红书笔记、素材、搜索快照和评论 | 单笔记、账号置顶加最近 N 条、关键词搜索前 N 条、图文、视频、评论、普通版与分析准备版 |
+| `brandbai-tiktok-download` | 下载公开 TikTok 作品、跨市场搜索快照、素材和评论 | 单作品、主页置顶加最近 N 条、综合／视频／照片搜索、双语证据、市场扫描、达人候选、创意对标、官宣接收与联盟内容证据 |
 | `brandbai-douyin-account-analysis` | 分析抖音影响力账号的内容表达与用户接收 | 作品基线、视频表达、评论语义、语义对齐、候选机制、证据包 |
 | `brandbai-product-value` | 建立可回溯的商品事实与商品价值底座 | 资料路由、FC/SC、商品身份、识别锚、FABE、P0/P1/P2、证据边界、资料缺口、版本交接 |
 | `brandbai-value-expression` | 把已确认商品价值转成可感知的卖点呈现 | 六条翻译路径、十二类感知槽位、画面/动作/声音/字幕/道具五轨、场景与商品承接、单变量验证 |
@@ -79,6 +80,22 @@ brandbai-douyin-download
 `brandbai-douyin-download` 当前只负责下载、采集与质量核验。后续 Skill 可以读取其标准化原始数据，但不得把下载成功自动写成语义结论、影响力结论或商业归因。
 
 `brandbai-xiaohongshu-download` 采用相同阶段边界，同时额外保留主页选择位次、置顶与近期选择原因，以及关键词、标签页、筛选、结果位次、相关查询和采集时点，避免把主页或搜索结果脱离原始语境。`0.2.0` 的稳定执行入口覆盖单笔记图文、字段、一级评论，以及账号主页全部当前可见置顶加最近 N 条非置顶；关键词搜索批量模式继续沿用合同，但在真页验证前不得标为稳定。
+
+`brandbai-tiktok-download` 在相同采集边界上增加市场、语言、来源界面、观察时区和授权模式。公开 TikTok 页面负责作品、搜索、主页、素材、评论和双语证据；Creative Center、TikTok One、Ads Manager 与 Seller Center 只作为官方发现或品牌授权经营数据入口。公开互动不得替代受众、投放、订单、GMV 或佣金字段。
+
+```text
+brandbai-tiktok-download
+        |
+        +--> public evidence: works + search + profile + comments + bilingual text
+        |
+        +--> brand-authorized exports: TikTok One + Ads Manager + Seller Center
+                    |
+                    +--> brandbai-influence-intelligence
+                    +--> brandbai-content-diagnosis
+                    +--> brandbai-user-semantics
+                    +--> brandbai-influence-product-fit
+                    +--> brandbai-growth-planning
+```
 
 ```text
 brandbai-product-value
