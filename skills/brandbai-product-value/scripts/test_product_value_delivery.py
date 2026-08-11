@@ -13,7 +13,11 @@ from build_source_audit_cards import build_cards
 from index_product_sources import index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
-from validate_product_value_delivery import suspicious_fixed_cadence, validate_delivery
+from validate_product_value_delivery import (
+    suspicious_dense_cadence,
+    suspicious_fixed_cadence,
+    validate_delivery,
+)
 
 
 def populate_valid_partial(delivery: Path) -> None:
@@ -544,7 +548,7 @@ def populate_valid_partial(delivery: Path) -> None:
             "status": "P0-HYPOTHESIS",
             "rationale": "V-001的外出准备任务与品牌方向一致；相比V-002仍缺少用户和竞争验证。",
             "public_rationale": "外出前少一步分装与品牌当前方向一致，但仍需真实用户和同类商品对照验证。",
-            "current_execution_axis": "先说明独立小袋如何减少外出前的分装步骤。",
+            "current_execution_axis": "当前执行主轴调用：让外出携带更省一步准备。",
             "current_execution_value_ids": ["V-001"],
             "cannot_prove": ["不能写成消费者已经认可的核心心智。"],
             "validation_questions": ["目标用户是否真实存在临时分装负担？", "同类商品是否普遍采用相同结构？"],
@@ -1626,6 +1630,99 @@ def test_v014_client_semantic_and_cross_field_regressions(root: Path) -> None:
     assert any("updated_at 之后超过 5 分钟" in error for error in late_report["errors"])
 
 
+def test_v015_cross_ledger_and_public_copy_regressions(root: Path) -> None:
+    cleaned = public_text(
+        "CLM-019 在 SRC-007 包装面标示；V-001 / V-002 / 等候选；"
+        "active_at_snapshot；cannot_prove。"
+    )
+    assert "相关原文在包装面标示" in cleaned
+    assert "/ /" not in cleaned
+    assert "采集时当前有效" in cleaned
+    assert "当前资料不能证明" in cleaned
+
+    dense_start = datetime.now().astimezone().replace(microsecond=0)
+    dense_times = [
+        dense_start + timedelta(seconds=sum((1, 2, 3)[offset % 3] for offset in range(index)))
+        for index in range(12)
+    ]
+    assert suspicious_dense_cadence(dense_times)
+    assert not suspicious_dense_cadence(
+        [dense_start + timedelta(seconds=index * index + index * 8) for index in range(12)]
+    )
+
+    delivery = root / "v015-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    claim_path = data / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    original_claims = [dict(claim) for claim in claims]
+    claims[3]["verbatim_text"] = "检测方法 GB 5009.34-2022"
+    write_jsonl(claim_path, claims)
+    method_code = validate_delivery(delivery)
+    assert method_code["status"] == "failed"
+    assert any("精确小字" in error for error in method_code["errors"])
+    write_jsonl(claim_path, original_claims)
+
+    gap_path = data / "gap_ledger.jsonl"
+    gaps = read_jsonl(gap_path)
+    original_gaps = [dict(gap) for gap in gaps]
+    gaps[0]["category"] = "sku"
+    gaps[0]["missing"] = "包数冲突：10~12小包 vs 15袋"
+    gaps[0]["impact"] = "冲突规格不得进入识别锚、FABE、价值或P0"
+    write_jsonl(gap_path, gaps)
+    anchor_path = data / "anchor_ledger.jsonl"
+    anchors = read_jsonl(anchor_path)
+    original_anchors = [dict(anchor) for anchor in anchors]
+    anchors[0]["statement"] = "约10~12小包独立装"
+    write_jsonl(anchor_path, anchors)
+    build_delivery(delivery, write=True)
+    conflict = validate_delivery(delivery)
+    assert conflict["status"] == "failed"
+    assert any("没有完整进入 source_claim_ledger.jsonl" in error for error in conflict["errors"])
+    assert any("不得进入识别锚、FABE 或价值结论" in error for error in conflict["errors"])
+    source_report = (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
+    assert "商品规格" in source_report
+    assert "| sku |" not in source_report
+    write_jsonl(gap_path, original_gaps)
+    write_jsonl(anchor_path, original_anchors)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    chains = read_jsonl(fabe_path)
+    original_chains = [dict(chain) for chain in chains]
+    chains[0]["advantage"] = "与配料表同时列出多种原料的同类食品相比，更容易理解当前配料。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    comparator = validate_delivery(delivery)
+    assert comparator["status"] == "failed"
+    assert any("比较语言" in error or "市场或产品比较语言" in error for error in comparator["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    fact_path = data / "fact_ledger.jsonl"
+    facts = read_jsonl(fact_path)
+    original_facts = [dict(fact) for fact in facts]
+    facts[0]["boundary"] = "页面写为未经二次硫熏制工艺。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    chemical_typo = validate_delivery(delivery)
+    assert chemical_typo["status"] == "failed"
+    assert any("二次硫" in error for error in chemical_typo["errors"])
+    write_jsonl(fact_path, original_facts)
+
+    decision_path = data / "p0_decision.json"
+    decision = read_json(decision_path)
+    decision["current_execution_axis"] = "围绕包装便利与其他支撑价值展开。"
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    axis_drift = validate_delivery(delivery)
+    assert axis_drift["status"] == "failed"
+    assert any("按顺序自动拼接" in error for error in axis_drift["errors"])
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -1675,6 +1772,7 @@ def main() -> int:
         test_sku_conflict_propagation_and_customer_fragments(root)
         test_v013_p0_archive_comparator_and_report_regressions(root)
         test_v014_client_semantic_and_cross_field_regressions(root)
+        test_v015_cross_ledger_and_public_copy_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

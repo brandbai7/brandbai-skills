@@ -31,6 +31,7 @@ STATUS_ZH = {
     "main": "主识别锚",
     "supporting": "辅助识别锚",
     "active": "当前有效",
+    "active_at_snapshot": "采集时当前有效",
     "candidate": "候选",
     "confirmed": "当前有效",
     "unverified": "未核验",
@@ -57,6 +58,13 @@ STATUS_ZH = {
     "packaging": "商品包装",
     "brief": "商品或品牌资料",
     "evidence": "证据资料",
+    "strategy": "品牌战略",
+    "user_voice": "用户原声",
+    "competitor": "竞品资料",
+    "sku": "商品规格",
+    "dynamic": "动态交易",
+    "origin": "产地与溯源",
+    "archive": "压缩包",
     "feedback": "用户反馈",
     "spreadsheet": "表格资料",
     "incremental": "增量资料",
@@ -107,6 +115,11 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     """Hide internal IDs without leaving punctuation fragments in human reports."""
 
     text = md(value, empty)
+    text = re.sub(
+        rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])\s+在\s+{INTERNAL_ID}(?![A-Za-z0-9])\s*",
+        "相关原文在",
+        text,
+    )
     text = re.sub(rf"{SHARED_ID_SERIES}\s*的\s*A\s*层", "相关价值的 A 层", text, flags=re.IGNORECASE)
     text = re.sub(rf"{SHARED_ID_SERIES}\s*的\s*reference_frame", "相关价值的参照系", text, flags=re.IGNORECASE)
     text = re.sub(
@@ -167,6 +180,8 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "exact fields unverified": "精确字段未核验",
         "dietary": "饮食",
         "snapshot_only": "仅代表当前时点",
+        "active_at_snapshot": "采集时当前有效",
+        "cannot_prove": "当前资料不能证明",
         "current_listing": "当前公开商品页",
         "reference_frame": "参照系",
         "updated_at": "本次更新时间",
@@ -208,6 +223,7 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     text = re.sub(r"[（(]\s*(?:→\s*)+[)）]", "", text)
     text = re.sub(r"→\s*→+", "→", text)
     text = re.sub(r"/{2,}\s*(?:reference_frame|参照系)", "参照系", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:\s*/\s*){2,}(?=等候选|候选|等|[，。；;]|$)", " ", text)
     text = re.sub(r"对应的?回答已登记为\s*[。.]", "对应回答尚未形成可公开结论。", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
@@ -503,7 +519,7 @@ def build_report_02(data: dict[str, Any]) -> str:
     ]
     gap_rows = [
         [
-            item.get("category"),
+            label(item.get("category")),
             item.get("missing"),
             item.get("impact"),
             item.get("minimum_needed"),
