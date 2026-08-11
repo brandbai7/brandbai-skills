@@ -232,7 +232,7 @@ decided_at, valid_until, supersedes
 
 `rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题。战略信息仅为 `SC0/SC1` 且没有竞品页或行业对照时，决策和推荐价值都只能标为 `P0-HYPOTHESIS`，不得写成已选择、验证中或已验证；商品页内部或同品牌产品对比可支撑对应 FABE，但不能单独证明战略优先级。
 
-`current_execution_value_ids` 必须列出 `current_execution_axis` 实际调用的价值，至少包含当前推荐 P0；不得包含 `layer=deferred` 或 `downstream_readiness=blocked` 的价值。活动在 `updated_at` 快照时为 `active`，可以有边界地写“当前有效”，不得在 `cannot_prove` 或限制中反向否定其快照状态。
+`current_execution_value_ids` 必须按实际调用顺序列出价值，至少包含当前推荐 P0；不得包含 `layer=deferred` 或 `downstream_readiness=blocked` 的价值。`current_execution_axis` 必须严格等于“当前执行主轴调用：”加这些价值各自的 `value_statement`，并用中文分号按相同顺序连接；不得自由改写、遗漏或加入未列价值。活动在 `updated_at` 快照时为 `active`，可以有边界地写“当前有效”，不得在 `cannot_prove` 或限制中反向否定其快照状态。
 
 ### gap_ledger.jsonl
 

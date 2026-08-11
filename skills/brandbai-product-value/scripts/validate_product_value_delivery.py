@@ -205,6 +205,7 @@ RISKY_INFERENCE_RULES = (
     (re.compile(r"(?:食品)?加工过程安全性|吃得放心|放心吃"), "单项检测或页面安心文案不得扩大为整体食品安全判断"),
     (re.compile(r"全部强制标注项目"), "仅凭商品页成分表不能判断其已完整覆盖全部法定强制项目"),
     (re.compile(r"(?:不用|无需|不必)(?:再)?担心"), "用户利益不得写成绝对化的“不用担心”；应改为减少顾虑或明确适用条件"),
+    (re.compile(r"二次硫(?:熏制|处理|工艺)?"), "“二次硫”属于把二氧化硫误写成工艺次数的错词，必须回到原文改正"),
 )
 EXPIRY_WORDS_RE = re.compile(r"已过期|已经过期|时效性过期")
 DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
@@ -231,6 +232,11 @@ METHOD_VALUE_RE = re.compile(
     r"检测方法\s*[:：]?\s*([A-Z]{1,8}\s*\d[A-Z0-9 ._/-]{3,})",
     re.IGNORECASE,
 )
+METHOD_CODE_RE = re.compile(
+    r"(?<![A-Za-z0-9])((?:GB(?:/T)?|GBZ(?:/T)?|SN/T|NY/T|DB\d+(?:/T)?|ISO|IEC|EN|ASTM)"
+    r"\s*[A-Z]?\s*\d[\d.:-]*(?:[-:]\d{2,4})?)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
@@ -239,7 +245,7 @@ PUBLIC_JARGON_RE = re.compile(
     r"sku_status\s*=\s*(?:confirmed|partial|unverified)|证据细节可信度\s*=\s*(?:high|medium|low)|"
     r"\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|"
     r"\b(?:FC[0-3]|SC[0-3]|PKG-L[0-4])\b|\bmedium\b|"
-    r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only)\b|"
+    r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only|active_at_snapshot|cannot_prove)\b|"
     r"`(?:active|expired|verified|unverified|template|deferred|blocked|conditional|ready|stale)`|"
     r"(?<![A-Za-z0-9_])(?:F-EVIDENCE|STRAT|DYN|U|H|ZIP|updated_at|partial)(?![A-Za-z0-9_])",
     re.IGNORECASE,
@@ -332,7 +338,9 @@ UNSUPPORTED_PRODUCT_COMPARATOR_RE = re.compile(
     r"需要煎煮或加工(?:的)?黄精原料)"
 )
 MARKET_COMPARATOR_RE = re.compile(
-    rf"{COMPARISON_PREFIX}.{{0,18}}(?:同类|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)"
+    rf"{COMPARISON_PREFIX}.{{0,60}}(?:同类(?:食品|商品|产品)?|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)|"
+    r"(?:同类(?:食品|商品|产品)?|竞品|普通产品|其他普通[\u4e00-\u9fff]{0,10}).{0,18}(?:相比|对比|更(?:容易|方便|清楚|适合))|"
+    r"区分.{0,16}(?:其他|普通|同类|竞品)"
 )
 UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"多配料(?:的)?(?:加工|复合)?食品|配料(?:未公开|不透明|多元).{0,12}同类(?:加工)?食品|"
@@ -341,11 +349,16 @@ UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"(?:不需要|无需|不用)(?:再|为)?(?:不同形态|多种形态).{0,10}(?:单独)?(?:准备|购买|配备)"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
+COMPARISON_DENIAL_SPAN_RE = re.compile(
+    r"(?:不|不得|不能|不可|未)(?:与|引用|视为|作为|外推为?|扩大为?|证明)?"
+    r"[^，。；;]{0,40}(?:竞品|同类|其他品牌|其他产品|普通产品|比较|对比)"
+)
 ARCHIVE_MEDIA_RE = re.compile(r"(?:zip|rar|7z|tar|gzip|x-compressed|x-zip)", re.IGNORECASE)
 ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
 PUBLIC_CONTRADICTION_RE = re.compile(r"转为难入口温和|难入口温和")
 PUBLIC_ID_RESIDUE_RE = re.compile(
-    r"/(?:\d{3,})(?:/\d{3,})+|//\s*(?:reference_frame|参照系)|对应的?回答已登记为\s*[。.]",
+    r"/(?:\d{3,})(?:/\d{3,})+|//\s*(?:reference_frame|参照系)|对应的?回答已登记为\s*[。.]|"
+    r"(?:/\s*){2,}(?:等候选)?|(?:^|[；;。])\s*在\s+(?:包装|页面|来源|资料)",
     re.IGNORECASE,
 )
 UNSUPPORTED_RESTRICTION_RE = re.compile(
@@ -422,6 +435,7 @@ def exact_evidence_values(value: Any) -> set[str]:
     matches = set(REPORT_VALUE_RE.findall(text))
     matches.update(DATE_VALUE_RE.findall(text))
     matches.update(item.strip() for item in METHOD_VALUE_RE.findall(text))
+    matches.update(item.strip() for item in METHOD_CODE_RE.findall(text))
     return {item for item in matches if item}
 
 
@@ -443,17 +457,34 @@ def is_archive_source(record: dict[str, Any]) -> bool:
     return bool(ARCHIVE_MEDIA_RE.search(media_type)) or Path(relative_path).suffix.lower() in ARCHIVE_SUFFIXES
 
 
-def package_count_ranges(claim: dict[str, Any]) -> list[tuple[int, int, str]]:
-    """Return package-count ranges that are explicit in a SKU or packaging claim."""
+def package_count_ranges_from_text(value: Any) -> list[tuple[int, int, str]]:
+    """Return explicit package-count ranges from one text surface."""
 
-    if claim.get("claim_type") not in {"sku", "packaging"}:
-        return []
+    text = INTERNAL_ID_RE.sub("", str(value or ""))
     values: list[tuple[int, int, str]] = []
-    for match in PACKAGE_COUNT_RE.finditer(str(claim.get("verbatim_text", ""))):
+    for match in PACKAGE_COUNT_RE.finditer(text):
         start = int(match.group("start"))
         end = int(match.group("end") or start)
         values.append((min(start, end), max(start, end), match.group(0)))
     return values
+
+
+def package_count_ranges(claim: dict[str, Any]) -> list[tuple[int, int, str]]:
+    """Return package-count ranges explicit in any original claim."""
+
+    return package_count_ranges_from_text(claim.get("verbatim_text", ""))
+
+
+def normalized_spec_phrase(value: Any) -> str:
+    """Normalize spacing and range punctuation for conflict propagation."""
+
+    text = re.sub(r"\s+", "", str(value or ""))
+    return text.translate(str.maketrans({"～": "~", "-": "~", "—": "~", "–": "~", "至": "~", "到": "~"}))
+
+
+def contains_spec_phrase(text: Any, phrase: Any) -> bool:
+    normalized_phrase = normalized_spec_phrase(phrase)
+    return bool(normalized_phrase) and normalized_phrase in normalized_spec_phrase(text)
 
 
 def claim_total_weights(claim: dict[str, Any]) -> list[float]:
@@ -552,6 +583,45 @@ def suspicious_fixed_cadence(timestamps: list[datetime]) -> bool:
         return True
     dominant_count = Counter(positive).most_common(1)[0][1]
     return dominant_count >= max(4, int(len(deltas) * 0.8 + 0.999))
+
+
+def suspicious_dense_cadence(timestamps: list[datetime]) -> bool:
+    """Detect implausibly dense long runs that vary by only a few seconds."""
+
+    if len(timestamps) < 10:
+        return False
+    ordered = sorted(timestamps)
+    deltas = [
+        (current - previous).total_seconds()
+        for previous, current in zip(ordered, ordered[1:])
+    ]
+    if any(delta <= 0 for delta in deltas):
+        return True
+    ranked = sorted(deltas)
+    median = ranked[len(ranked) // 2]
+    percentile_90 = ranked[min(len(ranked) - 1, int(len(ranked) * 0.9))]
+    total_span = (ordered[-1] - ordered[0]).total_seconds()
+    return median <= 3.0 and percentile_90 <= 5.0 and total_span <= len(ordered) * 5.0
+
+
+def expected_execution_axis(
+    value_ids: list[Any],
+    values_by_id: dict[Any, dict[str, Any]],
+) -> str:
+    """Build the only accepted public axis from the explicitly selected values."""
+
+    statements = [
+        str(values_by_id.get(value_id, {}).get("value_statement", "")).strip()
+        for value_id in value_ids
+        if str(values_by_id.get(value_id, {}).get("value_statement", "")).strip()
+    ]
+    return "当前执行主轴调用：" + "；".join(statements) if statements else ""
+
+
+def without_comparison_denials(value: Any) -> str:
+    """Remove explicit comparison prohibitions before testing positive claims."""
+
+    return COMPARISON_DENIAL_SPAN_RE.sub("", str(value or ""))
 
 
 def classify_time_scope(value: Any, reference: date | None) -> str | None:
@@ -1244,13 +1314,72 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     conflicted_claim_ids: set[str] = set()
     conflicted_spec_phrases: set[str] = set()
     count_conflicts: list[str] = []
+    count_conflict_keys: set[tuple[str, str]] = set()
     for index, (left_id, left_low, left_high, left_phrase) in enumerate(count_entries):
         for right_id, right_low, right_high, right_phrase in count_entries[index + 1 :]:
             if left_id == right_id or not (left_high < right_low or right_high < left_low):
                 continue
             conflicted_claim_ids.update({left_id, right_id})
             conflicted_spec_phrases.update({left_phrase, right_phrase})
-            count_conflicts.append(f"{left_id}={left_phrase} vs {right_id}={right_phrase}")
+            pair_key = tuple(sorted((normalized_spec_phrase(left_phrase), normalized_spec_phrase(right_phrase))))
+            if pair_key not in count_conflict_keys:
+                count_conflict_keys.add(pair_key)
+                count_conflicts.append(f"{left_id}={left_phrase} vs {right_id}={right_phrase}")
+
+    declared_conflict_surfaces: list[tuple[str, str]] = [
+        ("product_manifest.sku_basis", str(manifest.get("sku_basis", ""))),
+        *[
+            (f"product_manifest.limitations[{index}]", str(value))
+            for index, value in enumerate(manifest.get("limitations") or [])
+        ],
+        *[
+            (f"{fact.get('fact_id')}.boundary", str(fact.get("boundary", "")))
+            for fact in facts
+        ],
+        *[
+            (f"{gap.get('gap_id')}.narrative", record_text(gap))
+            for gap in gaps
+        ],
+    ]
+    declared_conflict_by_phrase: dict[str, tuple[str, int, int, str]] = {}
+    for location, text in declared_conflict_surfaces:
+        if not SKU_CONFLICT_RE.search(text):
+            continue
+        for low, high, phrase in package_count_ranges_from_text(text):
+            declared_conflict_by_phrase.setdefault(
+                normalized_spec_phrase(phrase),
+                (location, low, high, phrase),
+            )
+    declared_conflict_entries = list(declared_conflict_by_phrase.values())
+    for index, (left_location, left_low, left_high, left_phrase) in enumerate(declared_conflict_entries):
+        for right_location, right_low, right_high, right_phrase in declared_conflict_entries[index + 1 :]:
+            if not (left_high < right_low or right_high < left_low):
+                continue
+            conflicted_spec_phrases.update({left_phrase, right_phrase})
+            pair_key = tuple(sorted((normalized_spec_phrase(left_phrase), normalized_spec_phrase(right_phrase))))
+            if pair_key not in count_conflict_keys:
+                count_conflict_keys.add(pair_key)
+                count_conflicts.append(
+                    f"{left_location}={left_phrase} vs {right_location}={right_phrase}"
+                )
+
+    claimed_count_phrases = {
+        normalized_spec_phrase(phrase)
+        for _claim_id, _low, _high, phrase in count_entries
+    }
+    undeclared_claim_phrases = sorted(
+        {
+            phrase
+            for _location, _low, _high, phrase in declared_conflict_entries
+            if normalized_spec_phrase(phrase) not in claimed_count_phrases
+        }
+    )
+    if undeclared_claim_phrases:
+        errors.append(
+            "资料边界已声明包数冲突，但以下冲突规格没有完整进入 source_claim_ledger.jsonl："
+            + "、".join(undeclared_claim_phrases)
+            + "；不得只在事实边界或缺口中补写来源原文"
+        )
     if count_conflicts:
         errors.append(
             "SKU/包装原文存在互不相容的小包数量："
@@ -1296,7 +1425,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("存在互相冲突的 SKU/包装原文时，sku_status 不得为 confirmed")
     manifest_sku_text = str(manifest.get("sku", ""))
     for phrase in conflicted_spec_phrases:
-        if phrase and phrase in manifest_sku_text:
+        if contains_spec_phrase(manifest_sku_text, phrase):
             errors.append(f"当前 SKU 名称继续使用冲突规格“{phrase}”；应只保留已确认的标准成交单元并注明待确认")
     if MALFORMED_OCR_RE.search(manifest_sku_text):
         errors.append("当前 SKU 名称含疑似 OCR 残片，不得作为正式商品身份")
@@ -1337,6 +1466,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("原文主张摘录时间呈固定间隔批量生成，不能作为真实逐条摘录记录")
     if suspicious_fixed_cadence(sorted(valid_claim_recheck_times)):
         errors.append("原文主张复核时间呈固定间隔批量生成，不能作为真实逐条复核记录")
+    if suspicious_dense_cadence(valid_claim_check_times):
+        errors.append("原文主张摘录时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和摘录的真实操作")
+    if suspicious_dense_cadence(valid_claim_recheck_times):
+        errors.append("原文主张复核时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和复核的真实操作")
     if (
         valid_claim_check_times
         and valid_claim_recheck_times
@@ -1469,7 +1602,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         statement = str(fact.get("statement", ""))
         selected_claim_id_set = set(str(item) for item in claim_ids)
         blocked_claims_used = selected_claim_id_set.intersection(malformed_spec_claim_ids)
-        if any(phrase and phrase in statement for phrase in conflicted_spec_phrases):
+        if any(contains_spec_phrase(statement, phrase) for phrase in conflicted_spec_phrases):
             blocked_claims_used.update(selected_claim_id_set.intersection(conflicted_claim_ids))
         if blocked_claims_used:
             blocked_spec_fact_ids.add(fact_id)
@@ -1685,16 +1818,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(item.get(key, ""))
             for key in ("feature", "advantage", "benefit", "evidence", "reference_frame", "user_language", "boundary")
         )
-        if MISLEADING_COMPARATOR_RE.search(analysis_text):
+        comparison_text = without_comparison_denials(analysis_text)
+        if MISLEADING_COMPARATOR_RE.search(comparison_text):
             errors.append(
                 f"{fabe_id} 使用了“相对普通/仅达到/添加多种/未明示”等替代性比较；必须改写为页面明确展示的具体对比，或补充真实对照来源"
             )
-        elif UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(analysis_text) or UNSUPPORTED_PRODUCT_TARGET_RE.search(analysis_text):
+        elif UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(comparison_text) or UNSUPPORTED_PRODUCT_TARGET_RE.search(comparison_text):
             has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
             has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
             if not has_comparison_claim and not has_comparator_source:
                 errors.append(f"{fabe_id} 使用了无来源的产品替代对象；必须改写为内生任务假设，或补充页面对比、竞品页或行业对照")
-        elif MARKET_COMPARATOR_RE.search(analysis_text):
+        elif MARKET_COMPARATOR_RE.search(comparison_text):
             has_comparison_claim = any(claim.get("claim_type") == "comparison" for claim in referenced_claims)
             has_comparator_source = bool(referenced_source_types.intersection(COMPETITOR_SOURCE_TYPES))
             if not has_comparison_claim and not has_comparator_source:
@@ -1778,12 +1912,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         value_has_comparison_support = any(
             claim.get("claim_type") == "comparison" for claim in value_claims
         ) or bool(value_source_types.intersection(COMPETITOR_SOURCE_TYPES))
+        value_comparison_text = without_comparison_denials(value_positive_text)
         if (
-            UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(value_positive_text)
-            or UNSUPPORTED_PRODUCT_TARGET_RE.search(value_positive_text)
+            UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(value_comparison_text)
+            or UNSUPPORTED_PRODUCT_TARGET_RE.search(value_comparison_text)
+            or MARKET_COMPARATOR_RE.search(value_comparison_text)
         ) and not value_has_comparison_support:
             errors.append(
-                f"{value_id} 使用了无来源的产品替代对象；"
+                f"{value_id} 使用了无来源的产品替代对象或比较语言；"
                 "必须由该价值自身引用页面对比、竞品页或行业对照，不能借用其他价值的比较资料"
             )
         if PROMOTION_STACKING_RE.search(value_positive_text) and not PROMOTION_STACKING_RE.search(value_claim_text):
@@ -1863,6 +1999,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources
     )
     for location, text in iter_analysis_texts(facts, fabe, anchors, values, decision):
+        comparison_text = without_comparison_denials(text)
         for pattern, explanation in RISKY_INFERENCE_RULES:
             if pattern.search(text):
                 errors.append(f"{location} 存在越界表达：{explanation}")
@@ -1878,15 +2015,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{location} 存在越界表达：缺少竞品或行业对照，不能写最强、唯一、独有或领先")
         if AGGREGATE_USER_RE.search(text) and not any(fact.get("fact_type") == "U" for fact in facts):
             errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称最常见、主流、普遍或多数用户存在该问题")
-        if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(text) and not has_any_comparison_support:
+        if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(comparison_text) and not has_any_comparison_support:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
-        elif UNSUPPORTED_PRODUCT_TARGET_RE.search(text) and not has_any_comparison_support:
+        elif UNSUPPORTED_PRODUCT_TARGET_RE.search(comparison_text) and not has_any_comparison_support:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
         for restriction in set(EATING_RESTRICTION_RE.findall(text)):
             if restriction not in all_claim_text:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
 
     for location, text in iter_client_narrative_texts(manifest, facts, fabe, anchors, values, decision, gaps):
+        if re.search(r"二次硫(?:熏制|处理|工艺)?", text):
+            errors.append(f"{location} 含“二次硫”错词；必须回到原文核对二氧化硫相关表述")
         if EMPTY_PARENS_RE.search(text):
             errors.append(f"{location} 含空括号，属于未完成的客户文本")
         if DANGLING_ANALYSIS_RE.search(text):
@@ -1895,6 +2034,30 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{location} 含“难入口温和”等语义矛盾残句，必须回到原文重新表述")
         if PUBLIC_ID_RESIDUE_RE.search(text):
             errors.append(f"{location} 含内部 ID 删减后的残余片段，必须重写完整客户句")
+
+    conflict_blocked_surfaces = (
+        ("anchor_ledger", anchors),
+        ("fabe_ledger", fabe),
+        ("value_ledger", values),
+    )
+    for surface_name, records in conflict_blocked_surfaces:
+        for record in records:
+            surface_text = record_text(record)
+            for phrase in conflicted_spec_phrases:
+                if contains_spec_phrase(surface_text, phrase):
+                    record_id = next(
+                        (
+                            str(record.get(key))
+                            for key in ("anchor_id", "fabe_id", "value_id")
+                            if record.get(key)
+                        ),
+                        "未知记录",
+                    )
+                    errors.append(
+                        f"{surface_name} 的 {record_id} 继续使用冲突规格“{phrase}”；"
+                        "冲突字段只能保留在来源、事实边界和资料缺口，不得进入识别锚、FABE 或价值结论"
+                    )
+                    break
 
     exact_value_surfaces = (
         ("fabe_ledger", fabe),
@@ -1914,7 +2077,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append(f"p0_decision.json 的 {next(iter(decision_unexpected))} 未由原件级 F-EVIDENCE 事实核验")
     decision_text = record_text(decision)
     for phrase in conflicted_spec_phrases:
-        if phrase and phrase in decision_text:
+        if contains_spec_phrase(decision_text, phrase):
             errors.append(f"p0_decision.json 继续使用冲突规格“{phrase}”；冲突规格不得进入推荐理由或执行主轴")
     if MALFORMED_OCR_RE.search(decision_text):
         errors.append("p0_decision.json 含疑似 OCR 残片，不得进入正式 P0 决策")
@@ -1956,6 +2119,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"当前执行主轴不得引用暂缓或禁止调用的价值: {value_id}")
     if decision.get("recommended_value_id") and execution_value_ids and decision.get("recommended_value_id") not in execution_value_ids:
         errors.append("current_execution_value_ids 必须包含当前推荐 P0")
+    expected_axis = expected_execution_axis(execution_value_ids, values_by_id)
+    if execution_value_ids and str(decision.get("current_execution_axis", "")).strip() != expected_axis:
+        errors.append(
+            "current_execution_axis 必须由 current_execution_value_ids 对应的 value_statement 按顺序自动拼接；"
+            "不得额外调用未列出的价值，也不得用自由改写掩盖实际执行范围"
+        )
     has_external_comparison_support = any(
         source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources
     )
