@@ -455,6 +455,7 @@ def populate_valid_partial(delivery: Path) -> None:
                 "evidence": "包装正背面可直接核对独立小袋结构（SRC-001/F-001）。",
                 "evidence_fact_ids": ["F-001"],
                 "reference_frame": "当前包装结构与临时分装任务的内生推导",
+                "reference_fact_ids": ["F-001"],
                 "user_language": ">口感之外，出门直接拿一袋，不用再找盒子分装。",
                 "derivation_status": "reasoned",
                 "boundary": "便利性需要用户验证，不写成所有人都更方便。",
@@ -468,9 +469,10 @@ def populate_valid_partial(delivery: Path) -> None:
                 "benefit": "用户按袋拿取时更容易理解一次拿什么。",
                 "evidence": "当前包装页面可见独立小袋。",
                 "evidence_fact_ids": ["F-001"],
-                "reference_frame": "散装或整包取用",
+                "reference_frame": "当前包装任务：独立小袋是否让每次拿取有清楚的使用单元",
+                "reference_fact_ids": ["F-001"],
                 "user_language": "一袋一袋拿，使用单位很清楚。",
-                "derivation_status": "page_supported",
+                "derivation_status": "reasoned",
                 "boundary": "不能证明独立包装能减少实际使用量。",
             },
             {
@@ -482,9 +484,10 @@ def populate_valid_partial(delivery: Path) -> None:
                 "benefit": "用户更容易确认自己选的是当前规格。",
                 "evidence": "包装正背面的商品信息。",
                 "evidence_fact_ids": ["F-001"],
-                "reference_frame": "仅凭商品名称选择",
+                "reference_frame": "当前核对任务：可见包装信息是否能帮助确认当前规格",
+                "reference_fact_ids": ["F-001"],
                 "user_language": "先看包装信息，确认是不是我要的规格。",
-                "derivation_status": "page_supported",
+                "derivation_status": "reasoned",
                 "boundary": "包装信息不能替代第三方检测。",
             },
         ],
@@ -942,6 +945,7 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     populate_valid_partial(delivery)
     fabe_path = delivery / "data" / "fabe_ledger.jsonl"
     chains = read_jsonl(fabe_path)
+    chains[1]["derivation_status"] = "page_supported"
     chains[1]["evidence_fact_ids"] = ["STRAT-001"]
     write_jsonl(fabe_path, chains)
     build_delivery(delivery, write=True)
@@ -950,6 +954,7 @@ def test_fabe_and_public_copy_guardrails(root: Path) -> None:
     assert any("Evidence 必须至少包含一条 Feature" in error for error in direct_broken["errors"])
 
     chains[1]["evidence_fact_ids"] = ["F-001"]
+    chains[1]["derivation_status"] = "reasoned"
     write_jsonl(fabe_path, chains)
     value_path = delivery / "data" / "value_ledger.jsonl"
     values = read_jsonl(value_path)
@@ -2085,6 +2090,62 @@ def test_v018_final_acceptance_regressions(root: Path) -> None:
     assert any("但 product_manifest.sku 已包含规格" in error for error in sku_contradiction["errors"])
 
 
+def test_v019_reference_and_derivation_regressions(root: Path) -> None:
+    delivery = root / "v019-reference-derivation"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    fabe_path = delivery / "data" / "fabe_ledger.jsonl"
+    original_chains = read_jsonl(fabe_path)
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0].pop("reference_fact_ids")
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    missing_reference_link = validate_delivery(delivery)
+    assert missing_reference_link["status"] == "failed"
+    assert any("reference_fact_ids" in error for error in missing_reference_link["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["reference_fact_ids"] = ["STRAT-001"]
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    irrelevant_reference_link = validate_delivery(delivery)
+    assert irrelevant_reference_link["status"] == "failed"
+    assert any("无可核对语义交集" in error for error in irrelevant_reference_link["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["derivation_status"] = "page_supported"
+    chains[0]["benefit"] = "在办公室或出行时可以少做一步分装准备。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    hidden_reasoning = validate_delivery(delivery)
+    assert hidden_reasoning["status"] == "failed"
+    assert any("标记 page_supported" in error and "应改为 reasoned" in error for error in hidden_reasoning["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["user_language"] = "想喝点有味道但不是甜腻/刺激感的饮品。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    negated_sensory_expansion = validate_delivery(delivery)
+    assert negated_sensory_expansion["status"] == "failed"
+    assert any("限定词“甜腻”" in error for error in negated_sensory_expansion["errors"])
+    assert any("限定词“刺激”" in error for error in negated_sensory_expansion["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["reference_frame"] = "页面内对比：相对当前商品内独立袋装的拆袋即用体验"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    self_comparison = validate_delivery(delivery)
+    assert self_comparison["status"] == "failed"
+    assert any("把当前商品自身写成比较对象" in error for error in self_comparison["errors"])
+
+    write_jsonl(fabe_path, original_chains)
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -2138,6 +2199,7 @@ def main() -> int:
         test_v016_audit_semantics_and_client_cleanup(root)
         test_v017_forward_test_integrity_regressions(root)
         test_v018_final_acceptance_regressions(root)
+        test_v019_reference_and_derivation_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

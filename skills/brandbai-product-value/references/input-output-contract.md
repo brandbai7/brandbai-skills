@@ -178,15 +178,15 @@ fabe_id, value_id,
 feature, feature_fact_ids,
 advantage, benefit,
 evidence, evidence_fact_ids,
-reference_frame, user_language,
+reference_frame, reference_fact_ids, user_language,
 derivation_status, boundary
 ```
 
-`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature 和 Evidence 必须回到事实 ID；标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，不能用无关检测页支撑另一种体验利益。完整内容相同的 FABE 只能保留一条，不能更换 `fabe_id` 重复计数或重复展示。Feature 写“由/得益于某工艺实现某结果”等因果关系时，所引原文必须直接建立该因果；否则拆分事实或降为 `to_validate`。Advantage 与 Benefit 不得只把参数换一种说法。Advantage 不得使用“本品（基于页面内对比信息）”等占位文本；当前资料不足以形成可核对优势时，写“当前资料不足以形成可核对的相对优势，A层暂不成立”，并使用 `to_validate`。所有叙述字段必须是完整客户文本，禁止重复词、空括号和缺少结论对象的“不扩大到；”“不自动等于；”“不直接推导；”“不等同于；”“易越界为。”等残句。
+`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature、Evidence 与参照系必须分别通过 `feature_fact_ids`、`evidence_fact_ids`、`reference_fact_ids` 回到本条实际使用的事实，不能只把参照事实挂在 Value 上。标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，而且 Advantage 与 Benefit 的完整表述必须能在本条所引原文中直接找到；“更容易、便于、可以、无需、减少、根据场景选择”等任务或场景翻译应标为 `reasoned`。不能用无关检测页支撑另一种体验利益。完整内容相同的 FABE 只能保留一条，不能更换 `fabe_id` 重复计数或重复展示。Feature 写“由/得益于某工艺实现某结果”等因果关系时，所引原文必须直接建立该因果；否则拆分事实或降为 `to_validate`。Advantage 与 Benefit 不得只把参数换一种说法。Advantage 不得使用“本品（基于页面内对比信息）”等占位文本；当前资料不足以形成可核对优势时，写“当前资料不足以形成可核对的相对优势，A层暂不成立”，并使用 `to_validate`。“天然”“科学配比”“甜腻”“刺激”“甜品”等词及否定变体必须在本条所引原文或用户资料中直接出现。所有叙述字段必须是完整客户文本，禁止重复词、空括号和缺少结论对象的“不扩大到；”“不自动等于；”“不直接推导；”“不等同于；”“易越界为。”等残句。
 
 没有竞品或行业资料，只禁止市场领先、同类优越和虚构产品替代结论，不禁止依据当前页面事实形成带边界的内生任务优势。页面事实能够说明商品已处理形态减少当次准备、明确使用方式增加当前商品内选择等任务差异时，Advantage 应使用 `reasoned` 并写清边界；可调用价值不得全部用“A层暂不成立”代替分析。
 
-把“用户旧习惯、消费者原有习惯”等行为写成 `reference_frame` 时，必须引用至少一条 `U` 用户原声或研究事实。没有 `U` 证据时，改写为页面内具体对比或明确标注的内生任务假设。Benefit、用户语言和价值陈述不得使用“不用担心、无需担心、不必担心”等绝对化保证，应改为“减少顾虑”并保留条件。
+把“用户旧习惯、消费者原有习惯”等行为写成 `reference_frame` 时，必须在 `reference_fact_ids` 引用至少一条 `U` 用户原声或研究事实。没有 `U` 证据时，改写为页面内具体对比或明确的当前操作任务。不得用“相对当前商品内”“页面内对比当前商品自身”等自我比较伪装参照系；内生任务应直接写“每次取用前是否需要额外分装或密封”等操作条件。Benefit、用户语言和价值陈述不得使用“不用担心、无需担心、不必担心”等绝对化保证，应改为“减少顾虑”并保留条件。
 
 ### anchor_ledger.jsonl
 
