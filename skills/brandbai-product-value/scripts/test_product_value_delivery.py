@@ -10,12 +10,13 @@ from pathlib import Path
 
 from build_product_value_report import build_delivery, public_text
 from build_source_audit_cards import build_cards
-from index_product_sources import index_sources
+from index_product_sources import build_inventory, index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
 from validate_product_value_delivery import (
     suspicious_dense_cadence,
     suspicious_fixed_cadence,
+    suspicious_parallel_audit_timing,
     suspicious_repeating_cadence,
     validate_delivery,
 )
@@ -1828,6 +1829,143 @@ def test_v016_audit_semantics_and_client_cleanup(root: Path) -> None:
     write_jsonl(claim_path, original_claims)
 
 
+def test_v017_forward_test_integrity_regressions(root: Path) -> None:
+    start = datetime.now().astimezone().replace(microsecond=0)
+    first_pass = [start]
+    for delta in (4, 5, 6, 7, 8, 4, 6, 5, 7):
+        first_pass.append(first_pass[-1] + timedelta(seconds=delta))
+    second_pass = [item + timedelta(seconds=490) for item in first_pass]
+    assert suspicious_parallel_audit_timing(first_pass, second_pass)
+    independent_second_pass = [
+        start + timedelta(minutes=12, seconds=index * index + index * 9)
+        for index in range(len(first_pass))
+    ]
+    assert not suspicious_parallel_audit_timing(first_pass, independent_second_pass)
+
+    cleaned = public_text("页面页面公开宣称；当前执行主轴调用：一次只说一个价值")
+    assert "页面页面" not in cleaned
+
+    pdf_sources = root / "pdf-provenance-sources"
+    pdf_sources.mkdir()
+    (pdf_sources / "商品详情页.pdf").write_bytes(b"%PDF-1.4 synthetic")
+    for index in range(1, 11):
+        (pdf_sources / f"page_{index:03d}.png").write_bytes(b"synthetic-page")
+    indexed_pdf_sources = build_inventory(pdf_sources, root / "pdf-provenance-delivery")
+    pdf_source_id = next(
+        item["source_file_id"]
+        for item in indexed_pdf_sources
+        if item["media_type"] == "application/pdf"
+    )
+    indexed_pages = [item for item in indexed_pdf_sources if item["filename"].startswith("page_")]
+    assert len(indexed_pages) == 10
+    assert all(item.get("parent_source_file_id") == pdf_source_id for item in indexed_pages)
+
+    delivery = root / "v017-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    fabe_path = data / "fabe_ledger.jsonl"
+    chains = read_jsonl(fabe_path)
+    original_chains = [dict(chain) for chain in chains]
+    duplicate_chain = dict(chains[0])
+    duplicate_chain["fabe_id"] = "FABE-099"
+    chains.append(duplicate_chain)
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    duplicate_fabe = validate_delivery(delivery)
+    assert duplicate_fabe["status"] == "failed"
+    assert any("FABE 内容完全重复" in error for error in duplicate_fabe["errors"])
+    report = (delivery / "01_商品价值底座.md").read_text(encoding="utf-8")
+    assert report.count("外出前可以少做一步分装准备") == 1
+    write_jsonl(fabe_path, original_chains)
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["feature"] = "便携表现由独立小袋与封口工艺共同实现"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unsupported_causality = validate_delivery(delivery)
+    assert unsupported_causality["status"] == "failed"
+    assert any("因果关系" in error for error in unsupported_causality["errors"])
+    chains[0]["derivation_status"] = "to_validate"
+    write_jsonl(fabe_path, chains)
+    causal_as_hypothesis = validate_delivery(delivery)
+    assert not any("因果关系" in error for error in causal_as_hypothesis["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    claim_path = data / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    original_claims = [dict(claim) for claim in claims]
+    claims[0]["verbatim_text"] = "（页面公开展示包装信息）"
+    write_jsonl(claim_path, claims)
+    summarized_claim = validate_delivery(delivery)
+    assert summarized_claim["status"] == "failed"
+    assert any("摘要占位" in error for error in summarized_claim["errors"])
+    write_jsonl(claim_path, original_claims)
+
+    inventory_path = data / "source_inventory.jsonl"
+    inventory = read_jsonl(inventory_path)
+    original_inventory = [dict(item) for item in inventory]
+    for index in range(1, 11):
+        inventory.append(
+            {
+                "source_file_id": f"SF-{100 + index:03d}",
+                "filename": f"page_{index:03d}.png",
+                "relative_path": f"page_{index:03d}.png",
+                "media_type": "image/png",
+                "size_bytes": 100 + index,
+                "sha256": f"{index:064x}",
+                "status": "indexed",
+            }
+        )
+    write_jsonl(inventory_path, inventory)
+    missing_pdf_parent = validate_delivery(delivery)
+    assert missing_pdf_parent["status"] == "failed"
+    assert any("没有保留原始 PDF 来源身份" in error for error in missing_pdf_parent["errors"])
+
+    pdf_row = {
+        "source_file_id": "SF-199",
+        "filename": "商品详情页.pdf",
+        "relative_path": "商品详情页.pdf",
+        "media_type": "application/pdf",
+        "size_bytes": 999,
+        "sha256": "f" * 64,
+        "status": "indexed",
+    }
+    write_jsonl(inventory_path, inventory + [pdf_row])
+    missing_parent_links = validate_delivery(delivery)
+    assert missing_parent_links["status"] == "failed"
+    assert any("parent_source_file_id 未绑定" in error for error in missing_parent_links["errors"])
+    write_jsonl(inventory_path, original_inventory)
+
+    values_path = data / "value_ledger.jsonl"
+    values = read_jsonl(values_path)
+    original_values = [dict(value) for value in values]
+    values[0]["value_statement"] = (
+        "以独立小袋、清晰规格、便携包装和可视原料，让用户在办公场景按次拿取，"
+        "在居家场景直接冲泡，在旅行场景减少分装，并同时完成识别商品、核对规格和选择冲泡方式"
+    )
+    write_jsonl(values_path, values)
+    overloaded_p0 = validate_delivery(delivery)
+    assert overloaded_p0["status"] == "failed"
+    assert any("核心价值同时串联过多" in error for error in overloaded_p0["errors"])
+    write_jsonl(values_path, original_values)
+
+    fact_path = data / "fact_ledger.jsonl"
+    facts = read_jsonl(fact_path)
+    facts[0]["boundary"] = "该内容仅按页面页面公开宣称登记。"
+    write_jsonl(fact_path, facts)
+    build_delivery(delivery, write=True)
+    duplicated_word = validate_delivery(delivery)
+    assert duplicated_word["status"] == "failed"
+    assert any("重复词或内部拼接残片" in error for error in duplicated_word["errors"])
+    source_report = (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
+    assert "页面页面" not in source_report
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -1879,6 +2017,7 @@ def main() -> int:
         test_v014_client_semantic_and_cross_field_regressions(root)
         test_v015_cross_ledger_and_public_copy_regressions(root)
         test_v016_audit_semantics_and_client_cleanup(root)
+        test_v017_forward_test_integrity_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
