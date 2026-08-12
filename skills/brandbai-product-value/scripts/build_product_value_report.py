@@ -117,6 +117,11 @@ def public_text(value: Any, empty: str = "未提供") -> str:
 
     text = md(value, empty)
     text = re.sub(
+        rf"不能证明\s+{INTERNAL_ID}(?![A-Za-z0-9])\s+是",
+        "不能证明该价值是",
+        text,
+    )
+    text = re.sub(
         r"(?i)\.\s*(?:zip|rar|7z|tar|gz|tgz|bz2|xz)\b",
         "（压缩包）",
         text,

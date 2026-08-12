@@ -338,7 +338,11 @@ UNSUPPORTED_PRODUCT_COMPARATOR_RE = re.compile(
     r"无法确认加工工艺|多配料(?:的)?(?:加工|复合)?食品|单一食用方式(?:的)?产品|"
     r"(?:散装|整袋)(?:或)?大包装|无检测引用(?:的)?产品|一般(?:产区|产品|原料)|"
     r"部分(?:使用|采用)?硫熏(?:工艺)?(?:保色保鲜)?(?:的)?(?:加工方式|产品)?|"
-    r"需要煎煮或加工(?:的)?黄精原料)"
+    r"需要煎煮或加工(?:的)?黄精原料|"
+    r"原料形态不可见或被打碎(?:的)?冲泡饮品|"
+    r"(?:一包一次|量小需频繁补配)(?:的)?速溶茶|"
+    r"仅写单一冲泡方式(?:的)?茶|"
+    r"未公开(?:同类)?检测(?:与|和)?(?:体系)?认证(?:的)?茶饮)"
 )
 MARKET_COMPARATOR_RE = re.compile(
     rf"{COMPARISON_PREFIX}.{{0,60}}(?:同类(?:食品|商品|产品)?|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)|"
@@ -351,11 +355,15 @@ UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"仅支持单一食用方式(?:的)?产品|单一食用方式(?:的)?产品|"
     r"另购(?:不同|其他|别的)?形态(?:的)?产品|"
     r"(?:不需要|无需|不用|不必).{0,16}(?:另购|购买|准备|配备).{0,16}(?:不同|其他|别的)?形态(?:的)?产品|"
-    r"(?:不需要|无需|不用|不必)(?:再|为)?(?:不同形态|多种形态).{0,10}(?:单独)?(?:准备|购买|配备)"
+    r"(?:不需要|无需|不用|不必)(?:再|为)?(?:不同形态|多种形态).{0,10}(?:单独)?(?:准备|购买|配备)|"
+    r"原料形态不可见或被打碎(?:的)?冲泡饮品|"
+    r"(?:一包一次|量小需频繁补配)(?:的)?速溶茶|"
+    r"仅写单一冲泡方式(?:的)?茶|"
+    r"未公开(?:同类)?检测(?:与|和)?(?:体系)?认证(?:的)?茶饮"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
 COMPARISON_DENIAL_SPAN_RE = re.compile(
-    r"(?:不|不得|不能|不可|未)(?:与|引用|视为|作为|外推为?|扩大为?|证明)?"
+    r"(?:(?:不|未)(?:与|引用|视为|作为|外推为?|扩大为?|证明)|不得|不能|不可|不应)"
     r"[^，。；;]{0,40}(?:竞品|同类|其他品牌|其他产品|普通产品|比较|对比)"
 )
 ARCHIVE_MEDIA_RE = re.compile(r"(?:zip|rar|7z|tar|gzip|x-compressed|x-zip)", re.IGNORECASE)
@@ -404,8 +412,10 @@ NON_VERBATIM_SUMMARY_RE = re.compile(
     r"[^。；]{0,24}[）)]?\s*$"
 )
 CAUSAL_LINK_RE = re.compile(
-    r"(?:由|得益于|归因于).{1,48}?(?:共同)?(?:实现|带来|形成|决定)"
+    r"(?:由|得益于|归因于|因为|基于).{1,48}?(?:共同)?(?:实现|带来|形成|决定|让|使(?!用)(?:得)?)|"
+    r"(?:原料|配料|工艺|厚切|整料|烘干|包装).{0,24}(?:让|使(?!用)(?:得)?|带来|实现|形成).{1,48}"
 )
+STRICT_FABE_SOURCE_TERMS = ("天然", "科学配比", "不甜腻", "不刺激", "甜品")
 DUPLICATED_CLIENT_WORD_RE = re.compile(r"页面\s*页面|(?:用户原声\s*){2,}")
 PACKAGE_COUNT_RE = re.compile(
     r"(?P<start>\d{1,3})(?:\s*(?:~|～|-|—|–|至|到)\s*(?P<end>\d{1,3}))?\s*"
@@ -435,8 +445,14 @@ DANGLING_ANALYSIS_RE = re.compile(
     r"(?:不扩大(?:到|为)|不自动等于|不等同于|不直接推导(?:为|成)?|"
     r"不推导(?:为|成)?|不能推导(?:为|成)?|不得扩大(?:到|为)|"
     r"不得等同于|易越界为|不预设)\s*(?:[/／]\s*)?"
-    r"(?=(?:[)）]\s*)?(?:[，,；;。.!！?？]|$))"
+    r"(?=(?:[)）]\s*)?(?:[，,；;。.!！?？]|$))|"
+    r"不能证明\s+是"
 )
+SKU_SPEC_IN_NAME_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:kg|g|千克|克|ml|毫升|升|袋|包|片)(?:\s*[×xX*]\s*\d+\s*(?:袋|包|片))?",
+    re.IGNORECASE,
+)
+SKU_GAP_PROHIBITION_RE = re.compile(r"(?:相关|该|这些)?规格不得进入\s*SKU\s*名称字段", re.IGNORECASE)
 GENERIC_ADVANTAGE_RE = re.compile(
     r"^\s*(?:(?:本品|本商品|当前商品)\s*)?(?:[（(]\s*)?"
     r"基于(?:页面内|当前页面|页面)?(?:对比信息|对比|资料|信息)(?:\s*[)）])?\s*[。.]?\s*$|"
@@ -626,6 +642,28 @@ def suspicious_dense_cadence(timestamps: list[datetime]) -> bool:
     percentile_90 = ranked[min(len(ranked) - 1, int(len(ranked) * 0.9))]
     total_span = (ordered[-1] - ordered[0]).total_seconds()
     return median <= 3.0 and percentile_90 <= 5.0 and total_span <= len(ordered) * 5.0
+
+
+def suspicious_bounded_micro_cadence(timestamps: list[datetime]) -> bool:
+    """Detect long timestamp runs manufactured from a tiny 1-7 second integer set."""
+
+    if len(timestamps) < 30:
+        return False
+    ordered = sorted(timestamps)
+    deltas = [
+        (current - previous).total_seconds()
+        for previous, current in zip(ordered, ordered[1:])
+    ]
+    if any(delta <= 0 for delta in deltas):
+        return True
+    integer_like = [abs(delta - round(delta)) <= 0.05 for delta in deltas]
+    rounded = {round(delta) for delta in deltas}
+    return (
+        sum(integer_like) >= int(len(deltas) * 0.95 + 0.999)
+        and min(deltas) >= 1.0
+        and max(deltas) <= 7.0
+        and len(rounded) <= 5
+    )
 
 
 def suspicious_repeating_cadence(timestamps: list[datetime]) -> bool:
@@ -1615,6 +1653,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("原文主张摘录时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和摘录的真实操作")
     if suspicious_dense_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和复核的真实操作")
+    if suspicious_bounded_micro_cadence(valid_claim_check_times):
+        errors.append("原文主张摘录时间在长序列中全部落入 1–7 秒的少量整数间隔，属于机械生成节奏，不能作为真实逐条阅读记录")
+    if suspicious_bounded_micro_cadence(valid_claim_recheck_times):
+        errors.append("原文主张复核时间在长序列中全部落入 1–7 秒的少量整数间隔，属于机械生成节奏，不能作为真实逐条复核记录")
     if suspicious_repeating_cadence(valid_claim_check_times):
         errors.append("原文主张摘录时间呈重复循环节奏，不能作为真实逐条摘录记录")
     if suspicious_repeating_cadence(valid_claim_recheck_times):
@@ -1981,6 +2023,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if claim_id in claims_by_id
         ]
         referenced_claim_text = " ".join(str(claim.get("verbatim_text", "")) for claim in referenced_claims)
+        referenced_user_text = " ".join(
+            " ".join(
+                [str(fact.get("statement", ""))]
+                + [str(quote) for quote in (fact.get("source_quotes") or [])]
+            )
+            for fact in referenced_facts
+            if fact.get("fact_type") == "U"
+        )
         referenced_source_types = {
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in referenced_facts
@@ -1996,8 +2046,20 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(item.get(key, ""))
             for key in ("feature", "advantage", "benefit", "evidence", "reference_frame", "user_language", "boundary")
         )
+        source_bounded_text = " ".join(
+            str(item.get(key, ""))
+            for key in ("feature", "advantage", "benefit", "reference_frame", "user_language")
+        )
+        for term in STRICT_FABE_SOURCE_TERMS:
+            if term in source_bounded_text and term not in referenced_claim_text and term not in referenced_user_text:
+                errors.append(
+                    f"{fabe_id} 使用了限定词“{term}”，但本条 FABE 所引原文或用户资料未直接出现该词；"
+                    "应删除扩写、补充对应事实，或降为明确待验证问题"
+                )
         comparison_text = without_comparison_denials(analysis_text)
-        causal_claim = CAUSAL_LINK_RE.search(str(item.get("feature", "")))
+        causal_claim = CAUSAL_LINK_RE.search(
+            " ".join(str(item.get(key, "")) for key in ("feature", "advantage", "benefit"))
+        )
         if (
             causal_claim
             and causal_claim.group(0) not in referenced_claim_text
@@ -2106,6 +2168,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if claim_id in claims_by_id
         ]
         value_claim_text = " ".join(str(claim.get("verbatim_text", "")) for claim in value_claims)
+        value_user_text = " ".join(
+            " ".join(
+                [str(fact.get("statement", ""))]
+                + [str(quote) for quote in (fact.get("source_quotes") or [])]
+            )
+            for fact in value_facts
+            if fact.get("fact_type") == "U"
+        )
         value_source_types = {
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in value_facts
@@ -2114,6 +2184,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             claim.get("claim_type") == "comparison" for claim in value_claims
         ) or bool(value_source_types.intersection(COMPETITOR_SOURCE_TYPES))
         value_comparison_text = without_comparison_denials(value_positive_text)
+        for term in STRICT_FABE_SOURCE_TERMS:
+            if term in value_positive_text and term not in value_claim_text and term not in value_user_text:
+                errors.append(
+                    f"{value_id} 使用了限定词“{term}”，但本价值所引原文或用户资料未直接出现该词；"
+                    "不得把页面口感或配料事实扩写为新的用户任务或替代关系"
+                )
         if (
             UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(value_comparison_text)
             or UNSUPPORTED_PRODUCT_TARGET_RE.search(value_comparison_text)
@@ -2147,6 +2223,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if gap.get("priority") not in GAP_PRIORITIES:
             errors.append(f"{gap_id} 的 priority 必须是 P0/P1/P2/P3")
         combined = " ".join(str(gap.get(key, "")) for key in ("missing", "impact", "minimum_needed"))
+        if SKU_GAP_PROHIBITION_RE.search(combined) and SKU_SPEC_IN_NAME_RE.search(manifest_sku_text):
+            errors.append(
+                f"{gap_id} 声明相关规格不得进入 SKU 名称字段，但 product_manifest.sku 已包含规格；"
+                "应将 SKU 改为待确认名称，或把缺口改写为当前页面规格仅作暂定、仍需实物或 SKU 选择器复核"
+            )
         for fact_id, expected in dyn_expected_states.items():
             if expected == "active" and fact_id in combined and EXPIRY_WORDS_RE.search(combined):
                 errors.append(f"{gap_id} 把仍处活动期的 {fact_id} 写成已过期")
