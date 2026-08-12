@@ -6,10 +6,14 @@ import argparse
 import hashlib
 import json
 import mimetypes
+import re
 from pathlib import Path
 from typing import Any
 
 from product_value_common import delivery_paths, read_jsonl, write_jsonl
+
+
+DERIVED_PAGE_FILENAME_RE = re.compile(r"^page[_-]?(\d{1,5})\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
 
 def sha256_file(path: Path) -> str:
@@ -56,6 +60,16 @@ def build_inventory(input_path: Path, delivery: Path) -> list[dict[str, Any]]:
                 "status": "indexed",
             }
         )
+    pdf_rows = [row for row in rows if row["media_type"] == "application/pdf"]
+    derived_page_rows = [row for row in rows if DERIVED_PAGE_FILENAME_RE.match(row["filename"])]
+    page_numbers = sorted(
+        int(DERIVED_PAGE_FILENAME_RE.match(row["filename"]).group(1))
+        for row in derived_page_rows
+    )
+    if len(pdf_rows) == 1 and len(derived_page_rows) >= 10 and page_numbers == list(range(1, len(page_numbers) + 1)):
+        parent_source_file_id = pdf_rows[0]["source_file_id"]
+        for row in derived_page_rows:
+            row["parent_source_file_id"] = parent_source_file_id
     return rows
 
 

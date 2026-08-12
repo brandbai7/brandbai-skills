@@ -397,6 +397,16 @@ SULFUR_SAFETY_ASSOCIATION_RE = re.compile(
     r"(?:硫熏|二氧化硫).{0,20}(?:安全|健康|危害|风险)|"
     r"(?:安全|健康|危害|风险).{0,20}(?:硫熏|二氧化硫)"
 )
+DERIVED_PAGE_FILENAME_RE = re.compile(r"^page[_-]?(\d{1,5})\.(?:png|jpe?g|webp)$", re.IGNORECASE)
+NON_VERBATIM_SUMMARY_RE = re.compile(
+    r"^\s*[（(]?(?:页面|商品页|详情页|平台|淘宝平台)?[^。；]{0,24}"
+    r"(?:公开(?:展示|主张)|通用文本|非本商品专属|图片内容|页面内容)"
+    r"[^。；]{0,24}[）)]?\s*$"
+)
+CAUSAL_LINK_RE = re.compile(
+    r"(?:由|得益于|归因于).{1,48}?(?:共同)?(?:实现|带来|形成|决定)"
+)
+DUPLICATED_CLIENT_WORD_RE = re.compile(r"页面\s*页面|(?:用户原声\s*){2,}")
 PACKAGE_COUNT_RE = re.compile(
     r"(?P<start>\d{1,3})(?:\s*(?:~|～|-|—|–|至|到)\s*(?P<end>\d{1,3}))?\s*"
     r"(?P<label>独立装|小包|袋装|袋|包)"
@@ -638,6 +648,47 @@ def suspicious_repeating_cadence(timestamps: list[datetime]) -> bool:
         if matches >= max(period * 3, int(len(deltas) * 0.9 + 0.999)):
             return True
     return False
+
+
+def suspicious_parallel_audit_timing(
+    first_pass: list[datetime],
+    second_pass: list[datetime],
+) -> bool:
+    """Detect a copied audit schedule shifted by one constant offset."""
+
+    if len(first_pass) < 8 or len(first_pass) != len(second_pass):
+        return False
+    first_deltas = [
+        round((current - previous).total_seconds(), 3)
+        for previous, current in zip(first_pass, first_pass[1:])
+    ]
+    second_deltas = [
+        round((current - previous).total_seconds(), 3)
+        for previous, current in zip(second_pass, second_pass[1:])
+    ]
+    offsets = [
+        round((second - first).total_seconds(), 3)
+        for first, second in zip(first_pass, second_pass)
+    ]
+    return (
+        all(offset > 0 for offset in offsets)
+        and len(set(offsets)) == 1
+        and first_deltas == second_deltas
+    )
+
+
+def normalized_content_signature(record: dict[str, Any], fields: tuple[str, ...]) -> str:
+    """Build a whitespace-insensitive signature for semantic duplicate checks."""
+
+    parts: list[str] = []
+    for field in fields:
+        value = record.get(field)
+        if isinstance(value, list):
+            rendered = "|".join(str(item).strip() for item in value)
+        else:
+            rendered = str(value or "").strip()
+        parts.append(re.sub(r"\s+", "", rendered))
+    return "\u241f".join(parts)
 
 
 def expected_execution_axis(
@@ -991,6 +1042,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{ledger_name} 存在重复 ID: {', '.join(duplicates)}")
 
     source_files_by_id = {item.get("source_file_id"): item for item in source_inventory}
+    derived_page_images = []
+    original_document_sources = []
     for item in source_inventory:
         source_file_id = str(item.get("source_file_id", ""))
         relative_path = str(item.get("relative_path", ""))
@@ -1005,6 +1058,42 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{source_file_id} 的 sha256 必须是 64 位小写十六进制")
         if item.get("status") != "indexed":
             errors.append(f"{source_file_id} 的 status 必须是 indexed")
+        if DERIVED_PAGE_FILENAME_RE.fullmatch(filename):
+            derived_page_images.append(item)
+        if str(item.get("media_type", "")).lower() == "application/pdf" or Path(filename).suffix.lower() == ".pdf":
+            original_document_sources.append(item)
+
+    derived_page_numbers = sorted(
+        int(DERIVED_PAGE_FILENAME_RE.fullmatch(str(item.get("filename", ""))).group(1))
+        for item in derived_page_images
+        if DERIVED_PAGE_FILENAME_RE.fullmatch(str(item.get("filename", "")))
+    )
+    looks_like_rendered_document = (
+        len(derived_page_numbers) >= 10
+        and derived_page_numbers == list(range(1, len(derived_page_numbers) + 1))
+    )
+    if looks_like_rendered_document and not original_document_sources:
+        errors.append(
+            "来源清单包含连续 page_XXX 派生页图，但没有保留原始 PDF 来源身份与 SHA-256；"
+            "PDF 应作为父来源进入 source_inventory，并用 document_text 记录来源身份，派生页图仅承担逐页视觉核对"
+        )
+    if looks_like_rendered_document and original_document_sources:
+        original_document_ids = {
+            str(item.get("source_file_id", "")) for item in original_document_sources
+        }
+        for item in derived_page_images:
+            parent_id = str(item.get("parent_source_file_id", "")).strip()
+            if parent_id not in original_document_ids:
+                errors.append(
+                    f"{item.get('source_file_id')} 是 PDF 派生页图，但 parent_source_file_id 未绑定清单中的原始 PDF；"
+                    "派生页必须保留到父来源的可回溯关系"
+                )
+    if looks_like_rendered_document and len(original_document_sources) == 1 and manifest.get("input_mode") == "mixed" and not any(
+        item
+        for item in source_inventory
+        if item not in derived_page_images and item not in original_document_sources
+    ):
+        errors.append("输入仅来自一个 PDF 的派生页图时，input_mode 应为 document，不得标为 mixed")
 
     audit_cards_by_file_id = {item.get("source_file_id"): item for item in audit_card_ledger}
     data_dir = paths["manifest"].parent.resolve()
@@ -1112,6 +1201,15 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{observation_id} 的 inspection_method 不在允许范围")
         if observation.get("inspection_status") not in OBSERVATION_STATUSES:
             errors.append(f"{observation_id} 的 inspection_status 不在允许范围")
+        if (
+            indexed
+            and (
+                str(indexed.get("media_type", "")).lower() == "application/pdf"
+                or Path(str(indexed.get("filename", ""))).suffix.lower() == ".pdf"
+            )
+            and observation.get("inspection_method") != "document_text"
+        ):
+            errors.append(f"{observation_id} 对应原始 PDF，inspection_method 必须是 document_text")
         text_density = observation.get("text_density")
         if text_density not in TEXT_DENSITIES:
             errors.append(f"{observation_id} 的 text_density 必须是 none/low/medium/high")
@@ -1299,6 +1397,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         verbatim_text = str(claim.get("verbatim_text", "")).strip()
         if not verbatim_text:
             errors.append(f"{claim_id} 的 verbatim_text 为空；原文主张不得写成摘要")
+        elif NON_VERBATIM_SUMMARY_RE.fullmatch(verbatim_text):
+            errors.append(
+                f"{claim_id} 的 verbatim_text 使用了“公开展示/通用文本”等摘要占位；"
+                "原文主张必须逐字抄录可见文字，不能由分析者概括"
+            )
         if WARNING_TEXT_RE.search(verbatim_text):
             if claim_type != "warning":
                 errors.append(f"{claim_id} 含禁止食用、请勿食用或遵医嘱等警示语义，claim_type 必须是 warning")
@@ -1516,6 +1619,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("原文主张摘录时间呈重复循环节奏，不能作为真实逐条摘录记录")
     if suspicious_repeating_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间呈重复循环节奏，不能作为真实逐条复核记录")
+    if suspicious_parallel_audit_timing(valid_claim_check_times, valid_claim_recheck_times):
+        errors.append(
+            "原文主张摘录与复核的时间间隔序列完全同构，且每条记录仅整体平移同一秒数；"
+            "这不能作为两次独立重新打开与逐条核对的真实记录"
+        )
     if (
         valid_claim_check_times
         and valid_claim_recheck_times
@@ -1792,6 +1900,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 )
 
     allowed_derivation_statuses = {"page_supported", "reasoned", "to_validate"}
+    fabe_content_ids: dict[str, str] = {}
     for item in fabe:
         fabe_id = str(item.get("fabe_id", ""))
         value_id = str(item.get("value_id", ""))
@@ -1799,6 +1908,29 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{fabe_id} 引用了不存在的 value_id: {value_id}")
         else:
             fabe_by_value.setdefault(value_id, []).append(item)
+        fabe_signature = normalized_content_signature(
+            item,
+            (
+                "value_id",
+                "feature",
+                "feature_fact_ids",
+                "advantage",
+                "benefit",
+                "evidence",
+                "evidence_fact_ids",
+                "reference_frame",
+                "user_language",
+                "derivation_status",
+                "boundary",
+            ),
+        )
+        if fabe_signature in fabe_content_ids:
+            errors.append(
+                f"{fabe_id} 与 {fabe_content_ids[fabe_signature]} 的 FABE 内容完全重复；"
+                "相同证据链必须去重，不能用不同 ID 重复计数或重复展示"
+            )
+        else:
+            fabe_content_ids[fabe_signature] = fabe_id
         for key in ("feature_fact_ids", "evidence_fact_ids"):
             references = item.get(key)
             if not isinstance(references, list) or not references:
@@ -1865,6 +1997,16 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for key in ("feature", "advantage", "benefit", "evidence", "reference_frame", "user_language", "boundary")
         )
         comparison_text = without_comparison_denials(analysis_text)
+        causal_claim = CAUSAL_LINK_RE.search(str(item.get("feature", "")))
+        if (
+            causal_claim
+            and causal_claim.group(0) not in referenced_claim_text
+            and item.get("derivation_status") != "to_validate"
+        ):
+            errors.append(
+                f"{fabe_id}.feature 新增了“{causal_claim.group(0)}”因果关系，但所引页面原文未直接建立该因果；"
+                "应把工艺事实与耐泡、口感等结果分别保留为页面主张，或将因果降为待验证推导"
+            )
         if MISLEADING_COMPARATOR_RE.search(comparison_text):
             errors.append(
                 f"{fabe_id} 使用了“相对普通/仅达到/添加多种/未明示”等替代性比较；必须改写为页面明确展示的具体对比，或补充真实对照来源"
@@ -1934,6 +2076,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{value_id} 的 cannot_prove 必须是数组")
         if not str(value.get("value_statement", "")).strip():
             errors.append(f"{value_id} 的 value_statement 为空")
+        value_statement = str(value.get("value_statement", "")).strip()
+        if (
+            value.get("layer") == "P0"
+            and len(value_statement) > 60
+            and len(re.findall(r"[,，;；]", value_statement)) >= 3
+            and re.search(r"并|同时|以及|加上", value_statement)
+        ):
+            errors.append(
+                f"{value_id} 的核心价值同时串联过多商品事实、场景与使用方式；"
+                "P0 必须压缩成一个不可拆的用户价值，其余内容下沉到 P1、FABE 或证据说明"
+            )
         if (value.get("layer") != "deferred" or value.get("p0_candidate") is True) and not fabe_by_value.get(value_id):
             errors.append(f"{value_id} 缺少 FABE 完整推导链")
         value_positive_text = " ".join(
@@ -2079,6 +2232,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
 
     for location, text in iter_client_narrative_texts(manifest, facts, fabe, anchors, values, decision, gaps):
+        if DUPLICATED_CLIENT_WORD_RE.search(text):
+            errors.append(f"{location} 含重复词或内部拼接残片，需改写为自然客户中文")
         if (
             (location == "product_manifest.sku_basis" or not location.startswith(("GAP-", "product_manifest.limitations")))
             and FILENAME_METADATA_RE.search(text)

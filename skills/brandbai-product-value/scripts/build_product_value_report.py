@@ -216,6 +216,8 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     }
     for source, target in replacements.items():
         text = text.replace(source, target)
+    text = re.sub(r"页面\s*页面", "页面", text)
+    text = re.sub(r"(?:用户原声\s*){2,}", "用户原声", text)
     status_words = {
         "verified": "已核验",
         "unverified": "未核验",
@@ -328,7 +330,16 @@ def build_report_01(data: dict[str, Any]) -> str:
     facts_by_id = {item.get("fact_id"): item for item in facts}
     values_by_id = {item.get("value_id"): item for item in values}
     fabe_by_value: dict[str, list[dict[str, Any]]] = {}
+    seen_fabe: set[str] = set()
     for item in fabe:
+        signature = json.dumps(
+            {key: value for key, value in item.items() if key != "fabe_id"},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        if signature in seen_fabe:
+            continue
+        seen_fabe.add(signature)
         fabe_by_value.setdefault(str(item.get("value_id")), []).append(item)
     recommended = values_by_id.get(decision.get("recommended_value_id"), {})
 
@@ -340,6 +351,11 @@ def build_report_01(data: dict[str, Any]) -> str:
         "P0-REOPEN",
     } else "当前核心价值"
     p0_note = decision.get("public_rationale") or "当前资料尚不足以形成明确判断。"
+    execution_axis = re.sub(
+        r"^当前执行主轴调用[:：]\s*",
+        "",
+        str(decision.get("current_execution_axis") or ""),
+    )
     limitations = list(dict.fromkeys(list(manifest.get("limitations") or [])))
     cannot_prove = list(dict.fromkeys(list(decision.get("cannot_prove") or [])))
 
@@ -458,7 +474,7 @@ def build_report_01(data: dict[str, Any]) -> str:
 - {p0_heading}：{public_text(p0_statement)}
 - 当前 P0 状态：{label(decision.get('status'))}
 - 决策说明：{public_text(p0_note)}
-- 当前执行主轴：{public_text(decision.get('current_execution_axis'), '尚未确定')}
+- 当前执行主轴：{public_text(execution_axis, '尚未确定')}
 
 > “完成”只表示已对本次输入完成商品价值建模，不表示功效、竞争优势、用户心智或成交效果已获得独立验证。
 
