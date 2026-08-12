@@ -182,7 +182,7 @@ reference_frame, reference_fact_ids, user_language,
 derivation_status, boundary
 ```
 
-`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature、Evidence 与参照系必须分别通过 `feature_fact_ids`、`evidence_fact_ids`、`reference_fact_ids` 回到本条实际使用的事实，不能只把参照事实挂在 Value 上。标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，而且 Advantage 与 Benefit 的完整表述必须能在本条所引原文中直接找到；“更容易、便于、可以、无需、减少、根据场景选择”等任务或场景翻译应标为 `reasoned`。不能用无关检测页支撑另一种体验利益。完整内容相同的 FABE 只能保留一条，不能更换 `fabe_id` 重复计数或重复展示。Feature 写“由/得益于某工艺实现某结果”等因果关系时，所引原文必须直接建立该因果；否则拆分事实或降为 `to_validate`。Advantage 与 Benefit 不得只把参数换一种说法。Advantage 不得使用“本品（基于页面内对比信息）”等占位文本；当前资料不足以形成可核对优势时，写“当前资料不足以形成可核对的相对优势，A层暂不成立”，并使用 `to_validate`。“天然”“科学配比”“甜腻”“刺激”“甜品”等词及否定变体必须在本条所引原文或用户资料中直接出现。所有叙述字段必须是完整客户文本，禁止重复词、空括号和缺少结论对象的“不扩大到；”“不自动等于；”“不直接推导；”“不等同于；”“易越界为。”等残句。
+`derivation_status` 允许 `page_supported`、`reasoned` 或 `to_validate`。Feature、Evidence 与参照系必须分别通过 `feature_fact_ids`、`evidence_fact_ids`、`reference_fact_ids` 回到本条实际使用的事实，不能只把参照事实挂在 Value 上；各字段出现的数字、引号原文和关键语义成分必须由自己对应的事实列表支持，不能借同一 FABE 的其他字段补链。标为 `page_supported` 时，`evidence_fact_ids` 至少包含一条 `feature_fact_ids` 中的直接事实，而且 Advantage 与 Benefit 的完整表述必须能在本条所引原文中直接找到；“用户能看到、用户获得、更容易、便于、可以、无需、减少、根据场景选择”等主体、任务或场景翻译应标为 `reasoned`。不能用无关检测页支撑另一种体验利益。完整内容相同的 FABE 只能保留一条，不能更换 `fabe_id` 重复计数或重复展示。Feature 写“由/得益于某工艺实现某结果”等因果关系时，所引原文必须直接建立该因果；否则拆分事实或降为 `to_validate`。Advantage 与 Benefit 不得只把参数换一种说法。Advantage 不得使用“本品（基于页面内对比信息）”等占位文本；当前资料不足以形成可核对优势时，写“当前资料不足以形成可核对的相对优势，A层暂不成立”，并使用 `to_validate`。“天然”“科学配比”“甜腻”“刺激”“甜品”等词及否定变体必须在本条所引原文或用户资料中直接出现。“而非”属于比较关系，后接的碎料、粉末、散料、需要额外分装等产品或形态同样需要直接来源。所有叙述字段必须是完整客户文本，禁止重复词、空括号和缺少结论对象的“不扩大到；”“不自动等于；”“不直接推导；”“不等同于；”“易越界为。”等残句。
 
 没有竞品或行业资料，只禁止市场领先、同类优越和虚构产品替代结论，不禁止依据当前页面事实形成带边界的内生任务优势。页面事实能够说明商品已处理形态减少当次准备、明确使用方式增加当前商品内选择等任务差异时，Advantage 应使用 `reasoned` 并写清边界；可调用价值不得全部用“A层暂不成立”代替分析。
 
@@ -213,6 +213,8 @@ cannot_prove, downstream_readiness
 `layer` 允许 `P0`、`P1`、`P2`、`deferred`。`p0_candidate` 表示是否进入过同层比较；编号不表示排序。P0 的 `value_statement` 只保留一个简洁、不可拆的用户价值，不得在一句中同时堆叠多项配方/工艺、多个场景、使用方式和若干次级收益；其余内容下沉到 P1、FABE 或证据说明。
 
 `sku_scope` 和 `scope` 默认限定当前已分析 SKU。写“全 SKU/所有 SKU”时，`supporting_fact_ids` 引用的每一条事实都必须明确覆盖全 SKU。
+
+`supporting_fact_ids` 中的每条事实都必须对本价值说明或其绑定 FABE 有可核对的语义贡献，不能把无关的营养、配料、规格、工艺或批次事实错挂为支撑。`cannot_prove` 只能记录本价值自身尚不能证明的内容；若其语义属于另一价值，必须移动到对应价值或删除，不能复制形成跨价值错挂。
 
 优惠、券、赠品和权益的叠加主张必须由 `supporting_fact_ids` 所引原文明确支持。`user_task`、`value_statement`、`user_perception_goal` 或 `scope` 声称“叠加优惠/可叠加”，同时 `cannot_prove` 承认原文未说明叠加规则，属于结构化矛盾，任何层级包括 `deferred` 都不得通过。
 

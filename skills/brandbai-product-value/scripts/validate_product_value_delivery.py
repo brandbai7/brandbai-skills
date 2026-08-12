@@ -330,7 +330,7 @@ SENSORY_LITERAL_RE = re.compile(
 WARNING_TEXT_RE = re.compile(
     r"禁止食用|请勿食用|不宜食用|不可食用|不能食用|勿食用|遵医嘱|谨遵医嘱|过敏.{0,8}(?:禁用|禁止|勿食)"
 )
-COMPARISON_PREFIX = r"(?:相对|相比|相较于?|对比|较之|优于|高于|低于|不同于)"
+COMPARISON_PREFIX = r"(?:相对|相比|相较于?|对比|较之|优于|高于|低于|不同于|而非)"
 MISLEADING_COMPARATOR_RE = re.compile(
     rf"{COMPARISON_PREFIX}(?:仅达到|普通(?:产地|原料|产品)?|添加多种|未明示|传统(?:产品|工艺)?)"
 )
@@ -361,6 +361,7 @@ UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"(?:一包一次|量小需频繁补配)(?:的)?速溶茶|"
     r"仅写单一冲泡方式(?:的)?茶|"
     r"未公开(?:同类)?检测(?:与|和)?(?:体系)?认证(?:的)?茶饮"
+    r"|(?:需要额外(?:分装|称量|处理)的)?(?:碎料|碎片|粉末|散料)(?:形态|产品|原料)?"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
 COMPARISON_DENIAL_SPAN_RE = re.compile(
@@ -417,22 +418,59 @@ CAUSAL_LINK_RE = re.compile(
     r"(?:原料|配料|工艺|厚切|整料|烘干|包装).{0,24}(?:让|使(?!用)(?:得)?|带来|实现|形成).{1,48}"
 )
 STRICT_FABE_SOURCE_TERMS = ("天然", "科学配比", "甜腻", "刺激", "甜品")
-PAGE_SUPPORTED_INFERENCE_RE = re.compile(
-    r"更(?:容易|方便|清楚|省心|省事|顺手)|"
-    r"(?:便于|方便|可以|可在|能够|让|使得|帮助|有助于|无需|不必|减少|降低|增加|多一份|少一步)|"
-    r"(?:根据|按照).{0,16}(?:选择|选用)|供.{0,16}(?:选择|选用)"
-)
 SELF_COMPARISON_REFERENCE_RE = re.compile(
     r"(?:页面内对比\s*[:：]?\s*)?(?:相对|相比|对比).{0,32}(?:当前|本)(?:商品|产品)(?:内|自身)|"
     r"页面内对比\s*[:：]?\s*(?:当前|本)(?:商品|产品)(?:内|自身)"
 )
 REFERENCE_BOILERPLATE_RE = re.compile(
-    r"页面内对比|当前页面|当前商品|本商品|当前产品|本产品|内生任务|内生推导|内生假设|"
-    r"参照系|操作任务|页面主张|页面展示|页面公开|相对|相比|对比|自身"
+    r"本条参照|页面内对比|当前页面|当前商品|本商品|当前产品|本产品|内生任务|内生推导|内生假设|"
+    r"参照系|操作任务|页面主张|页面展示|页面公开|公开标示|具体产品事实|这一当前操作任务|"
+    r"这一具体事实|不能证明|无法证明|尚未证明|不得证明|未验证|待验证|当前未|"
+    r"相对|相比|对比|自身|五项"
 )
 REFERENCE_COMMON_BIGRAMS = {
     "当前", "商品", "产品", "页面", "用户", "任务", "操作", "使用", "信息", "选择",
     "方式", "支持", "直接", "明确", "公开", "展示", "提供", "体验", "问题", "假设",
+}
+FIELD_SEGMENT_SPLIT_RE = re.compile(r"[+＋，,；;。]|以及|同时|并且|并展示|并采用")
+QUOTED_SPAN_RE = re.compile(r"'([^']{2,})'|\"([^\"]{2,})\"|“([^”]{2,})”|‘([^’]{2,})’")
+FIELD_CONCEPT_PATTERNS = {
+    "origin": re.compile(r"产地|产区|来源地"),
+    "ingredient": re.compile(r"原料|配料|食材"),
+    "packaging": re.compile(r"包装|袋装|小袋|密封"),
+    "portioning": re.compile(r"分装|分量|定量"),
+    "weighing": re.compile(r"称量|称重"),
+    "shape": re.compile(r"形态|整料|大片|厚切|打碎|碎料|粉末"),
+    "visibility": re.compile(r"可见|看见|看到|展示|披露"),
+    "brewing": re.compile(r"冲泡|泡水|饮用方式"),
+    "boiling": re.compile(r"煮沸|煎煮|煮制"),
+    "steeping": re.compile(r"闷泡|浸泡"),
+    "refill": re.compile(r"续杯|耐泡"),
+    "sensory": re.compile(r"口感|口味|风味|清甘|清甜|醇厚"),
+    "aroma": re.compile(r"香度|果香|花香|草本香"),
+    "water_color": re.compile(r"水色|清澈|明亮|鲜艳"),
+    "process": re.compile(r"工艺|烘干|蒸晒|加工"),
+    "duration": re.compile(r"时长|分钟|小时|\d+(?:\.\d+)?h"),
+    "certification": re.compile(r"认证|认可|标准"),
+    "testing": re.compile(r"检测|检验"),
+    "report": re.compile(r"报告"),
+    "spec": re.compile(r"规格|净含量|克重"),
+    "nutrition": re.compile(r"营养|能量|蛋白质|脂肪|碳水|钠"),
+    "warning": re.compile(r"警示|禁用|禁止|不宜|遵医嘱|过敏"),
+    "production_date": re.compile(r"生产日期"),
+    "shelf_life": re.compile(r"保质期"),
+    "storage": re.compile(r"储存|贮存|冷藏"),
+    "price": re.compile(r"价格|售价|成交价|优惠|赠品"),
+}
+HARD_FIELD_CONCEPTS = {
+    "origin",
+    "report",
+    "nutrition",
+    "warning",
+    "production_date",
+    "shelf_life",
+    "storage",
+    "price",
 }
 DUPLICATED_CLIENT_WORD_RE = re.compile(r"页面\s*页面|(?:用户原声\s*){2,}")
 PACKAGE_COUNT_RE = re.compile(
@@ -548,7 +586,7 @@ def contains_spec_phrase(text: Any, phrase: Any) -> bool:
 def normalized_literal_text(value: Any) -> str:
     """Normalize presentation-only separators for direct-copy comparisons."""
 
-    return re.sub(r"[\s，。；;、:：!?！？（）()\[\]【】\"'“”‘’]+", "", str(value or ""))
+    return re.sub(r"[\s,，。；;、:：!?！？（）()\[\]【】\"'“”‘’]+", "", str(value or ""))
 
 
 def semantic_reference_units(value: Any) -> set[str]:
@@ -564,6 +602,78 @@ def semantic_reference_units(value: Any) -> set[str]:
         )
     units.update(token.lower() for token in re.findall(r"[A-Za-z0-9]{3,}", text))
     return units
+
+
+def semantic_field_concepts(value: Any) -> set[str]:
+    text = str(value or "")
+    return {
+        concept
+        for concept, pattern in FIELD_CONCEPT_PATTERNS.items()
+        if pattern.search(text)
+    }
+
+
+def fact_support_text(
+    facts: list[dict[str, Any]],
+    claims_by_id: dict[str, dict[str, Any]],
+) -> str:
+    """Combine the actual fact, quote, and bound-claim text for one field."""
+
+    return " ".join(
+        [str(fact.get("statement", "")) for fact in facts]
+        + [
+            str(quote)
+            for fact in facts
+            for quote in (fact.get("source_quotes") or [])
+        ]
+        + [
+            str(claims_by_id[claim_id].get("verbatim_text", ""))
+            for fact in facts
+            for claim_id in (fact.get("claim_ids") or [])
+            if claim_id in claims_by_id
+        ]
+    )
+
+
+def field_grounding_issues(field_text: Any, support_text: Any) -> list[str]:
+    """Return concrete unsupported elements in one factual FABE field."""
+
+    rendered = INTERNAL_ID_RE.sub("", str(field_text or ""))
+    support = str(support_text or "")
+    issues: list[str] = []
+
+    unsupported_numbers = sorted(
+        set(NUMBER_TOKEN_RE.findall(rendered)).difference(NUMBER_TOKEN_RE.findall(support))
+    )
+    if unsupported_numbers:
+        issues.append("数字 " + "/".join(unsupported_numbers))
+
+    normalized_support = normalized_literal_text(support)
+    for match in QUOTED_SPAN_RE.finditer(rendered):
+        quote = next(group for group in match.groups() if group is not None)
+        if normalized_literal_text(quote) not in normalized_support:
+            issues.append(f"引号原文“{quote}”")
+
+    segment_source = QUOTED_SPAN_RE.sub("", rendered)
+    support_units = semantic_reference_units(support)
+    support_concepts = semantic_field_concepts(support)
+    for raw_segment in FIELD_SEGMENT_SPLIT_RE.split(segment_source):
+        segment = raw_segment.strip(" ：:（）()[]【】")
+        if re.fullmatch(r"(?:页面|原文)?(?:写|标示|列出|展示)?(?:与|和|及)?", segment):
+            continue
+        units = semantic_reference_units(segment)
+        if not units:
+            continue
+        concepts = semantic_field_concepts(segment)
+        missing_hard = sorted(concepts.intersection(HARD_FIELD_CONCEPTS).difference(support_concepts))
+        concept_required = max(1, int(len(concepts) * 0.5 + 0.999)) if concepts else 0
+        concept_overlap = len(concepts.intersection(support_concepts))
+        if missing_hard or (concepts and concept_overlap < concept_required) or (
+            not concepts and not units.intersection(support_units)
+        ):
+            compact = re.sub(r"\s+", "", segment)
+            issues.append(f"语义分段“{compact[:32]}”")
+    return list(dict.fromkeys(issues))
 
 
 def claim_total_weights(claim: dict[str, Any]) -> list[float]:
@@ -2062,20 +2172,26 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         referenced_facts = [facts_by_id[fact_id] for fact_id in referenced_fact_ids if fact_id in facts_by_id]
         reference_fact_ids = set(item.get("reference_fact_ids") or [])
         reference_facts = [facts_by_id[fact_id] for fact_id in reference_fact_ids if fact_id in facts_by_id]
-        reference_support_text = " ".join(
-            [str(fact.get("statement", "")) for fact in reference_facts]
-            + [
-                str(quote)
-                for fact in reference_facts
-                for quote in (fact.get("source_quotes") or [])
+        field_fact_keys = {
+            "feature": "feature_fact_ids",
+            "evidence": "evidence_fact_ids",
+            "reference_frame": "reference_fact_ids",
+        }
+        for field_name, fact_key in field_fact_keys.items():
+            field_facts = [
+                facts_by_id[fact_id]
+                for fact_id in (item.get(fact_key) or [])
+                if fact_id in facts_by_id
             ]
-            + [
-                str(claims_by_id[claim_id].get("verbatim_text", ""))
-                for fact in reference_facts
-                for claim_id in (fact.get("claim_ids") or [])
-                if claim_id in claims_by_id
-            ]
-        )
+            grounding_issues = field_grounding_issues(
+                item.get(field_name, ""),
+                fact_support_text(field_facts, claims_by_id),
+            )
+            if grounding_issues:
+                errors.append(
+                    f"{fabe_id}.{field_name} 含未由 {fact_key} 支持的字段元素: "
+                    f"{'；'.join(grounding_issues)}"
+                )
         referenced_claims = [
             claims_by_id[claim_id]
             for fact in referenced_facts
@@ -2095,28 +2211,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in referenced_facts
         }
-        reference_units = semantic_reference_units(item.get("reference_frame", ""))
-        if (
-            reference_facts
-            and reference_units
-            and not reference_units.intersection(semantic_reference_units(reference_support_text))
-        ):
-            errors.append(
-                f"{fabe_id}.reference_frame 与所引 reference_fact_ids 无可核对语义交集；"
-                "必须引用本条参照实际使用的页面事实、用户证据或对照资料"
-            )
         if item.get("derivation_status") == "page_supported":
             direct_claim_text = normalized_literal_text(referenced_claim_text)
             for key in ("advantage", "benefit"):
                 field_text = str(item.get(key, "")).strip()
-                inference_signal = PAGE_SUPPORTED_INFERENCE_RE.search(field_text)
-                if (
-                    inference_signal
-                    and normalized_literal_text(field_text) not in direct_claim_text
-                ):
+                if normalized_literal_text(field_text) not in direct_claim_text:
                     errors.append(
-                        f"{fabe_id} 标记 page_supported，但 {key} 含任务或场景推导“{inference_signal.group(0)}”，"
-                        "且所引原文未直接出现该完整表述；应改为 reasoned 并保留事实边界，"
+                        f"{fabe_id} 标记 page_supported，但 {key} 的完整表述未在所引页面原文中逐字出现；"
+                        "应改为 reasoned 并保留事实边界，"
                         "或补充直接支持该表述的原文事实"
                     )
         if SELF_COMPARISON_REFERENCE_RE.search(str(item.get("reference_frame", ""))):
@@ -2184,6 +2286,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{fabe_id} 声称优惠或权益可以叠加，但所引原文没有明确叠加规则")
 
     allowed_axis = {"high", "medium", "low", "unknown"}
+    value_context_units: dict[str, set[str]] = {}
+    value_cannot_prove: dict[str, list[str]] = {}
     for value in values:
         value_id = str(value.get("value_id", ""))
         if value.get("layer") not in VALUE_LAYERS:
@@ -2244,12 +2348,35 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(value.get(key, ""))
             for key in ("user_task", "value_statement", "user_perception_goal", "scope")
         )
+        associated_fabe_text = " ".join(
+            str(chain.get(key, ""))
+            for chain in fabe_by_value.get(value_id, [])
+            for key in (
+                "feature",
+                "advantage",
+                "benefit",
+                "evidence",
+                "reference_frame",
+                "user_language",
+                "boundary",
+            )
+        )
+        value_context_text = f"{value_positive_text} {associated_fabe_text}"
+        value_context_units[value_id] = semantic_reference_units(value_context_text)
+        value_cannot_prove[value_id] = [str(item) for item in (value.get("cannot_prove") or [])]
         value_denial_text = " ".join(str(item) for item in (value.get("cannot_prove") or []))
         value_facts = [
             facts_by_id[fact_id]
             for fact_id in (value.get("supporting_fact_ids") or [])
             if fact_id in facts_by_id
         ]
+        for fact in value_facts:
+            fact_units = semantic_reference_units(fact_support_text([fact], claims_by_id))
+            if fact_units and not fact_units.intersection(value_context_units[value_id]):
+                errors.append(
+                    f"{value_id}.supporting_fact_ids 含与本价值及其 FABE 无可核对语义关联的事实 "
+                    f"{fact.get('fact_id')}；应删除错挂事实或补全它实际支撑的价值表达"
+                )
         value_claims = [
             claims_by_id[claim_id]
             for fact in value_facts
@@ -2294,6 +2421,24 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{value_id} 声称优惠或权益可以叠加，但支撑事实所引原文没有明确叠加规则")
         if PROMOTION_STACKING_RE.search(value_positive_text) and PROMOTION_STACKING_DENIAL_RE.search(value_denial_text):
             errors.append(f"{value_id} 一方面声称优惠可叠加，另一方面又在 cannot_prove 中否定叠加依据，结构化结论自相矛盾")
+
+    for value_id, statements in value_cannot_prove.items():
+        own_units = value_context_units.get(value_id, set())
+        for statement in statements:
+            statement_units = semantic_reference_units(statement)
+            if not statement_units or statement_units.intersection(own_units):
+                continue
+            other_overlaps = {
+                other_id: len(statement_units.intersection(other_units))
+                for other_id, other_units in value_context_units.items()
+                if other_id != value_id
+            }
+            if other_overlaps and max(other_overlaps.values()) >= 2:
+                matched_id = max(other_overlaps, key=other_overlaps.get)
+                errors.append(
+                    f"{value_id}.cannot_prove 的“{statement}”与本价值无语义关联，"
+                    f"却更接近 {matched_id}；不得把其他价值的未验证理由错挂到当前候选"
+                )
 
     usable_value_ids = {
         str(value.get("value_id", ""))
