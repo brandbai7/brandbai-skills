@@ -245,7 +245,8 @@ PUBLIC_JARGON_RE = re.compile(
     r"sku_status\s*=\s*(?:confirmed|partial|unverified)|证据细节可信度\s*=\s*(?:high|medium|low)|"
     r"\b(?:high|medium|low) confidence\b|(?:high|medium|low)\s*置信度|exact fields unverified|"
     r"\b(?:FC[0-3]|SC[0-3]|PKG-L[0-4])\b|\bmedium\b|"
-    r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only|active_at_snapshot|cannot_prove)\b|"
+    r"\b(?:dietary|page_supported|reasoned|to_validate|snapshot_only|active_at_snapshot|cannot_prove|user_task|user_perception_goal|read)\b|"
+    r"证据细节可信度|精确字段已核验|\.\s*压缩包|"
     r"`(?:active|expired|verified|unverified|template|deferred|blocked|conditional|ready|stale)`|"
     r"(?<![A-Za-z0-9_])(?:F-EVIDENCE|STRAT|DYN|U|H|ZIP|updated_at|partial)(?![A-Za-z0-9_])",
     re.IGNORECASE,
@@ -306,7 +307,9 @@ COMPETITOR_SOURCE_TYPES = {"competitor_page", "industry_report", "competitor_dat
 AGGREGATE_USER_RE = re.compile(
     r"(?:很多|大多数|多数|普遍).{0,8}(?:人|用户|消费者)|"
     r"最常见.{0,12}(?:购买|任务|需求|问题|场景)|"
-    r"(?:主流|普遍存在|最主要).{0,12}(?:购买|任务|需求|问题|场景)"
+    r"(?:主流|普遍存在|最主要).{0,12}(?:购买|任务|需求|问题|场景)|"
+    r"用户(?:对)?.{0,36}(?:核心|主要|关键)(?:顾虑|需求|问题|关注)|"
+    r"(?:直接对应|击中|反映).{0,18}用户.{0,36}(?:核心|主要|关键)(?:顾虑|需求|问题|关注)"
 )
 NUMBER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])\d+(?:\.\d+)?%?(?![A-Za-z0-9])")
 DIRECT_QUOTE_TERMS_RE = re.compile(
@@ -344,9 +347,11 @@ MARKET_COMPARATOR_RE = re.compile(
 )
 UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"多配料(?:的)?(?:加工|复合)?食品|配料(?:未公开|不透明|多元).{0,12}同类(?:加工)?食品|"
+    r"配料(?:多栏|较多|复杂)(?:的)?(?:同类)?产品|"
     r"仅支持单一食用方式(?:的)?产品|单一食用方式(?:的)?产品|"
-    r"另购不同形态(?:的)?产品|"
-    r"(?:不需要|无需|不用)(?:再|为)?(?:不同形态|多种形态).{0,10}(?:单独)?(?:准备|购买|配备)"
+    r"另购(?:不同|其他|别的)?形态(?:的)?产品|"
+    r"(?:不需要|无需|不用|不必).{0,16}(?:另购|购买|准备|配备).{0,16}(?:不同|其他|别的)?形态(?:的)?产品|"
+    r"(?:不需要|无需|不用|不必)(?:再|为)?(?:不同形态|多种形态).{0,10}(?:单独)?(?:准备|购买|配备)"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
 COMPARISON_DENIAL_SPAN_RE = re.compile(
@@ -381,8 +386,17 @@ ACTIVE_DENIAL_RE = re.compile(
 )
 EATING_RESTRICTION_RE = re.compile(r"(?:不宜|不可|不能|禁止|请勿|勿|不适合)(?:直接)?食用")
 TITLE_EVIDENCE_RE = re.compile(r"(?:商品|页面|下载文件|文件)?标题|文件名|OCR", re.IGNORECASE)
+FILENAME_METADATA_RE = re.compile(r"(?:本地|来源|原始|下载)?(?:文件名|档名|filename|relative_path|文件路径)", re.IGNORECASE)
 HIGHER_PRIORITY_SKU_RE = re.compile(r"SKU\s*选择|包装|规格(?:栏|表|选择)|商品信息|成交单元|订单", re.IGNORECASE)
 SKU_CONFLICT_RE = re.compile(r"不一致|冲突|无法确认|待核对|待确认")
+SULFUR_SAFETY_BENEFIT_RE = re.compile(
+    r"(?:担心|顾虑|影响|减少|避免).{0,20}(?:硫熏|二氧化硫).{0,20}(?:安全|健康|危害|风险)|"
+    r"(?:硫熏|二氧化硫).{0,20}(?:安全|健康|危害|风险).{0,20}(?:担心|顾虑|影响|减少|避免)"
+)
+SULFUR_SAFETY_ASSOCIATION_RE = re.compile(
+    r"(?:硫熏|二氧化硫).{0,20}(?:安全|健康|危害|风险)|"
+    r"(?:安全|健康|危害|风险).{0,20}(?:硫熏|二氧化硫)"
+)
 PACKAGE_COUNT_RE = re.compile(
     r"(?P<start>\d{1,3})(?:\s*(?:~|～|-|—|–|至|到)\s*(?P<end>\d{1,3}))?\s*"
     r"(?P<label>独立装|小包|袋装|袋|包)"
@@ -602,6 +616,28 @@ def suspicious_dense_cadence(timestamps: list[datetime]) -> bool:
     percentile_90 = ranked[min(len(ranked) - 1, int(len(ranked) * 0.9))]
     total_span = (ordered[-1] - ordered[0]).total_seconds()
     return median <= 3.0 and percentile_90 <= 5.0 and total_span <= len(ordered) * 5.0
+
+
+def suspicious_repeating_cadence(timestamps: list[datetime]) -> bool:
+    """Detect short interval cycles repeated through a long audit sequence."""
+
+    if len(timestamps) < 12:
+        return False
+    ordered = sorted(timestamps)
+    deltas = [
+        round((current - previous).total_seconds(), 3)
+        for previous, current in zip(ordered, ordered[1:])
+    ]
+    if any(delta <= 0 for delta in deltas):
+        return True
+    for period in range(2, min(8, len(deltas) // 3) + 1):
+        matches = sum(
+            abs(delta - deltas[index % period]) <= 0.001
+            for index, delta in enumerate(deltas)
+        )
+        if matches >= max(period * 3, int(len(deltas) * 0.9 + 0.999)):
+            return True
+    return False
 
 
 def expected_execution_axis(
@@ -849,6 +885,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("sku_status 必须是 confirmed/partial/unverified")
     if not str(manifest.get("sku_basis", "")).strip():
         errors.append("sku_basis 不得为空；标题片段不能单独作为 SKU 确认依据")
+    if FILENAME_METADATA_RE.search(str(manifest.get("sku_basis", ""))):
+        errors.append("sku_basis 不得把文件名或文件路径当作商品规格依据，也不得据此制造 SKU 事实冲突")
     if manifest.get("sku_status") == "confirmed":
         sku_basis = str(manifest.get("sku_basis", ""))
         if not re.search(r"SKU\s*选择|规格(?:栏|表|选择)|包装|商品信息|成交单元|订单", sku_basis, re.IGNORECASE):
@@ -1222,6 +1260,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append("图片正序初检时间呈固定间隔批量生成，不能作为真实逐张视觉检查记录")
             if suspicious_fixed_cadence([item for item in ordered_second_times if item is not None]):
                 errors.append("图片逆序复核时间呈固定间隔批量生成，不能作为真实逐张视觉复核记录")
+            if suspicious_repeating_cadence([item for item in ordered_first_times if item is not None]):
+                errors.append("图片正序初检时间呈重复循环节奏，不能作为真实逐张视觉检查记录")
+            if suspicious_repeating_cadence([item for item in ordered_second_times if item is not None]):
+                errors.append("图片逆序复核时间呈重复循环节奏，不能作为真实逐张视觉复核记录")
         all_image_times = [item for item in first_times + second_times if item is not None]
         if any(timestamp_after_file(item, paths["source_observations"]) for item in all_image_times):
             errors.append("图片核对时间晚于 source_observation.jsonl 实际写入时间，存在未来时间或事后批量回填")
@@ -1470,6 +1512,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("原文主张摘录时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和摘录的真实操作")
     if suspicious_dense_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和复核的真实操作")
+    if suspicious_repeating_cadence(valid_claim_check_times):
+        errors.append("原文主张摘录时间呈重复循环节奏，不能作为真实逐条摘录记录")
+    if suspicious_repeating_cadence(valid_claim_recheck_times):
+        errors.append("原文主张复核时间呈重复循环节奏，不能作为真实逐条复核记录")
     if (
         valid_claim_check_times
         and valid_claim_recheck_times
@@ -1838,6 +1884,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{fabe_id} 将使用方式扩大为“{restriction.group(0)}”，但所引原文未作该限制")
         if SULFUR_RESIDUE_RISK_RE.search(analysis_text):
             errors.append(f"{fabe_id} 不得把“未经二氧化硫熏制工艺”扩大为没有残留风险或零残留")
+        if SULFUR_SAFETY_BENEFIT_RE.search(analysis_text) and not SULFUR_SAFETY_ASSOCIATION_RE.search(referenced_claim_text):
+            errors.append(f"{fabe_id} 把无硫熏主张扩写为安全、健康、危害或风险利益，但本 FABE 所引原文没有直接依据")
         stacking = PROMOTION_STACKING_RE.search(analysis_text)
         if stacking and not PROMOTION_STACKING_RE.search(referenced_claim_text):
             errors.append(f"{fabe_id} 声称优惠或权益可以叠加，但所引原文没有明确叠加规则")
@@ -1922,6 +1970,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 f"{value_id} 使用了无来源的产品替代对象或比较语言；"
                 "必须由该价值自身引用页面对比、竞品页或行业对照，不能借用其他价值的比较资料"
             )
+        if SULFUR_SAFETY_BENEFIT_RE.search(value_positive_text) and not SULFUR_SAFETY_ASSOCIATION_RE.search(value_claim_text):
+            errors.append(f"{value_id} 把无硫熏主张扩写为安全、健康、危害或风险利益，但本价值所引原文没有直接依据")
         if PROMOTION_STACKING_RE.search(value_positive_text) and not PROMOTION_STACKING_RE.search(value_claim_text):
             errors.append(f"{value_id} 声称优惠或权益可以叠加，但支撑事实所引原文没有明确叠加规则")
         if PROMOTION_STACKING_RE.search(value_positive_text) and PROMOTION_STACKING_DENIAL_RE.search(value_denial_text):
@@ -2014,7 +2064,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if not any(source.get("source_type") in COMPETITOR_SOURCE_TYPES for source in sources):
                 errors.append(f"{location} 存在越界表达：缺少竞品或行业对照，不能写最强、唯一、独有或领先")
         if AGGREGATE_USER_RE.search(text) and not any(fact.get("fact_type") == "U" for fact in facts):
-            errors.append(f"{location} 存在越界表达：没有用户原声或研究资料，不能声称最常见、主流、普遍或多数用户存在该问题")
+            errors.append(
+                f"{location} 存在越界表达：没有用户原声或研究资料，"
+                "不能声称最常见、主流、普遍或多数用户存在该问题，也不能把某项问题写成用户的核心、主要或关键顾虑"
+            )
+        if SULFUR_SAFETY_BENEFIT_RE.search(text) and not SULFUR_SAFETY_ASSOCIATION_RE.search(all_claim_text):
+            errors.append(f"{location} 存在越界表达：页面无直接依据时，不能把无硫熏主张扩写为对安全、健康、危害或风险的用户利益")
         if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(comparison_text) and not has_any_comparison_support:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
         elif UNSUPPORTED_PRODUCT_TARGET_RE.search(comparison_text) and not has_any_comparison_support:
@@ -2024,6 +2079,13 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
 
     for location, text in iter_client_narrative_texts(manifest, facts, fabe, anchors, values, decision, gaps):
+        if (
+            (location == "product_manifest.sku_basis" or not location.startswith(("GAP-", "product_manifest.limitations")))
+            and FILENAME_METADATA_RE.search(text)
+        ):
+            errors.append(f"{location} 把文件名或路径当成了商品证据；文件元数据只能用于来源定位")
+        if location.startswith("GAP-") and FILENAME_METADATA_RE.search(text) and SKU_CONFLICT_RE.search(text):
+            errors.append(f"{location} 用文件名或路径制造了 SKU 事实冲突；商品冲突必须来自可见商品证据")
         if re.search(r"二次硫(?:熏制|处理|工艺)?", text):
             errors.append(f"{location} 含“二次硫”错词；必须回到原文核对二氧化硫相关表述")
         if EMPTY_PARENS_RE.search(text):

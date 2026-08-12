@@ -16,6 +16,7 @@ from product_value_common import now_iso, read_json, read_jsonl, write_json, wri
 from validate_product_value_delivery import (
     suspicious_dense_cadence,
     suspicious_fixed_cadence,
+    suspicious_repeating_cadence,
     validate_delivery,
 )
 
@@ -1723,6 +1724,110 @@ def test_v015_cross_ledger_and_public_copy_regressions(root: Path) -> None:
     assert any("按顺序自动拼接" in error for error in axis_drift["errors"])
 
 
+def test_v016_audit_semantics_and_client_cleanup(root: Path) -> None:
+    cadence_start = datetime.now().astimezone().replace(microsecond=0)
+    cadence_times = [cadence_start]
+    for index in range(15):
+        cadence_times.append(cadence_times[-1] + timedelta(seconds=(6, 7, 8, 9)[index % 4]))
+    assert suspicious_repeating_cadence(cadence_times)
+    assert not suspicious_repeating_cadence(
+        [cadence_start + timedelta(seconds=index * index + index * 11) for index in range(16)]
+    )
+
+    cleaned = public_text(
+        "未取得 U 用户原声；user_task 与 user_perception_goal 待补；"
+        "证据细节可信度=medium；exact_fields_verified=否；资料包.zip；read"
+    )
+    assert "用户原声 用户原声" not in cleaned
+    assert "user_task" not in cleaned
+    assert "user_perception_goal" not in cleaned
+    assert "证据细节可信度" not in cleaned
+    assert "exact_fields_verified" not in cleaned
+    assert ".压缩包" not in cleaned
+    assert "已读取" in cleaned
+
+    delivery = root / "v016-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    manifest_path = data / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    original_manifest = dict(manifest)
+    manifest["sku_basis"] = "商品信息页支持规格A，但本地文件名九独立装形成冲突。"
+    write_json(manifest_path, manifest)
+    filename_evidence = validate_delivery(delivery)
+    assert filename_evidence["status"] == "failed"
+    assert any("文件名或文件路径" in error for error in filename_evidence["errors"])
+    write_json(manifest_path, original_manifest)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    chains = read_jsonl(fabe_path)
+    original_chains = [dict(chain) for chain in chains]
+    chains[0]["benefit"] = "可直接食用，不必另购其他形态产品。"
+    write_jsonl(fabe_path, chains)
+    unsupported_purchase = validate_delivery(delivery)
+    assert unsupported_purchase["status"] == "failed"
+    assert any("产品替代对象" in error for error in unsupported_purchase["errors"])
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["advantage"] = "相比配料多栏的产品，本品信息更简短。"
+    write_jsonl(fabe_path, chains)
+    unsupported_ingredient_comparison = validate_delivery(delivery)
+    assert unsupported_ingredient_comparison["status"] == "failed"
+    assert any("产品替代对象" in error or "比较语言" in error for error in unsupported_ingredient_comparison["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    decision_path = data / "p0_decision.json"
+    decision = read_json(decision_path)
+    original_decision = dict(decision)
+    decision["public_rationale"] = "这些价值直接对应用户对处理工序与安全选材的核心顾虑。"
+    write_json(decision_path, decision)
+    unsupported_user_concern = validate_delivery(delivery)
+    assert unsupported_user_concern["status"] == "failed"
+    assert any("用户的核心" in error for error in unsupported_user_concern["errors"])
+    write_json(decision_path, original_decision)
+
+    values_path = data / "value_ledger.jsonl"
+    values = read_jsonl(values_path)
+    original_values = [dict(value) for value in values]
+    values[0]["user_task"] = "担心硫熏工艺对安全的影响。"
+    write_jsonl(values_path, values)
+    unsupported_safety = validate_delivery(delivery)
+    assert unsupported_safety["status"] == "failed"
+    assert any("无硫熏主张扩写" in error for error in unsupported_safety["errors"])
+    write_jsonl(values_path, original_values)
+
+    claim_path = data / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    original_claims = [dict(claim) for claim in claims]
+    seed = dict(claims[0])
+    periodic_claims = []
+    claim_start = datetime.now().astimezone().replace(microsecond=0) - timedelta(minutes=6)
+    claim_times = [claim_start]
+    for index in range(12):
+        claim_times.append(claim_times[-1] + timedelta(seconds=(6, 7, 8, 9)[index % 4]))
+    recheck_start = claim_times[-1] + timedelta(seconds=30)
+    recheck_times = [recheck_start]
+    for index in range(12):
+        recheck_times.append(recheck_times[-1] + timedelta(seconds=(6, 7, 8, 9)[index % 4]))
+    for index in range(13):
+        claim = dict(seed)
+        claim["claim_id"] = f"CLM-{index + 1:03d}"
+        claim["claim_type"] = "other"
+        claim["critical"] = False
+        claim["claimed_at"] = claim_times[index].isoformat()
+        claim["rechecked_at"] = recheck_times[index].isoformat()
+        periodic_claims.append(claim)
+    write_jsonl(claim_path, periodic_claims)
+    repeating_claims = validate_delivery(delivery)
+    assert repeating_claims["status"] == "failed"
+    assert any("重复循环节奏" in error for error in repeating_claims["errors"])
+    write_jsonl(claim_path, original_claims)
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -1773,6 +1878,7 @@ def main() -> int:
         test_v013_p0_archive_comparator_and_report_regressions(root)
         test_v014_client_semantic_and_cross_field_regressions(root)
         test_v015_cross_ledger_and_public_copy_regressions(root)
+        test_v016_audit_semantics_and_client_cleanup(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
