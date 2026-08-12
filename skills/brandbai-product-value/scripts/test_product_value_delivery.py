@@ -14,6 +14,7 @@ from index_product_sources import build_inventory, index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
 from validate_product_value_delivery import (
+    suspicious_bounded_micro_cadence,
     suspicious_dense_cadence,
     suspicious_fixed_cadence,
     suspicious_parallel_audit_timing,
@@ -1966,6 +1967,124 @@ def test_v017_forward_test_integrity_regressions(root: Path) -> None:
     assert "页面页面" not in source_report
 
 
+def test_v018_final_acceptance_regressions(root: Path) -> None:
+    start = datetime.now().astimezone().replace(microsecond=0)
+    bounded_deltas = [3] * 10 + [4] * 10 + [5] * 10 + [6] * 9
+    bounded_times = [start]
+    for delta in bounded_deltas:
+        bounded_times.append(bounded_times[-1] + timedelta(seconds=delta))
+    assert suspicious_bounded_micro_cadence(bounded_times)
+    assert not suspicious_dense_cadence(bounded_times)
+    assert not suspicious_bounded_micro_cadence(
+        [start + timedelta(seconds=index * index + index * 8) for index in range(40)]
+    )
+
+    assert public_text("不能证明 V-001 是该用户群体的核心顾虑") == "不能证明该价值是该用户群体的核心顾虑"
+
+    delivery = root / "v018-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    claim_path = data / "source_claim_ledger.jsonl"
+    claims = read_jsonl(claim_path)
+    original_claims = [dict(claim) for claim in claims]
+    seed = dict(claims[0])
+    synthetic_claims = []
+    first_times = [start - timedelta(minutes=20)]
+    for delta in bounded_deltas:
+        first_times.append(first_times[-1] + timedelta(seconds=delta))
+    second_times = [first_times[-1] + timedelta(minutes=2)]
+    for delta in reversed(bounded_deltas):
+        second_times.append(second_times[-1] + timedelta(seconds=delta))
+    for index in range(40):
+        claim = dict(seed)
+        claim["claim_id"] = f"CLM-{index + 1:03d}"
+        claim["claimed_at"] = first_times[index].isoformat()
+        claim["rechecked_at"] = second_times[index].isoformat()
+        if index:
+            claim["critical"] = False
+            claim["verbatim_text"] = f"示例原文主张{index + 1}"
+        synthetic_claims.append(claim)
+    write_jsonl(claim_path, synthetic_claims)
+    mechanical_timing = validate_delivery(delivery)
+    assert mechanical_timing["status"] == "failed"
+    assert any("1–7 秒的少量整数间隔" in error for error in mechanical_timing["errors"])
+    write_jsonl(claim_path, original_claims)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    original_chains = read_jsonl(fabe_path)
+    for phrase in ("天然原料", "科学配比", "不甜腻", "不刺激", "甜品替代"):
+        chains = [dict(chain) for chain in original_chains]
+        chains[0]["benefit"] = f"当前资料可支持{phrase}。"
+        write_jsonl(fabe_path, chains)
+        build_delivery(delivery, write=True)
+        unsupported_term = validate_delivery(delivery)
+        assert unsupported_term["status"] == "failed"
+        assert any("限定词" in error for error in unsupported_term["errors"])
+
+    for comparator in (
+        "相对原料形态不可见或被打碎的冲泡饮品（内生任务假设）",
+        "相对一包一次、量小需频繁补配的速溶茶（内生任务假设）",
+        "相对仅写单一冲泡方式的茶（内生任务假设）",
+        "相对未公开同类检测与体系认证的茶饮（内生任务假设）",
+    ):
+        chains = [dict(chain) for chain in original_chains]
+        chains[0]["reference_frame"] = comparator
+        write_jsonl(fabe_path, chains)
+        build_delivery(delivery, write=True)
+        unsupported_comparator = validate_delivery(delivery)
+        assert unsupported_comparator["status"] == "failed"
+        assert any("无来源的产品替代对象" in error for error in unsupported_comparator["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["advantage"] = "整料厚切让一包可以反复冲泡覆盖一天饮水。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unsupported_causality = validate_delivery(delivery)
+    assert unsupported_causality["status"] == "failed"
+    assert any("因果关系" in error for error in unsupported_causality["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    values_path = data / "value_ledger.jsonl"
+    values = read_jsonl(values_path)
+    original_values = [dict(value) for value in values]
+    values[0]["user_task"] = "想喝有味道但不甜腻的饮品"
+    write_jsonl(values_path, values)
+    build_delivery(delivery, write=True)
+    unsupported_value_term = validate_delivery(delivery)
+    assert unsupported_value_term["status"] == "failed"
+    assert any("本价值所引原文或用户资料" in error for error in unsupported_value_term["errors"])
+    write_jsonl(values_path, original_values)
+
+    decision_path = data / "p0_decision.json"
+    decision = read_json(decision_path)
+    original_decision = dict(decision)
+    decision["cannot_prove"] = ["不能证明 是该用户群体的核心顾虑"]
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    missing_object = validate_delivery(delivery)
+    assert missing_object["status"] == "failed"
+    assert any("缺少结论对象" in error for error in missing_object["errors"])
+
+    write_json(decision_path, original_decision)
+    manifest_path = data / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest["sku"] = "示例商品 140克（20克×7袋）"
+    write_json(manifest_path, manifest)
+    gap_path = data / "gap_ledger.jsonl"
+    gaps = read_jsonl(gap_path)
+    gaps[0]["impact"] = "相关规格不得进入 SKU 名称字段"
+    write_jsonl(gap_path, gaps)
+    build_delivery(delivery, write=True)
+    sku_contradiction = validate_delivery(delivery)
+    assert sku_contradiction["status"] == "failed"
+    assert any("但 product_manifest.sku 已包含规格" in error for error in sku_contradiction["errors"])
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -2018,6 +2137,7 @@ def main() -> int:
         test_v015_cross_ledger_and_public_copy_regressions(root)
         test_v016_audit_semantics_and_client_cleanup(root)
         test_v017_forward_test_integrity_regressions(root)
+        test_v018_final_acceptance_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
