@@ -1,3 +1,15 @@
+# BrandBAI Product Value 0.1.20
+
+商品价值底座本次升级聚焦字段级证据绑定与跨价值相关性：
+
+- Feature、Evidence 与参照系中的数字、引号原文和关键语义成分必须分别由对应事实列表支持；
+- `page_supported` 的 Advantage 与 Benefit 必须全文出现在所引原文，主体、任务或场景翻译统一降为 `reasoned`；
+- “而非”形式的无来源产品替代对象纳入比较拦截；
+- 价值支撑事实必须与当前价值或其 FABE 相关，`cannot_prove` 不得错挂到其他价值；
+- 增加真实喜纯苹果黄芪水 v019 前向审计与合成回归覆盖。
+
+---
+
 # BrandBAI Product Value 0.1.19
 
 商品价值底座本次升级聚焦 FABE 参照与推导真实性：

@@ -478,13 +478,13 @@ def populate_valid_partial(delivery: Path) -> None:
             {
                 "fabe_id": "FABE-003",
                 "value_id": "V-003",
-                "feature": "当前包装可核对商品形态和规格。",
+                "feature": "当前页面可核对独立小袋包装形态。",
                 "feature_fact_ids": ["F-001"],
                 "advantage": "购买前多一个可见的SKU核对入口。",
                 "benefit": "用户更容易确认自己选的是当前规格。",
                 "evidence": "包装正背面的商品信息。",
                 "evidence_fact_ids": ["F-001"],
-                "reference_frame": "当前核对任务：可见包装信息是否能帮助确认当前规格",
+                "reference_frame": "当前核对任务：可见独立小袋包装信息",
                 "reference_fact_ids": ["F-001"],
                 "user_language": "先看包装信息，确认是不是我要的规格。",
                 "derivation_status": "reasoned",
@@ -2115,7 +2115,10 @@ def test_v019_reference_and_derivation_regressions(root: Path) -> None:
     build_delivery(delivery, write=True)
     irrelevant_reference_link = validate_delivery(delivery)
     assert irrelevant_reference_link["status"] == "failed"
-    assert any("无可核对语义交集" in error for error in irrelevant_reference_link["errors"])
+    assert any(
+        "reference_frame" in error and "未由 reference_fact_ids 支持" in error
+        for error in irrelevant_reference_link["errors"]
+    )
 
     chains = [dict(chain) for chain in original_chains]
     chains[0]["derivation_status"] = "page_supported"
@@ -2144,6 +2147,96 @@ def test_v019_reference_and_derivation_regressions(root: Path) -> None:
     assert any("把当前商品自身写成比较对象" in error for error in self_comparison["errors"])
 
     write_jsonl(fabe_path, original_chains)
+
+
+def test_v020_field_binding_and_value_relevance_regressions(root: Path) -> None:
+    delivery = root / "v020-field-binding"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    fabe_path = data / "fabe_ledger.jsonl"
+    original_chains = read_jsonl(fabe_path)
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["feature"] += "每包2片。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    missing_number_fact = validate_delivery(delivery)
+    assert missing_number_fact["status"] == "failed"
+    assert any("feature_fact_ids" in error and "数字 2" in error for error in missing_number_fact["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["feature"] += "页面写'量足耐泡更好喝'。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    missing_quote_fact = validate_delivery(delivery)
+    assert missing_quote_fact["status"] == "failed"
+    assert any("引号原文“量足耐泡更好喝”" in error for error in missing_quote_fact["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["evidence"] += "+第三方检测报告图"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    missing_evidence_component = validate_delivery(delivery)
+    assert missing_evidence_component["status"] == "failed"
+    assert any("evidence_fact_ids" in error and "第三方检测报告图" in error for error in missing_evidence_component["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["reference_frame"] = "页面公开标示五项原料产地"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    wrong_reference_fact = validate_delivery(delivery)
+    assert wrong_reference_fact["status"] == "failed"
+    assert any("reference_fact_ids" in error and "原料产地" in error for error in wrong_reference_fact["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["derivation_status"] = "page_supported"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    hidden_user_translation = validate_delivery(delivery)
+    assert hidden_user_translation["status"] == "failed"
+    assert any("完整表述未在所引页面原文中逐字出现" in error for error in hidden_user_translation["errors"])
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["derivation_status"] = "page_supported"
+    chains[0]["advantage"] = "独立小袋包装"
+    chains[0]["benefit"] = "独立小袋包装"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    literal_page_support = validate_delivery(delivery)
+    assert literal_page_support["status"] == "passed", literal_page_support
+
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["advantage"] = "用户拆开袋可看到完整原料，而非需要额外分装的碎料形态。"
+    write_jsonl(fabe_path, chains)
+    build_delivery(delivery, write=True)
+    unsupported_or_instead_comparison = validate_delivery(delivery)
+    assert unsupported_or_instead_comparison["status"] == "failed"
+    assert any("无来源的产品替代对象" in error for error in unsupported_or_instead_comparison["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    value_path = data / "value_ledger.jsonl"
+    original_values = read_jsonl(value_path)
+    values = [dict(value) for value in original_values]
+    values[0]["supporting_fact_ids"] = list(values[0]["supporting_fact_ids"]) + ["DYN-001"]
+    write_jsonl(value_path, values)
+    build_delivery(delivery, write=True)
+    unrelated_supporting_fact = validate_delivery(delivery)
+    assert unrelated_supporting_fact["status"] == "failed"
+    assert any("DYN-001" in error and "无可核对语义关联" in error for error in unrelated_supporting_fact["errors"])
+
+    values = [dict(value) for value in original_values]
+    values[1]["cannot_prove"] = ["不能证明外出携带的分装便利"]
+    write_jsonl(value_path, values)
+    build_delivery(delivery, write=True)
+    misplaced_candidate_reason = validate_delivery(delivery)
+    assert misplaced_candidate_reason["status"] == "failed"
+    assert any("不得把其他价值的未验证理由错挂" in error for error in misplaced_candidate_reason["errors"])
+    write_jsonl(value_path, original_values)
 
 
 def test_insufficient_delivery(root: Path) -> None:
@@ -2200,6 +2293,7 @@ def main() -> int:
         test_v017_forward_test_integrity_regressions(root)
         test_v018_final_acceptance_regressions(root)
         test_v019_reference_and_derivation_regressions(root)
+        test_v020_field_binding_and_value_relevance_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

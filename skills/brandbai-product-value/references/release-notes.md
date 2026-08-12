@@ -1,4 +1,14 @@
-# BrandBAI Product Value 0.1.19
+# BrandBAI Product Value 0.1.20
+
+这是喜纯苹果黄芪水 v019 独立验收后的字段级回链与跨价值相关性修订版：
+
+- Feature、Evidence、参照系中的数字、引号原文与关键语义成分必须分别由对应事实列表支持；
+- `page_supported` 只接受 Advantage 与 Benefit 全文在所引原文中直接出现，模型增加“用户能看到/获得”等翻译时改用 `reasoned`；
+- “而非”形式的无来源碎料、粉末、散料及额外分装对象同样按产品比较拦截；
+- 每条 `supporting_fact_ids` 必须与当前价值或其 FABE 有语义贡献，`cannot_prove` 不得错挂其他价值；
+- 新增合成回归并用喜纯苹果黄芪水 v019 做前向审计，确认旧交付中的错链能被新版阻断。
+
+## 0.1.19 FABE 参照与推导真实性修订
 
 这是喜纯苹果黄芪水 v017 最终验收后的 FABE 参照与推导真实性修订版：
 
