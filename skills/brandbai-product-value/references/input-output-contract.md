@@ -77,7 +77,7 @@ fc, sc, pkg_level, analysis_status, delivery_status,
 limitations, created_at, updated_at
 ```
 
-`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。标题或文件名与包装、规格表、商品信息区冲突时，不得继续把标题片段写成当前 SKU；只能写可确认的标准成交单元，或明确待确认。四遍一致不等于识别正确：疑似 OCR 残片、不同页面互斥包数，以及总净含量不等于单包克重乘包数时，相关规格事实必须降为待确认，不得进入识别锚、FABE、价值或 P0。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
+`sku_status` 允许 `confirmed`、`partial`、`unverified`。`sku_basis` 记录 SKU 选择器、包装、规格表或商品信息区中的具体确认依据；商品标题片段不能单独把状态升级为 `confirmed`。本地文件名和文件路径仅用于来源定位，无论含有何种规格词，都不能写入 `sku_basis`、证明商品规格或制造 SKU 冲突。商品标题或 OCR 与包装、规格表、商品信息区冲突时，不得继续把标题片段写成当前 SKU；只能写可确认的标准成交单元，或明确待确认。四遍一致不等于识别正确：疑似 OCR 残片、不同页面互斥包数，以及总净含量不等于单包克重乘包数时，相关规格事实必须降为待确认，不得进入识别锚、FABE、价值或 P0。`partial/unverified` 必须登记开放的 SKU/规格缺口，且下游状态不得为 `ready`。
 
 ### source_inventory.jsonl
 
@@ -114,7 +114,7 @@ second_pass_sequence, second_pass_heading, second_pass_excerpt,
 second_pass_status, second_pass_at
 ```
 
-`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔批量生成、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。ZIP、RAR、7z、tar 等归档文件使用 `unsupported_archive`，`inspection_status=unreadable`、`text_density=none`、`content_flags=[]`，只记录文件身份与实际检查时间；归档本身不得进入原文主张、来源、事实或普通版。需要使用其内容时，先解压并在全新交付中重新索引解压后的文件。
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔、短周期重复循环、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text`，官方验证页可用 `official_url`；非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。ZIP、RAR、7z、tar 等归档文件使用 `unsupported_archive`，`inspection_status=unreadable`、`text_density=none`、`content_flags=[]`，只记录文件身份与实际检查时间；归档本身不得进入原文主张、来源、事实或普通版。需要使用其内容时，先解压并在全新交付中重新索引解压后的文件。
 
 每条观察另填 `text_density` 和 `content_flags`。`text_density` 使用 `none/low/medium/high`；`content_flags` 从 `identity/sku/ingredient/nutrition_table/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other` 中选择。中高文字密度来源不得遗漏内容类型。
 
@@ -130,7 +130,7 @@ label, verbatim_text, normalized_value, unit, visual_locator,
 critical, claim_status, claimed_at, rechecked_at
 ```
 
-`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。必须先完成全部第三遍摘录，再开始第四遍重新打开来源复核；两个阶段不得交叉，只有一致时写 `claim_status=match`。每条 `claimed_at` 和 `rechecked_at` 均由宿主在实际操作当下独立取时，带时区并晚于前两遍观察。重复时间、固定间隔批量生成、未来时间或晚于 `source_claim_ledger.jsonl` 实际写入时间的记录无效。
+`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。必须先完成全部第三遍摘录，再开始第四遍重新打开来源复核；两个阶段不得交叉，只有一致时写 `claim_status=match`。每条 `claimed_at` 和 `rechecked_at` 均由宿主在实际操作当下独立取时，带时区并晚于前两遍观察。重复时间、固定间隔、短周期重复循环、未来时间或晚于 `source_claim_ledger.jsonl` 实际写入时间的记录无效。
 
 营养表逐行登记，FAQ 每个问答分别登记，对比页分别登记双方原文。SKU、配料、营养、储存和警示主张必须写 `critical=true`，并进入至少一条事实；看不清时不得猜测或补全，改为资料缺口。页面图片中的报告编号、日期、批次、证书编号和检测方法等精确小字仍不得进入原文主张账本。
 
@@ -230,7 +230,7 @@ decided_at, valid_until, supersedes
 
 状态允许：`P0-CANDIDATE`、`P0-HYPOTHESIS`、`P0-SELECTED`、`P0-VALIDATING`、`P0-BOUNDARY-VALIDATED`、`P0-REOPEN`、`P0-REPLACED`、`P0-STOPPED`。
 
-`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题。战略信息仅为 `SC0/SC1` 且没有竞品页或行业对照时，决策和推荐价值都只能标为 `P0-HYPOTHESIS`，不得写成已选择、验证中或已验证；商品页内部或同品牌产品对比可支撑对应 FABE，但不能单独证明战略优先级。
+`rationale` 可保留内部事实与价值 ID；`public_rationale` 是普通版使用的一段客户可读说明，不得包含内部 ID、英文状态或技术字段名。页面出现次数、覆盖页数、篇幅和可拍性不能作为 P0 判胜依据。没有 `U` 用户资料时，不得声称很多、大多数或普遍用户存在某个问题，也不得把某项问题直接称为用户的核心、主要或关键顾虑。战略信息仅为 `SC0/SC1` 且没有竞品页或行业对照时，决策和推荐价值都只能标为 `P0-HYPOTHESIS`，不得写成已选择、验证中或已验证；商品页内部或同品牌产品对比可支撑对应 FABE，但不能单独证明战略优先级。
 
 `current_execution_value_ids` 必须按实际调用顺序列出价值，至少包含当前推荐 P0；不得包含 `layer=deferred` 或 `downstream_readiness=blocked` 的价值。`current_execution_axis` 必须严格等于“当前执行主轴调用：”加这些价值各自的 `value_statement`，并用中文分号按相同顺序连接；不得自由改写、遗漏或加入未列价值。活动在 `updated_at` 快照时为 `active`，可以有边界地写“当前有效”，不得在 `cannot_prove` 或限制中反向否定其快照状态。
 

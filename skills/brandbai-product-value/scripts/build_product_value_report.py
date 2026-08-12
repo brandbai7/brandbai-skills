@@ -17,6 +17,7 @@ STATUS_ZH = {
     "partial": "部分完成",
     "insufficient": "资料不足",
     "stale": "已失效",
+    "read": "已读取",
     "ready": "可正式调用",
     "conditional": "有条件调用",
     "blocked": "禁止下游调用",
@@ -116,6 +117,11 @@ def public_text(value: Any, empty: str = "未提供") -> str:
 
     text = md(value, empty)
     text = re.sub(
+        r"(?i)\.\s*(?:zip|rar|7z|tar|gz|tgz|bz2|xz)\b",
+        "（压缩包）",
+        text,
+    )
+    text = re.sub(
         rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])\s+在\s+{INTERNAL_ID}(?![A-Za-z0-9])\s*",
         "相关原文在",
         text,
@@ -148,7 +154,25 @@ def public_text(value: Any, empty: str = "未提供") -> str:
     confidence_labels = {"high": "原件级", "medium": "页面截图级", "low": "低可信度"}
     text = re.sub(
         r"证据细节可信度\s*=\s*(high|medium|low)",
-        lambda match: f"证据细节可信度：{confidence_labels[match.group(1).lower()]}",
+        lambda match: f"当前证据只能按{confidence_labels[match.group(1).lower()]}核对",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"evidence_detail_confidence\s*=\s*(high|medium|low)",
+        lambda match: f"当前证据只能按{confidence_labels[match.group(1).lower()]}核对",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"exact_fields_verified\s*=\s*(?:false|否|no)",
+        "报告精确小字尚未通过原件核验",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"exact_fields_verified\s*=\s*(?:true|是|yes)",
+        "报告精确小字已通过原件核验",
         text,
         flags=re.IGNORECASE,
     )
@@ -184,6 +208,8 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "cannot_prove": "当前资料不能证明",
         "current_listing": "当前公开商品页",
         "reference_frame": "参照系",
+        "user_task": "用户任务",
+        "user_perception_goal": "希望形成的用户认知",
         "updated_at": "本次更新时间",
         "P0-BOUNDARY-VALIDATED": "边界内已验证",
         "P0-REOPEN": "重新评估",
@@ -202,6 +228,7 @@ def public_text(value: Any, empty: str = "未提供") -> str:
         "ready": "可正式调用",
         "stale": "已失效",
         "partial": "部分确认",
+        "read": "已读取",
     }
     for source, target in status_words.items():
         text = re.sub(rf"(?<![A-Za-z0-9_]){source}(?![A-Za-z0-9_])", target, text, flags=re.IGNORECASE)
@@ -220,6 +247,9 @@ def public_text(value: Any, empty: str = "未提供") -> str:
             text,
             flags=re.IGNORECASE,
         )
+    text = re.sub(r"(?:用户原声\s*){2,}", "用户原声", text)
+    text = re.sub(r"未取得\s+", "未取得", text)
+    text = re.sub(r"\.\s*压缩包", "（压缩包）", text)
     text = re.sub(r"[（(]\s*(?:→\s*)+[)）]", "", text)
     text = re.sub(r"→\s*→+", "→", text)
     text = re.sub(r"/{2,}\s*(?:reference_frame|参照系)", "参照系", text, flags=re.IGNORECASE)
