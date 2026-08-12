@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.1.8"
-SKILL_VERSION = "0.1.18"
+SCHEMA_VERSION = "0.1.9"
+SKILL_VERSION = "0.1.19"
 
 INPUT_MODES = {
     "link",

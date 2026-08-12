@@ -149,6 +149,7 @@ FABE_FIELDS = {
     "evidence",
     "evidence_fact_ids",
     "reference_frame",
+    "reference_fact_ids",
     "user_language",
     "derivation_status",
     "boundary",
@@ -415,7 +416,24 @@ CAUSAL_LINK_RE = re.compile(
     r"(?:由|得益于|归因于|因为|基于).{1,48}?(?:共同)?(?:实现|带来|形成|决定|让|使(?!用)(?:得)?)|"
     r"(?:原料|配料|工艺|厚切|整料|烘干|包装).{0,24}(?:让|使(?!用)(?:得)?|带来|实现|形成).{1,48}"
 )
-STRICT_FABE_SOURCE_TERMS = ("天然", "科学配比", "不甜腻", "不刺激", "甜品")
+STRICT_FABE_SOURCE_TERMS = ("天然", "科学配比", "甜腻", "刺激", "甜品")
+PAGE_SUPPORTED_INFERENCE_RE = re.compile(
+    r"更(?:容易|方便|清楚|省心|省事|顺手)|"
+    r"(?:便于|方便|可以|可在|能够|让|使得|帮助|有助于|无需|不必|减少|降低|增加|多一份|少一步)|"
+    r"(?:根据|按照).{0,16}(?:选择|选用)|供.{0,16}(?:选择|选用)"
+)
+SELF_COMPARISON_REFERENCE_RE = re.compile(
+    r"(?:页面内对比\s*[:：]?\s*)?(?:相对|相比|对比).{0,32}(?:当前|本)(?:商品|产品)(?:内|自身)|"
+    r"页面内对比\s*[:：]?\s*(?:当前|本)(?:商品|产品)(?:内|自身)"
+)
+REFERENCE_BOILERPLATE_RE = re.compile(
+    r"页面内对比|当前页面|当前商品|本商品|当前产品|本产品|内生任务|内生推导|内生假设|"
+    r"参照系|操作任务|页面主张|页面展示|页面公开|相对|相比|对比|自身"
+)
+REFERENCE_COMMON_BIGRAMS = {
+    "当前", "商品", "产品", "页面", "用户", "任务", "操作", "使用", "信息", "选择",
+    "方式", "支持", "直接", "明确", "公开", "展示", "提供", "体验", "问题", "假设",
+}
 DUPLICATED_CLIENT_WORD_RE = re.compile(r"页面\s*页面|(?:用户原声\s*){2,}")
 PACKAGE_COUNT_RE = re.compile(
     r"(?P<start>\d{1,3})(?:\s*(?:~|～|-|—|–|至|到)\s*(?P<end>\d{1,3}))?\s*"
@@ -525,6 +543,27 @@ def normalized_spec_phrase(value: Any) -> str:
 def contains_spec_phrase(text: Any, phrase: Any) -> bool:
     normalized_phrase = normalized_spec_phrase(phrase)
     return bool(normalized_phrase) and normalized_phrase in normalized_spec_phrase(text)
+
+
+def normalized_literal_text(value: Any) -> str:
+    """Normalize presentation-only separators for direct-copy comparisons."""
+
+    return re.sub(r"[\s，。；;、:：!?！？（）()\[\]【】\"'“”‘’]+", "", str(value or ""))
+
+
+def semantic_reference_units(value: Any) -> set[str]:
+    """Return small lexical anchors for checking a reference frame against its facts."""
+
+    text = REFERENCE_BOILERPLATE_RE.sub("", str(value or ""))
+    units: set[str] = set()
+    for run in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+        units.update(
+            run[index : index + 2]
+            for index in range(len(run) - 1)
+            if run[index : index + 2] not in REFERENCE_COMMON_BIGRAMS
+        )
+    units.update(token.lower() for token in re.findall(r"[A-Za-z0-9]{3,}", text))
+    return units
 
 
 def claim_total_weights(claim: dict[str, Any]) -> list[float]:
@@ -1961,6 +2000,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 "evidence",
                 "evidence_fact_ids",
                 "reference_frame",
+                "reference_fact_ids",
                 "user_language",
                 "derivation_status",
                 "boundary",
@@ -1973,7 +2013,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             )
         else:
             fabe_content_ids[fabe_signature] = fabe_id
-        for key in ("feature_fact_ids", "evidence_fact_ids"):
+        for key in ("feature_fact_ids", "evidence_fact_ids", "reference_fact_ids"):
             references = item.get(key)
             if not isinstance(references, list) or not references:
                 errors.append(f"{fabe_id} 的 {key} 必须引用至少一个 fact_id")
@@ -2008,7 +2048,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             evidence_ids = set(item.get("evidence_fact_ids") or [])
             if not feature_ids.intersection(evidence_ids):
                 errors.append(f"{fabe_id} 标记页面直接支持时，Evidence 必须至少包含一条 Feature 的直接事实")
-        referenced_fact_ids = set(item.get("feature_fact_ids") or []) | set(item.get("evidence_fact_ids") or [])
+        referenced_fact_ids = (
+            set(item.get("feature_fact_ids") or [])
+            | set(item.get("evidence_fact_ids") or [])
+            | set(item.get("reference_fact_ids") or [])
+        )
         blocked = referenced_fact_ids.intersection(blocked_spec_fact_ids)
         if blocked:
             errors.append(
@@ -2016,6 +2060,22 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 f"{', '.join(sorted(blocked))}；不得进入 FABE 推导"
             )
         referenced_facts = [facts_by_id[fact_id] for fact_id in referenced_fact_ids if fact_id in facts_by_id]
+        reference_fact_ids = set(item.get("reference_fact_ids") or [])
+        reference_facts = [facts_by_id[fact_id] for fact_id in reference_fact_ids if fact_id in facts_by_id]
+        reference_support_text = " ".join(
+            [str(fact.get("statement", "")) for fact in reference_facts]
+            + [
+                str(quote)
+                for fact in reference_facts
+                for quote in (fact.get("source_quotes") or [])
+            ]
+            + [
+                str(claims_by_id[claim_id].get("verbatim_text", ""))
+                for fact in reference_facts
+                for claim_id in (fact.get("claim_ids") or [])
+                if claim_id in claims_by_id
+            ]
+        )
         referenced_claims = [
             claims_by_id[claim_id]
             for fact in referenced_facts
@@ -2035,8 +2095,37 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in referenced_facts
         }
+        reference_units = semantic_reference_units(item.get("reference_frame", ""))
+        if (
+            reference_facts
+            and reference_units
+            and not reference_units.intersection(semantic_reference_units(reference_support_text))
+        ):
+            errors.append(
+                f"{fabe_id}.reference_frame 与所引 reference_fact_ids 无可核对语义交集；"
+                "必须引用本条参照实际使用的页面事实、用户证据或对照资料"
+            )
+        if item.get("derivation_status") == "page_supported":
+            direct_claim_text = normalized_literal_text(referenced_claim_text)
+            for key in ("advantage", "benefit"):
+                field_text = str(item.get(key, "")).strip()
+                inference_signal = PAGE_SUPPORTED_INFERENCE_RE.search(field_text)
+                if (
+                    inference_signal
+                    and normalized_literal_text(field_text) not in direct_claim_text
+                ):
+                    errors.append(
+                        f"{fabe_id} 标记 page_supported，但 {key} 含任务或场景推导“{inference_signal.group(0)}”，"
+                        "且所引原文未直接出现该完整表述；应改为 reasoned 并保留事实边界，"
+                        "或补充直接支持该表述的原文事实"
+                    )
+        if SELF_COMPARISON_REFERENCE_RE.search(str(item.get("reference_frame", ""))):
+            errors.append(
+                f"{fabe_id}.reference_frame 把当前商品自身写成比较对象；"
+                "应改写为当前操作任务，或引用真实页面对比、用户证据、竞品或行业对照"
+            )
         if USER_HABIT_REFERENCE_RE.search(str(item.get("reference_frame", ""))) and not any(
-            fact.get("fact_type") == "U" for fact in referenced_facts
+            fact.get("fact_type") == "U" for fact in reference_facts
         ):
             errors.append(
                 f"{fabe_id} 把用户旧习惯写成参照系，但未引用 U 用户证据；"
