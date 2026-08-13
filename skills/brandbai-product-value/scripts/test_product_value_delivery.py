@@ -2239,6 +2239,91 @@ def test_v020_field_binding_and_value_relevance_regressions(root: Path) -> None:
     write_jsonl(value_path, original_values)
 
 
+def test_v021_method_consistency_regressions(root: Path) -> None:
+    delivery = root / "v021-method-consistency"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    fabe_path = data / "fabe_ledger.jsonl"
+    original_chains = read_jsonl(fabe_path)
+    values_path = data / "value_ledger.jsonl"
+    original_values = read_jsonl(values_path)
+    decision_path = data / "p0_decision.json"
+    original_decision = read_json(decision_path)
+
+    values = [dict(value) for value in original_values]
+    values[2]["p0_candidate"] = True
+    values[2]["p0_status"] = "P0-CANDIDATE"
+    values[2]["cannot_prove"] = ["不能证明包装核对会成为优先购买理由"]
+    write_jsonl(values_path, values)
+    decision = dict(original_decision)
+    decision["candidate_value_ids"] = ["V-001", "V-002", "V-003"]
+    write_json(decision_path, decision)
+    p2_as_candidate = validate_delivery(delivery)
+    assert p2_as_candidate["status"] == "failed"
+    assert any("P2 信任或买前确认信息" in error for error in p2_as_candidate["errors"])
+    write_jsonl(values_path, original_values)
+    write_json(decision_path, original_decision)
+
+    decision = dict(original_decision)
+    decision["candidate_value_ids"] = ["V-001"]
+    write_json(decision_path, decision)
+    values = [dict(value) for value in original_values]
+    values[1]["p0_candidate"] = False
+    values[1]["p0_status"] = "not_applicable"
+    write_jsonl(values_path, values)
+    single_candidate = validate_delivery(delivery)
+    assert single_candidate["status"] == "failed"
+    assert any("至少需要两个不同的用户价值候选" in error for error in single_candidate["errors"])
+    write_jsonl(values_path, original_values)
+    write_json(decision_path, original_decision)
+
+    values = [dict(value) for value in original_values]
+    values[0]["value_statement"] = "让日常补水兼有清甘回甘，不依赖咖啡因，不必额外加料，并能续杯一整天。"
+    write_jsonl(values_path, values)
+    decision = dict(original_decision)
+    decision["current_execution_axis"] = "当前执行主轴调用：让日常补水兼有清甘回甘，不依赖咖啡因，不必额外加料，并能续杯一整天。"
+    write_json(decision_path, decision)
+    build_delivery(delivery, write=True)
+    overloaded_axis = validate_delivery(delivery)
+    assert overloaded_axis["status"] == "failed"
+    assert any("多个独立收益轴" in error for error in overloaded_axis["errors"])
+    assert any("逐字原文没有该主张" in error for error in overloaded_axis["errors"])
+    write_jsonl(values_path, original_values)
+    write_json(decision_path, original_decision)
+
+    for key, phrase in (
+        ("benefit", "使用同一规格即可，不必为不同场景准备不同形态的茶饮。"),
+        ("reference_frame", "本商品与未公开认证的差异。"),
+        ("reference_frame", "本商品与未公开营养表的差异。"),
+    ):
+        chains = [dict(chain) for chain in original_chains]
+        chains[0][key] = phrase
+        write_jsonl(fabe_path, chains)
+        build_delivery(delivery, write=True)
+        unsupported_reference = validate_delivery(delivery)
+        assert unsupported_reference["status"] == "failed"
+        assert any("无来源的产品替代对象" in error for error in unsupported_reference["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    assert public_text("页内字段较小，列入 F-009 待复核") == "页内字段较小，列入待复核项"
+    assert public_text("该冲突在 GAP-001 留档") == "该冲突已留档"
+    assert public_text("相关规格在 GAP-001 留档待实物复核") == "相关规格已留档，等待实物复核"
+    assert public_text("当前边界；详") == "当前边界"
+
+    manifest_path = data / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest["sku_basis"] = "页面小字不可识别，列入 待复核"
+    write_json(manifest_path, manifest)
+    client_fragment = validate_delivery(delivery)
+    assert client_fragment["status"] == "failed"
+    assert any("客户残句" in error for error in client_fragment["errors"])
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -2294,6 +2379,7 @@ def main() -> int:
         test_v018_final_acceptance_regressions(root)
         test_v019_reference_and_derivation_regressions(root)
         test_v020_field_binding_and_value_relevance_regressions(root)
+        test_v021_method_consistency_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
