@@ -1,4 +1,4 @@
 interface:
   display_name: "BrandBAI 天猫／淘宝下载"
-  short_description: "独立下载商品资料、全部评价或问大家，生成 ZIP 交付"
-  default_prompt: "使用 $brandbai-tmall-download，按用户选择独立下载商品资料包、全部评价或问大家，并生成可回溯普通版 Excel 与 ZIP。"
+  short_description: "下载商品模块、结构化价格、评价与问大家并生成 ZIP 交付"
+  default_prompt: "使用 $brandbai-tmall-download，按用户选择下载商品模块、评价或问大家，并生成含完整性状态的 Excel 与 ZIP。"

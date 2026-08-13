@@ -3,16 +3,16 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import tempfile
 import unittest
 from pathlib import Path
 
 from run_foundation import main
+from test_support import workspace_temp
 
 
 class RunFoundationTests(unittest.TestCase):
     def test_dry_run_normalizes_targets_without_opening_browser(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp:
+        with workspace_temp() as temp:
             base = Path(temp)
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
@@ -34,7 +34,7 @@ class RunFoundationTests(unittest.TestCase):
             self.assertFalse((base / "delivery").exists())
 
     def test_profile_cannot_be_inside_delivery(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp:
+        with workspace_temp() as temp:
             out = Path(temp) / "delivery"
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 code = main([
@@ -45,7 +45,7 @@ class RunFoundationTests(unittest.TestCase):
             self.assertEqual(code, 2)
 
     def test_questions_dry_run_has_independent_delivery_scope(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp:
+        with workspace_temp() as temp:
             base = Path(temp)
             output = io.StringIO()
             with contextlib.redirect_stdout(output):

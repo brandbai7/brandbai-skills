@@ -21,26 +21,37 @@ from collector_core import (
     CollectionError,
     RunManifest,
     atomic_write_json,
+    canonical_image_asset_key,
     canonical_item_url,
     choose_review_status,
+    choose_product_completion_state,
     dedupe_preserve_order,
     derived_answer_id,
     derived_question_id,
     derived_review_id,
     extract_item_id,
+    image_is_usable,
+    image_content_status,
+    is_platform_notice_image_url,
+    media_request_url,
     navigation_item_url,
+    normalize_price_candidates,
+    is_usable_sku_option,
     normalize_item_targets,
     pseudonymize_author,
     pseudonymize_qa_author,
     read_jsonl_ids,
     safe_filename,
     sanitize_media_url,
+    sanitize_transient_video_url,
+    sku_mapping_status,
+    sku_parameter_warnings,
     utc_now,
 )
 
 
 PRODUCT_SCRIPT = r"""
-() => {
+(requestedModules = ['overview']) => {
   const visible = (el) => {
     if (!el) return false;
     const rect = el.getBoundingClientRect();
@@ -48,9 +59,68 @@ PRODUCT_SCRIPT = r"""
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const modules = new Set(requestedModules || ['overview']);
+  const includeMainImages = modules.has('overview') || modules.has('main_images');
+  const includeDetailImages = modules.has('detail_images');
+  const includeVideo = modules.has('overview') || modules.has('video');
+  const recommendationLabels = new Set(['看了又看','猜你喜欢','相关推荐','更多推荐','更多宝贝']);
+  const pageTop = (element) => element?.getBoundingClientRect ? element.getBoundingClientRect().top + window.scrollY : Number.POSITIVE_INFINITY;
   const leafText = (root = document) => [...root.querySelectorAll('*')]
     .filter((el) => visible(el) && el.children.length === 0 && clean(el.textContent))
     .map((el) => ({el, text: clean(el.textContent)}));
+  const exactVisibleText = (label) => [...document.querySelectorAll('*')]
+    .filter((element) => visible(element) && clean(element.textContent) === label);
+  const headingModuleRoot = (label) => {
+    const candidates = exactVisibleText(label).map((element) => element.closest('[class*="tabDetailItem--"],section,[class*="module" i],[class*="detailContent" i]')).filter(Boolean);
+    return candidates.sort((left, right) => right.querySelectorAll('img').length - left.querySelectorAll('img').length)[0] || null;
+  };
+  const moduleRoots = {
+    main: document.querySelector('[class*="picGallery--"],[class*="galleryWrap" i],[class*="mainPic" i]'),
+    parameters: document.querySelector('[class*="paramsInfoArea"]') || headingModuleRoot('参数信息'),
+    detail: headingModuleRoot('图文详情')
+  };
+  const imageCandidates = (image) => {
+    const srcset = clean(image?.getAttribute?.('srcset')).split(',').map((part) => clean(part).split(/\s+/)[0]).filter(Boolean);
+    return [...new Set([
+      image?.getAttribute?.('data-src'), image?.getAttribute?.('data-original'), image?.getAttribute?.('data-ks-lazyload'),
+      image?.getAttribute?.('data-lazyload'), ...srcset.reverse(), image?.currentSrc, image?.src
+    ].filter(Boolean))].filter((src) => /^(https?:)?\/\/(?:img|gw)\.alicdn\.com\//i.test(src));
+  };
+  const collectModuleImages = (root, kind) => root ? [...root.querySelectorAll('img')].map((img, index) => {
+    const rect = img.getBoundingClientRect();
+    return {
+      index, src: imageCandidates(img)[0] || '', kind,
+      width: Math.max(Number(img.naturalWidth || 0), Number(img.getAttribute('width') || 0), Math.round(rect.width || 0)),
+      height: Math.max(Number(img.naturalHeight || 0), Number(img.getAttribute('height') || 0), Math.round(rect.height || 0)),
+      context: clean(root.textContent).slice(0, 120)
+    };
+  }).filter((row) => row.src) : [];
+  const detailStartTop = () => {
+    const values = leafText().filter((row) => row.text === '图文详情').map((row) => pageTop(row.el)).filter(Number.isFinite);
+    return values.length ? Math.min(...values) : Number.POSITIVE_INFINITY;
+  };
+  const recommendationBoundaryTop = (afterTop = 0) => {
+    const values = leafText().filter((row) => recommendationLabels.has(row.text)).map((row) => pageTop(row.el))
+      .filter((top) => Number.isFinite(top) && top > afterTop + 240);
+    return values.length ? Math.min(...values) : Number.POSITIVE_INFINITY;
+  };
+  const isInsideRecommendationSurface = (element) => {
+    if (!element?.closest) return false;
+    if (element.closest('[class*="recommend" i],[class*="tb-pick" i],[class*="feeds" i],[class*="guess" i],[class*="waterfall" i],[class*="hotSell" i],[data-spm*="recommend" i],[data-spm*="rec" i]')) return true;
+    const detailTop = detailStartTop();
+    const boundary = recommendationBoundaryTop(Number.isFinite(detailTop) ? detailTop : 0);
+    return Number.isFinite(boundary) && pageTop(element) >= boundary;
+  };
+  const isCurrentProductTradeElement = (element) => {
+    if (!element?.closest) return false;
+    if (element.closest('a[href*="item.htm"],a[href*="detail.tmall.com"]') || isInsideRecommendationSurface(element)) return false;
+    if (element.closest('[class*="rightWrap--"],[class*="ItemHeadFixed--"],[class*="skuContent--"],[class*="buyBtn--"]')) return true;
+    if (element.closest('[class*="detail" i],[class*="desc" i]')) return false;
+    const top = pageTop(element);
+    const detailTop = detailStartTop();
+    const recommendationTop = recommendationBoundaryTop(Number.isFinite(detailTop) ? detailTop : 0);
+    return top < Math.min(2200, detailTop, recommendationTop);
+  };
   const leaves = leafText();
   const titleFromDocument = clean(document.title).replace(/[-_]tmall\.com.*$/i, '').replace(/-天猫.*$/i, '');
   const titleCandidates = [...document.querySelectorAll('h1,[class*="title" i],[class*="Title"]')]
@@ -59,9 +129,17 @@ PRODUCT_SCRIPT = r"""
   const itemId = new URL(location.href).searchParams.get('id') || document.querySelector('[data-item]')?.getAttribute('data-item') || '';
   const skuId = new URL(location.href).searchParams.get('skuId') || '';
 
-  const shopLinks = [...document.querySelectorAll('a[href]')].filter(visible).map((el) => ({
-    text: clean(el.textContent), href: el.href ? el.href.split('?')[0].split('#')[0] : ''
-  })).filter((row) => row.text && row.text.length <= 60 && /(旗舰店|专卖店|专营店|企业店|官方店)/.test(row.text));
+  const shopBoundary = Math.min(detailStartTop(), 2200);
+  const shopLinks = leaves.filter((row) => /^.{1,36}(?:旗舰店|专卖店|专营店|企业店|官方店)$/.test(row.text)
+    && pageTop(row.el) < shopBoundary && !isInsideRecommendationSurface(row.el)).map((row) => {
+    const link = row.el.closest('a[href]');
+    const trail = [row.el, row.el.parentElement, row.el.parentElement?.parentElement]
+      .map((el) => typeof el?.className === 'string' ? el.className : '').join(' ');
+    const href = link?.href ? link.href.split('?')[0].split('#')[0] : '';
+    const score = (/(?:shop|store|seller)/i.test(trail) ? 4 : 0) + (/(?:shop|store)/i.test(href) ? 3 : 0)
+      + (isCurrentProductTradeElement(row.el) ? 2 : 0) - Math.min(2, pageTop(row.el) / 1000);
+    return {text: row.text, href, score};
+  }).sort((left, right) => right.score - left.score);
 
   const labelValue = (label) => {
     const node = leaves.find((row) => row.text === label)?.el;
@@ -80,36 +158,91 @@ PRODUCT_SCRIPT = r"""
   ];
   const parameters = parameterLabels.map((label) => ({name: label, value: labelValue(label)})).filter((row) => row.value);
 
-  const skuRoots = leaves.filter((row) => /^(套餐类型|颜色分类|口味|规格|净含量|尺寸|款式|型号)$/.test(row.text)
+  const skuRoots = leaves.filter((row) => /^(套餐类型|套餐|颜色分类|颜色|食品口味|口味|香味|商品规格|产品规格|规格|包装规格|净含量|尺寸|款式|型号|版本|数量组合|组合|适用阶段|尺码)$/.test(row.text)
     && row.el.closest('[class*="skuItem" i],[class*="labelWrap" i]'));
   const skuGroups = skuRoots.map(({el, text}) => {
     const root = el.closest('[class*="skuItemClip" i],[class*="skuItem" i]') || el.parentElement?.parentElement;
     const valueNodes = [...(root || el.parentElement).querySelectorAll('[class*="valueItemText--"]')].filter(visible);
     const values = (valueNodes.length ? valueNodes.map((node) => clean(node.textContent)) : leafText(root || el.parentElement).map((row) => row.text))
-      .filter((value) => value !== text && value.length <= 80 && !/^(¥|￥|[-+]|数量|有货|无货)$/.test(value));
+      .filter((value) => value !== text && value.length <= 80
+        && !/^(?:[¥￥]?\d+(?:\.\d{1,2})?|[-+]|数量|有货|无货|已选)$/.test(value)
+        && !/(?:点击查看大图|查看大图|查看详情|展开|收起|加入会员|开通会员|会员权益|立即领取|领取优惠|领券|加购|购物车|客服|咨询|分享)/.test(value));
     const selected = valueNodes.find((node) => node.closest('[class*="isSelected--"]'));
     return {name: text, values: [...new Set(values)].slice(0, 40), selected_value: clean(selected?.textContent)};
   }).filter((group) => group.values.length);
 
-  const priceTexts = leaves.map((row) => row.text).filter((text) => /^(¥|￥)?\s*\d+(?:\.\d{1,2})?$/.test(text)).slice(0, 20);
-  const salesTexts = leaves.map((row) => row.text).filter((text) => /(?:已售|月销|付款|销量)\s*[0-9.万+]+/.test(text)).slice(0, 12);
-  const stockTexts = leaves.map((row) => row.text).filter((text) => /^(有货|无货|库存\s*\d+.*)$/.test(text)).slice(0, 10);
+  const priceRoots = [...document.querySelectorAll('[class*="price" i],[id*="price" i],[class*="trade" i]')].filter(visible);
+  const isProductTradePriceElement = (element) => {
+    return isCurrentProductTradeElement(element)
+      && Boolean(element.closest('[class*="highlightPrice--"],[class*="normalPrice--"],[class*="beltPrice--"],[class*="priceWrap--"]'));
+  };
+  const priceLeaves = leaves.filter((item) => {
+    const pageTop = item.el.getBoundingClientRect().top + window.scrollY;
+    if (pageTop > 2200 && !isProductTradePriceElement(item.el)) return false;
+    return /^(?:平台加补后|到手价|券后价|店铺优惠后|补贴后|活动价|促销价|售价|现价|价格|优惠前|原价|划线价)$/.test(item.text)
+      || (item.text.length <= 80 && /[¥￥]\s*\d/.test(item.text));
+  });
+  for (const row of priceLeaves) {
+    let current = row.el;
+    for (let depth = 0; current && depth < 5; depth += 1, current = current.parentElement) {
+      const text = clean(current.textContent);
+      if (text.length <= 160 && /\d/.test(text)
+        && (/[¥￥]/.test(text) || /(?:平台加补后|到手价|券后价|店铺优惠后|补贴后|活动价|促销价|售价|现价|价格|优惠前|原价|划线价)/.test(text))) {
+        priceRoots.push(current);
+        break;
+      }
+    }
+  }
+  const priceCandidates = [];
+  const seenPrices = new Set();
+  for (const root of priceRoots) {
+    const pageTop = root.getBoundingClientRect().top + window.scrollY;
+    const productScope = isProductTradePriceElement(root);
+    if (pageTop > 2200 && !productScope) continue;
+    const text = clean(root.textContent);
+    if (!text || text.length > 160 || !/\d/.test(text)) continue;
+    if (!/[¥￥]/.test(text) && !/(?:到手价|券后价|活动价|促销价|售价|现价|价格|优惠前|原价|店铺优惠后|补贴后)/.test(text)) continue;
+    const context = clean(root.parentElement?.textContent).slice(0, 160);
+    const key = `${text}:${context}`;
+    if (seenPrices.has(key)) continue;
+    seenPrices.add(key);
+    priceCandidates.push({text, context, page_top: Math.round(pageTop), product_scope: productScope});
+  }
+  const tradeLeaves = leaves.filter((row) => isCurrentProductTradeElement(row.el));
+  const salesTexts = tradeLeaves.map((row) => row.text).filter((text) => /(?:已售|月销|付款|销量)\s*[0-9.万+]+/.test(text)).slice(0, 12);
+  const stockTexts = tradeLeaves.map((row) => row.text).filter((text) => /^(有货|无货|库存\s*\d+.*)$/.test(text)).slice(0, 10);
 
-  const images = [...document.querySelectorAll('img')].filter(visible).map((img, index) => {
-    const src = img.currentSrc || img.src || '';
-    const rect = img.getBoundingClientRect();
-    const classTrail = [img, img.parentElement, img.parentElement?.parentElement, img.parentElement?.parentElement?.parentElement,
-      img.parentElement?.parentElement?.parentElement?.parentElement]
-      .map((el) => typeof el?.className === 'string' ? el.className : '').join(' ');
-    const context = clean(img.closest('[class*="detail" i],[class*="gallery" i],main,section')?.textContent).slice(0, 120);
-    let kind = 'other';
-    if (/(?:thumbnailPic|mainPic|picGallery|thumbnailsWrap)/i.test(classTrail) && img.naturalWidth >= 300) kind = 'main_image';
-    else if (/(?:desc-root|descV8|imageTextInfo|detailContent)/i.test(classTrail) && img.naturalWidth >= 300) kind = 'detail_image';
-    return {index, src, kind, width: img.naturalWidth || Math.round(rect.width), height: img.naturalHeight || Math.round(rect.height), context};
-  }).filter((row) => /^(https?:)?\/\/(img|gw)\.alicdn\.com\//i.test(row.src) && row.kind !== 'other');
+  const images = [
+    ...(includeMainImages ? collectModuleImages(moduleRoots.main, 'main_image') : []),
+    ...(includeDetailImages ? collectModuleImages(moduleRoots.detail, 'detail_image') : [])
+  ];
 
-  const videoUrls = [...document.querySelectorAll('video,video source')].map((el) => el.currentSrc || el.src || el.getAttribute('src') || '')
-    .filter((src) => /^(https?:)?\/\/(cloud\.video\.taobao\.com|video\.alicdn\.com)\//i.test(src));
+  const directVideoValues = [];
+  for (const el of document.querySelectorAll('video,video source,[data-video-url],[data-play-url],[data-video-src],[src*="video.alicdn.com"],[src*="cloud.video.taobao.com"],[src*="tbm-auth.alicdn.com"],[data-src*="video.alicdn.com"],[data-src*="cloud.video.taobao.com"],[data-src*="tbm-auth.alicdn.com"]')) {
+    directVideoValues.push(el.currentSrc, el.src);
+    for (const name of ['src','data-src','data-url','data-video-url','data-play-url','data-video-src']) directVideoValues.push(el.getAttribute?.(name));
+  }
+  let scanned = 0;
+  const inlinePattern = /https?:\\?\/\\?\/(?:cloud\.video\.taobao\.com|video\.alicdn\.com|tbm-auth\.alicdn\.com)[^"'<>\s\\]+/gi;
+  for (const script of document.querySelectorAll('script:not([src])')) {
+    const text = String(script.textContent || '');
+    if (!text || scanned >= 8000000) break;
+    const slice = text.slice(0, Math.max(0, 8000000 - scanned));
+    scanned += slice.length;
+    for (const match of slice.matchAll(inlinePattern)) directVideoValues.push(match[0].replace(/\\u002[fF]/g, '/').replace(/\\\//g, '/'));
+  }
+  const videoUrls = includeVideo ? [...new Set(directVideoValues.filter((src) => /^(https:)?\/\/(?:cloud\.video\.taobao\.com|video\.alicdn\.com|tbm-auth\.alicdn\.com)\//i.test(src)
+    && !/\.(?:m3u8|ts)(?:$|[?#])/i.test(src)))] : [];
+  const players = [...document.querySelectorAll('video')].filter((video) => pageTop(video) < Math.min(detailStartTop(), 2000) && !isInsideRecommendationSurface(video));
+  const blobPlayers = players.filter((video) => String(video.currentSrc || video.src || '').startsWith('blob:'));
+  const videoProbeStatus = videoUrls.length ? 'direct_candidate_found' : blobPlayers.length ? 'blob_player_without_direct_file'
+    : players.length ? 'player_present_no_direct_source' : 'no_player_observed';
+
+  const moduleStates = {};
+  if (modules.has('product_data') || modules.has('overview')) moduleStates.product_data = {status: title && (parameters.length || skuGroups.length) ? 'observed' : title ? 'partial' : 'not_observed', count: parameters.length + skuGroups.length};
+  if (includeMainImages) moduleStates.main_images = {status: moduleRoots.main && images.some((row) => row.kind === 'main_image') ? 'observed' : moduleRoots.main ? 'partial' : 'not_observed', count: images.filter((row) => row.kind === 'main_image').length};
+  if (includeDetailImages) moduleStates.detail_images = {status: moduleRoots.detail && images.some((row) => row.kind === 'detail_image') ? 'observed' : moduleRoots.detail ? 'partial' : 'not_observed', count: images.filter((row) => row.kind === 'detail_image').length};
+  if (modules.has('video')) moduleStates.video = {status: videoUrls.length || videoProbeStatus !== 'no_player_observed' ? 'observed' : 'not_observed', count: videoUrls.length};
 
   return {
     item_id: itemId,
@@ -119,12 +252,102 @@ PRODUCT_SCRIPT = r"""
     parameters,
     sku_groups: skuGroups,
     snapshot: {
-      price_texts: [...new Set(priceTexts)],
+      price_candidates: priceCandidates.slice(0, 24),
       sales_texts: [...new Set(salesTexts)],
       stock_texts: [...new Set(stockTexts)]
     },
-    media: {images, videos: [...new Set(videoUrls)]}
+    media: {images, videos: videoUrls},
+    video_probe: {status: videoProbeStatus, player_count: players.length, blob_player_count: blobPlayers.length, candidate_count: videoUrls.length},
+    module_states: moduleStates
   };
+}
+"""
+
+
+DETAIL_MODULE_LOAD_SCRIPT = r"""
+async () => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const visible = (element) => {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+  const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const pageTop = (element) => element?.getBoundingClientRect
+    ? element.getBoundingClientRect().top + window.scrollY
+    : Number.POSITIVE_INFINITY;
+  const recommendationLabels = new Set(['看了又看','猜你喜欢','相关推荐','更多推荐','更多宝贝']);
+  const leafText = (root = document) => [...root.querySelectorAll('*')]
+    .filter((element) => visible(element) && element.children.length === 0 && clean(element.textContent))
+    .map((element) => ({element, text: clean(element.textContent)}));
+  const exactVisibleText = (label) => [...document.querySelectorAll('*')]
+    .filter((element) => visible(element) && clean(element.textContent) === label);
+  const headingModuleRoot = (label) => {
+    const candidates = exactVisibleText(label).map((element) => element.closest(
+      '[class*="tabDetailItem--"],section,[class*="module" i],[class*="detailContent" i]'
+    )).filter(Boolean);
+    return candidates.sort((left, right) => right.querySelectorAll('img').length - left.querySelectorAll('img').length)[0] || null;
+  };
+  const recommendationBoundaryTop = (afterTop = 0) => {
+    const values = leafText().filter((row) => recommendationLabels.has(row.text))
+      .map((row) => pageTop(row.element))
+      .filter((top) => Number.isFinite(top) && top > afterTop + 240);
+    return values.length ? Math.min(...values) : Number.POSITIVE_INFINITY;
+  };
+  const imageSignature = (root) => [...root.querySelectorAll('img')].map((image) => [
+    image.getAttribute('data-src'), image.getAttribute('data-original'), image.getAttribute('data-ks-lazyload'),
+    image.getAttribute('data-lazyload'), image.currentSrc, image.src
+  ].map(clean).find(Boolean) || '').filter(Boolean).join('|');
+
+  const originalScrollY = window.scrollY;
+  let result = {steps: 0, status: 'detail_module_not_observed', position_restored: false};
+  try {
+    let root = headingModuleRoot('图文详情');
+    if (root) {
+      let steps = 0;
+      let stableRounds = 0;
+      let previousSignature = '';
+      window.scrollTo({top: Math.max(0, pageTop(root) - 120), behavior: 'instant'});
+      await wait(360);
+
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        root = headingModuleRoot('图文详情');
+        if (!root) break;
+        const signature = imageSignature(root);
+        stableRounds = signature && signature === previousSignature ? stableRounds + 1 : 0;
+        previousSignature = signature;
+
+        const rootTop = pageTop(root);
+        const rootRect = root.getBoundingClientRect();
+        const detailRootBottom = rootTop + Math.max(Number(rootRect.height || 0), Number(root.scrollHeight || 0));
+        const recommendationTop = recommendationBoundaryTop(rootTop);
+        const boundedBottom = Math.min(detailRootBottom, recommendationTop);
+        const lastSafeScrollY = Math.max(rootTop, boundedBottom - Math.max(180, window.innerHeight * 0.55));
+        if (window.scrollY >= lastSafeScrollY - 32 && stableRounds >= 2) break;
+
+        const nextScrollY = Math.min(lastSafeScrollY, window.scrollY + Math.max(520, window.innerHeight * 0.72));
+        if (nextScrollY <= window.scrollY + 8) {
+          if (stableRounds >= 2) break;
+          await wait(240);
+          continue;
+        }
+        window.scrollTo({top: nextScrollY, behavior: 'instant'});
+        steps += 1;
+        await wait(320);
+      }
+      result = {
+        steps,
+        status: previousSignature ? 'detail_module_observed' : 'partial_detail_images_not_observed',
+        position_restored: false
+      };
+    }
+  } finally {
+    window.scrollTo({top: originalScrollY, behavior: 'instant'});
+    await wait(80);
+  }
+  result.position_restored = Math.abs(window.scrollY - originalScrollY) <= 8;
+  return result;
 }
 """
 
@@ -225,18 +448,33 @@ def normalize_assets(value: str) -> list[str]:
 
 
 def _extension_from_response(clean_url: str, content_type: str, kind: str) -> str:
+    type_name = (content_type or "").split(";", 1)[0].strip().lower()
+    by_type = {
+        "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
+        "image/webp": ".webp", "image/avif": ".avif", "image/gif": ".gif",
+        "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+    }
+    if type_name in by_type:
+        return by_type[type_name]
     suffix = Path(urlparse(clean_url).path).suffix.lower()
     if suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov"}:
         return ".jpg" if suffix == ".jpeg" else suffix
-    guessed = mimetypes.guess_extension((content_type or "").split(";")[0].strip()) or ""
+    guessed = mimetypes.guess_extension(type_name) or ""
     if guessed == ".jpe":
         guessed = ".jpg"
     return guessed or (".mp4" if kind == "video" else ".bin")
 
 
 def download_asset(context: Any, source_url: str, target_base: Path, *, kind: str, max_bytes: int) -> dict[str, Any]:
-    clean_url, redacted = sanitize_media_url(source_url, kind=kind)
-    response = context.request.get(source_url, timeout=90_000)
+    try:
+        clean_url, redacted = sanitize_media_url(source_url, kind=kind)
+        request_url = media_request_url(source_url, kind=kind)
+    except CollectionError:
+        if kind != "video":
+            raise
+        clean_url, redacted = sanitize_transient_video_url(source_url)
+        request_url = source_url
+    response = context.request.get(request_url, timeout=90_000)
     if not response.ok:
         raise CollectionError(f"Asset request returned HTTP {response.status}")
     body = response.body()
@@ -259,6 +497,37 @@ def download_asset(context: Any, source_url: str, target_base: Path, *, kind: st
     }
 
 
+def _merge_product_module_raw(base: dict[str, Any], incoming: dict[str, Any], module: str) -> dict[str, Any]:
+    """Merge one independently observed product surface without erasing prior surfaces."""
+    if not base:
+        base = {
+            **incoming,
+            "media": {"images": [], "videos": []},
+            "module_states": {},
+        }
+    if str(base.get("item_id") or incoming.get("item_id") or "") != str(incoming.get("item_id") or ""):
+        raise CollectionError("Product modules cannot be merged across item IDs")
+    if module == "product_data":
+        preserved_media = base.get("media") or {"images": [], "videos": []}
+        preserved_states = base.get("module_states") or {}
+        base.update(incoming)
+        base["media"] = preserved_media
+        base["module_states"] = preserved_states
+    images = list((base.get("media") or {}).get("images") or [])
+    incoming_images = list((incoming.get("media") or {}).get("images") or [])
+    if module == "main_images":
+        images = [row for row in images if row.get("kind") != "main_image"] + [row for row in incoming_images if row.get("kind") == "main_image"]
+    elif module == "detail_images":
+        images = [row for row in images if row.get("kind") != "detail_image"] + [row for row in incoming_images if row.get("kind") == "detail_image"]
+    videos = list((base.get("media") or {}).get("videos") or [])
+    if module == "video":
+        videos = list((incoming.get("media") or {}).get("videos") or [])
+        base["video_probe"] = incoming.get("video_probe") or {}
+    base["media"] = {"images": images, "videos": videos}
+    base.setdefault("module_states", {}).update(incoming.get("module_states") or {})
+    return base
+
+
 def collect_product(page: Any, context: Any, source_url: str, out: Path, assets: list[str], max_asset_bytes: int) -> dict[str, Any]:
     item_id = extract_item_id(source_url)
     canonical_url = canonical_item_url(source_url)
@@ -268,39 +537,64 @@ def collect_product(page: Any, context: Any, source_url: str, out: Path, assets:
     page.wait_for_timeout(3_000)
     if any(page.get_by_text(label, exact=False).count() for label in ["滑动验证", "安全验证", "请完成验证"]):
         raise CollectionError("Tmall requires manual verification in the visible Chrome window")
-    # Trigger ordinary lazy loading without reading hidden browser state.
-    try:
-        detail = page.get_by_text("图文详情", exact=True).first
-        if detail.count():
-            detail.scroll_into_view_if_needed(timeout=10_000)
-            page.wait_for_timeout(1_000)
-        height = min(int(page.evaluate("() => document.documentElement.scrollHeight")), 60_000)
-        for position in range(0, height, 1_200):
-            page.evaluate("(top) => window.scrollTo({top, behavior: 'instant'})", position)
-            page.wait_for_timeout(120)
-        page.evaluate("() => window.scrollTo({top: 0, behavior: 'instant'})")
-        page.wait_for_timeout(500)
-    except Exception:
-        pass
-    raw = page.evaluate(PRODUCT_SCRIPT)
+    requested_modules = ["product_data"]
+    if "main_images" in assets:
+        requested_modules.append("main_images")
+    if "detail_images" in assets:
+        requested_modules.append("detail_images")
+    if "video" in assets:
+        requested_modules.append("video")
+    raw: dict[str, Any] = {}
+    module_failures: list[dict[str, str]] = []
+    detail_load: dict[str, Any] = {"steps": 0, "status": "not_requested", "position_restored": True}
+    for module in requested_modules:
+        try:
+            if module == "detail_images":
+                detail_load = page.evaluate(DETAIL_MODULE_LOAD_SCRIPT) or {
+                    "steps": 0,
+                    "status": "partial_detail_images_not_observed",
+                    "position_restored": None,
+                }
+            module_raw = page.evaluate(PRODUCT_SCRIPT, [module])
+            raw = _merge_product_module_raw(raw, module_raw, module)
+        except Exception as exc:
+            module_failures.append({"module": module, "error": type(exc).__name__})
+            raw.setdefault("module_states", {})[module] = {"status": "failed", "count": 0}
+            if module == "detail_images":
+                detail_load = {
+                    "steps": int(detail_load.get("steps") or 0),
+                    "status": "detail_module_load_failed",
+                    "position_restored": None,
+                }
     if not str(raw.get("title") or "").strip():
         raise CollectionError("No visible product title was found")
 
     # Product video sources often appear only after the normal visible tab is selected.
     if "video" in assets and not raw.get("media", {}).get("videos"):
+        page.eval_on_selector_all(
+            "video", "els => els.forEach(el => { el.muted = true; el.play().catch(() => {}); })"
+        )
+        page.wait_for_timeout(1_200)
+        refreshed = page.evaluate(PRODUCT_SCRIPT, ["video"])
+        raw["video_probe"] = refreshed.get("video_probe", raw.get("video_probe", {}))
+        raw.setdefault("media", {}).setdefault("videos", []).extend(refreshed.get("media", {}).get("videos", []))
+        raw.setdefault("module_states", {}).update(refreshed.get("module_states") or {})
         candidates = page.get_by_text("视频", exact=True)
-        for index in range(min(candidates.count(), 8)):
+        for index in (range(min(candidates.count(), 8)) if not raw.get("media", {}).get("videos") else []):
             candidate = candidates.nth(index)
             try:
                 box = candidate.bounding_box()
                 if box and box["y"] < 1_100 and box["x"] < 1_200:
                     candidate.click(timeout=5_000)
                     page.wait_for_timeout(1_200)
-                    video_urls = page.eval_on_selector_all(
-                        "video,video source",
-                        "els => [...new Set(els.map(el => el.currentSrc || el.src || el.getAttribute('src') || '').filter(Boolean))]",
+                    page.eval_on_selector_all(
+                        "video", "els => els.forEach(el => { el.muted = true; el.play().catch(() => {}); })"
                     )
-                    raw.setdefault("media", {}).setdefault("videos", []).extend(video_urls)
+                    page.wait_for_timeout(900)
+                    refreshed = page.evaluate(PRODUCT_SCRIPT, ["video"])
+                    raw["video_probe"] = refreshed.get("video_probe", raw.get("video_probe", {}))
+                    raw.setdefault("media", {}).setdefault("videos", []).extend(refreshed.get("media", {}).get("videos", []))
+                    raw.setdefault("module_states", {}).update(refreshed.get("module_states") or {})
                     break
             except Exception:
                 continue
@@ -310,38 +604,95 @@ def collect_product(page: Any, context: Any, source_url: str, out: Path, assets:
     raw["canonical_url"] = canonical_url
     raw["source_page_type"] = "tmall_item" if "tmall.com" in canonical_url else "taobao_item"
     raw["collected_at"] = utc_now()
+    raw.setdefault("snapshot", {})
     raw["snapshot"]["observed_at"] = raw["collected_at"]
     raw["snapshot"]["selected_sku_id"] = raw.get("selected_sku_id") or ""
+    price_entries = normalize_price_candidates(raw["snapshot"].pop("price_candidates", []))
+    raw["snapshot"]["price_entries"] = price_entries
+    raw["snapshot"]["price_texts"] = [row["text"] for row in price_entries if row["role"] != "benefit_amount"]
+    raw["snapshot"]["benefit_texts"] = [row["text"] for row in price_entries if row["role"] == "benefit_amount"]
+    raw["snapshot"]["price_status"] = (
+        "observed_structured" if raw["snapshot"]["price_texts"] else "not_reliably_observed"
+    )
+    raw["sku_groups"] = [
+        {
+            **group,
+            "values": [value for value in (group.get("values") or []) if is_usable_sku_option(value)],
+        }
+        for group in (raw.get("sku_groups") or [])
+        if isinstance(group, dict)
+    ]
+    raw["sku_groups"] = [group for group in raw["sku_groups"] if group.get("name") and group.get("values")]
+    raw["selected_sku_snapshot"] = [
+        {"name": str(group.get("name") or ""), "value": str(group.get("selected_value") or "")}
+        for group in raw["sku_groups"] if str(group.get("selected_value") or "").strip()
+    ]
+    raw["parameter_scope_status"] = (
+        "page_level_not_confirmed_for_selected_sku" if raw.get("parameters") else "not_observed"
+    )
+    raw["parameter_warnings"] = sku_parameter_warnings(raw["selected_sku_snapshot"], raw.get("parameters") or [])
+    raw["sku_mapping_status"] = sku_mapping_status(raw.get("selected_sku_id"), raw.get("sku_groups") or [])
+    detail_status = str((raw.get("module_states") or {}).get("detail_images", {}).get("status") or "not_requested")
+    raw["detail_load_state"] = "detail_module_observed" if detail_status == "observed" else (
+        "partial_detail_images_not_observed" if "detail_images" in assets else "not_requested"
+    )
+    raw["detail_load_steps"] = max(0, int(detail_load.get("steps") or 0))
+    raw["detail_scroll_restored"] = detail_load.get("position_restored")
+    raw["module_failures"] = module_failures
     raw["media_records"] = []
 
     media_root = out / "03_商品素材" / safe_filename(raw.get("title") or "", fallback=item_id)
     counters = {"main_image": 0, "detail_image": 0, "video": 0}
     requested_map = {"main_image": "main_images", "detail_image": "detail_images", "video": "video"}
-    observed: list[tuple[str, str]] = []
+    observed: list[tuple[str, str, dict[str, Any]]] = []
     for image in raw.get("media", {}).get("images", []):
-        observed.append((str(image.get("kind") or ""), str(image.get("src") or "")))
+        observed.append((str(image.get("kind") or ""), str(image.get("src") or ""), image))
     for video in raw.get("media", {}).get("videos", []):
-        observed.append(("video", str(video or "")))
+        observed.append(("video", str(video or ""), {}))
 
     seen_urls: set[str] = set()
-    for kind, source in observed:
+    excluded_count = 0
+    for kind, source, metadata in observed:
         requested = requested_map.get(kind)
         if not source or not requested:
             continue
+        page_order = max(1, int(metadata.get("index") or 0) + 1) if kind != "video" else counters[kind] + 1
         try:
             clean_url, redacted = sanitize_media_url(source, kind="video" if kind == "video" else "image")
         except CollectionError:
+            if kind != "video":
+                continue
+            try:
+                clean_url, redacted = sanitize_transient_video_url(source)
+            except CollectionError:
+                continue
+        if kind != "video" and not image_is_usable(metadata.get("width"), metadata.get("height"), kind, source):
+            excluded_count += 1
+            raw["media_records"].append({
+                "asset_id": f"tmall:{item_id}:{kind}:excluded-{excluded_count:03d}",
+                "item_id": item_id,
+                "kind": kind,
+                "order": page_order,
+                "download_order": 0,
+                "source_url": clean_url,
+                "source_url_query_redacted": redacted,
+                "status": "excluded_not_product_content" if is_platform_notice_image_url(source) else "excluded_quality",
+                "reason": "platform_notice_not_product_content" if is_platform_notice_image_url(source) else "image_quality_guard",
+                "file": "",
+            })
             continue
-        if clean_url in seen_urls:
+        media_key = canonical_image_asset_key(source) if kind != "video" else clean_url
+        if media_key in seen_urls:
             continue
-        seen_urls.add(clean_url)
+        seen_urls.add(media_key)
         counters[kind] += 1
         folder = {"main_image": "主图", "detail_image": "详情图", "video": "视频"}[kind]
         record: dict[str, Any] = {
             "asset_id": f"tmall:{item_id}:{kind}:{counters[kind]:03d}",
             "item_id": item_id,
             "kind": kind,
-            "order": counters[kind],
+            "order": page_order,
+            "download_order": counters[kind],
             "source_url": clean_url,
             "source_url_query_redacted": redacted,
             "status": "observed_not_requested",
@@ -359,6 +710,9 @@ def collect_product(page: Any, context: Any, source_url: str, out: Path, assets:
                 )
                 downloaded["file"] = str(Path(downloaded["file"]).relative_to(out))
                 record.update(downloaded)
+                record["content_status"] = image_content_status(
+                    metadata.get("width"), metadata.get("height"), kind, source, downloaded.get("bytes")
+                ) if kind != "video" else "video"
             except Exception as exc:  # keep an auditable partial record
                 record["status"] = "failed"
                 record["error"] = type(exc).__name__
@@ -377,10 +731,37 @@ def collect_product(page: Any, context: Any, source_url: str, out: Path, assets:
                 "file": "",
             })
 
-    requested_records = [row for row in raw["media_records"] if requested_map.get(row["kind"]) in assets]
+    requested_records = [row for row in raw["media_records"]
+                         if requested_map.get(row["kind"]) in assets and not str(row.get("status") or "").startswith("excluded_")]
     failed_records = [row for row in requested_records if row["status"] != "downloaded"]
     critical_missing = any(row["kind"] == "main_image" and row["status"] == "not_observed" for row in requested_records)
-    raw["completion_state"] = "partial_asset_failure" if failed_records or critical_missing else "complete_observed_product"
+    raw["completion_state"] = choose_product_completion_state(
+        sku_status=raw["sku_mapping_status"],
+        detail_requested="detail_images" in assets,
+        detail_status=detail_status,
+        detail_position_restored=raw.get("detail_scroll_restored"),
+        failed_asset_records=bool(failed_records),
+        critical_asset_missing=critical_missing,
+        module_failures=bool(module_failures),
+    )
+    raw["effective_detail_image_count"] = sum(
+        1 for row in raw["media_records"]
+        if row.get("kind") == "detail_image" and row.get("status") == "downloaded"
+        and row.get("content_status") == "content_image"
+    )
+    required_material_partial = any(
+        state.get("status") != "observed"
+        for name, state in (raw.get("module_states") or {}).items()
+        if name != "video"
+    )
+    raw["material_status"] = (
+        "partial_observed_material" if required_material_partial or failed_records else "complete_observed_material"
+    )
+    has_commerce_snapshot = bool(
+        raw["snapshot"].get("price_entries") or raw["snapshot"].get("sales_texts")
+        or raw["snapshot"].get("stock_texts")
+    )
+    raw["commerce_snapshot_status"] = "observed_partial_snapshot" if has_commerce_snapshot else "not_observed"
     raw.pop("media", None)
     product_dir = out / "data" / "商品采集" / item_id
     atomic_write_json(product_dir / "product.json", raw)

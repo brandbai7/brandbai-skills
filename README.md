@@ -14,7 +14,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.4.0 | 抖音单篇、主页、搜索结果或插件自选作品的视频图文、封面、原声、发布文案和一级评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
-| [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.2.0 | 天猫／淘宝商品资料包、评价和问大家三项独立下载，含素材、规格、SKU 快照、Excel、ZIP 与完成状态 | Prototype · Noncommercial |
+| [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.3.2 | 天猫／淘宝参数、主图、图文详情和视频按模块读取，分开当前规格与页面参数，并输出结构化价格、素材双序号及内容／经营两层状态；评价和问大家保持独立下载 | Prototype · Noncommercial |
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.0 | 单篇完整笔记与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.1 | TikTok 视频、图集、达人主页、搜索与可见一级评论；支持海外市场、达人候选、创意对标、官宣接收、联盟内容预设和本机中英双语证据 | Prototype · Noncommercial |
 | [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.2 | 微博明星／工作室／品牌账号、单微博、搜索、普通话题、明星超话和热搜榜单的正文、素材、互动、评论、回复与转发证据 | Prototype · Noncommercial |
@@ -113,7 +113,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 [在 WorkBuddy 安装 brandbai-xiaohongshu-download v0.4.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-xiaohongshu-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-xiaohongshu-download-v0.4.0%2Fbrandbai-xiaohongshu-download.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-tmall-download v0.2.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.2.0%2Fbrandbai-tmall-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-tmall-download v0.3.2](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.3.2%2Fbrandbai-tmall-download.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-tiktok-download v0.2.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-tiktok-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tiktok-download-v0.2.1%2Fbrandbai-tiktok-download.zip&channelType=github)
 
@@ -125,7 +125,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 - [Douyin Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.4.0)
 - [Xiaohongshu Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.0)
-- [Tmall Download v0.2.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.2.0)
+- [Tmall Download v0.3.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.3.2)
 - [TikTok Download v0.2.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tiktok-download-v0.2.1)
 - [Product Value v0.1.22](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.22)
 - [Value Expression v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.1)
