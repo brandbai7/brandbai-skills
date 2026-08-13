@@ -348,7 +348,8 @@ UNSUPPORTED_PRODUCT_COMPARATOR_RE = re.compile(
 MARKET_COMPARATOR_RE = re.compile(
     rf"{COMPARISON_PREFIX}.{{0,60}}(?:同类(?:食品|商品|产品)?|竞品|行业|国家标准|普通产品|其他产品|添加多种|未明示)|"
     r"(?:同类(?:食品|商品|产品)?|竞品|普通产品|其他普通[\u4e00-\u9fff]{0,10}).{0,18}(?:相比|对比|更(?:容易|方便|清楚|适合))|"
-    r"区分.{0,16}(?:其他|普通|同类|竞品)"
+    r"区分.{0,16}(?:其他|普通|同类|竞品)|"
+    r"(?:可|能够|可以)?与同类.{0,24}(?:形成|构成).{0,12}(?:差异|差异点|区别)"
 )
 UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"多配料(?:的)?(?:加工|复合)?食品|配料(?:未公开|不透明|多元).{0,12}同类(?:加工)?食品|"
@@ -419,7 +420,19 @@ CAUSAL_LINK_RE = re.compile(
     r"(?:由|得益于|归因于|因为|基于).{1,48}?(?:共同)?(?:实现|带来|形成|决定|让|使(?!用)(?:得)?)|"
     r"(?:原料|配料|工艺|厚切|整料|烘干|包装).{0,24}(?:让|使(?!用)(?:得)?|带来|实现|形成).{1,48}"
 )
-STRICT_FABE_SOURCE_TERMS = ("天然", "科学配比", "甜腻", "刺激", "甜品")
+STRICT_FABE_SOURCE_TERMS = (
+    "天然",
+    "科学配比",
+    "甜腻",
+    "刺激",
+    "甜品",
+    "免熬煮",
+    "免称量",
+    "洗器具",
+    "不打开包装",
+    "完整的成分表",
+)
+ABSENCE_ASSERTION_RE = re.compile(r"未(?:标示|标注|说明|提供|公开|列出|披露|显示)")
 SELF_COMPARISON_REFERENCE_RE = re.compile(
     r"(?:页面内对比\s*[:：]?\s*)?(?:相对|相比|对比).{0,32}(?:当前|本)(?:商品|产品)(?:内|自身)|"
     r"页面内对比\s*[:：]?\s*(?:当前|本)(?:商品|产品)(?:内|自身)"
@@ -499,7 +512,8 @@ PUBLIC_FRAGMENT_RE = re.compile(
     r"列入(?:\s+|\s*(?:PV|SF|SRC|ID|ANCHOR|FABE|CLM|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,}\s+)(?:待复核|待确认)(?:项)?|"
     r"(?:相关规格|冲突)在(?:\s+|\s*(?:PV|SF|SRC|ID|ANCHOR|FABE|CLM|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,}\s+)留档|"
     r"[；;]\s*详(?:见)?\s*$|"
-    r"(?:不同|冲突|差异|不一致)[^。！？\n|]{0,30}[，,；;：:]\s*$"
+    r"(?:不同|冲突|差异|不一致)[^。！？\n|]{0,30}[，,；;：:]\s*$|"
+    r"独立\s+(?:U|用户原声)\s+用户资料|独立\s+用户原声|用户原声\s+资料|继承\s*P0\s*状态"
 )
 EMPTY_PARENS_RE = re.compile(r"[（(]\s*[)）]")
 DANGLING_ANALYSIS_RE = re.compile(
@@ -830,6 +844,39 @@ def suspicious_bounded_micro_cadence(timestamps: list[datetime]) -> bool:
         and min(deltas) >= 1.0
         and max(deltas) <= 7.0
         and len(rounded) <= 5
+    )
+
+
+def suspicious_bounded_audit_cadence(timestamps: list[datetime]) -> bool:
+    """Detect long audit runs filled from a bounded alternating integer schedule."""
+
+    if len(timestamps) < 25:
+        return False
+    ordered = sorted(timestamps)
+    deltas = [
+        (current - previous).total_seconds()
+        for previous, current in zip(ordered, ordered[1:])
+    ]
+    if any(delta <= 0 for delta in deltas):
+        return True
+    integer_ratio = sum(abs(delta - round(delta)) <= 0.05 for delta in deltas) / len(deltas)
+    directions = [
+        1 if current > previous else -1 if current < previous else 0
+        for previous, current in zip(deltas, deltas[1:])
+    ]
+    nonzero = [direction for direction in directions if direction]
+    alternations = sum(
+        current != previous
+        for previous, current in zip(nonzero, nonzero[1:])
+    )
+    alternation_ratio = alternations / max(1, len(nonzero) - 1)
+    rounded_values = {round(delta) for delta in deltas}
+    return (
+        integer_ratio >= 0.95
+        and min(deltas) >= 8.0
+        and max(deltas) <= 45.0
+        and len(rounded_values) <= max(12, int(len(deltas) * 0.65))
+        and alternation_ratio >= 0.82
     )
 
 
@@ -1567,6 +1614,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append("图片正序初检时间呈重复循环节奏，不能作为真实逐张视觉检查记录")
             if suspicious_repeating_cadence([item for item in ordered_second_times if item is not None]):
                 errors.append("图片逆序复核时间呈重复循环节奏，不能作为真实逐张视觉复核记录")
+            if suspicious_bounded_audit_cadence([item for item in ordered_first_times if item is not None]):
+                errors.append("图片正序初检时间呈受限整数区间内持续交替的机械节奏，不能作为真实逐张视觉检查记录")
+            if suspicious_bounded_audit_cadence([item for item in ordered_second_times if item is not None]):
+                errors.append("图片逆序复核时间呈受限整数区间内持续交替的机械节奏，不能作为真实逐张视觉复核记录")
         all_image_times = [item for item in first_times + second_times if item is not None]
         if any(timestamp_after_file(item, paths["source_observations"]) for item in all_image_times):
             errors.append("图片核对时间晚于 source_observation.jsonl 实际写入时间，存在未来时间或事后批量回填")
@@ -1828,6 +1879,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("原文主张摘录时间呈重复循环节奏，不能作为真实逐条摘录记录")
     if suspicious_repeating_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间呈重复循环节奏，不能作为真实逐条复核记录")
+    if suspicious_bounded_audit_cadence(valid_claim_check_times):
+        errors.append("原文主张摘录时间呈受限整数区间内持续交替的机械节奏，不能作为真实逐条摘录记录")
+    if suspicious_bounded_audit_cadence(valid_claim_recheck_times):
+        errors.append("原文主张复核时间呈受限整数区间内持续交替的机械节奏，不能作为真实逐条复核记录")
     if suspicious_parallel_audit_timing(valid_claim_check_times, valid_claim_recheck_times):
         errors.append(
             "原文主张摘录与复核的时间间隔序列完全同构，且每条记录仅整体平移同一秒数；"
@@ -1982,6 +2037,13 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if unbound_quotes:
             errors.append(f"{fact_id} 的 source_quotes 含未绑定 claim_id 的文字")
         claim_text = " ".join(selected_verbatim)
+        if fact_type in {"F-PAGE", "F-EVIDENCE"}:
+            for absence_phrase in sorted(set(ABSENCE_ASSERTION_RE.findall(statement))):
+                if absence_phrase not in claim_text:
+                    errors.append(
+                        f"{fact_id} 将“{absence_phrase}”写成直接来源事实，但所引原文没有这项缺席声明；"
+                        "页面未展示或未取得的内容只能进入 boundary/gap，不能冒充页面原文"
+                    )
         missing_numbers = sorted(set(NUMBER_TOKEN_RE.findall(statement)).difference(NUMBER_TOKEN_RE.findall(claim_text)))
         if missing_numbers:
             errors.append(f"{fact_id} 的数字未在所引原文主张中出现: {', '.join(missing_numbers)}")
@@ -2579,6 +2641,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
         elif UNSUPPORTED_PRODUCT_TARGET_RE.search(comparison_text) and not has_any_comparison_support:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
+        elif MARKET_COMPARATOR_RE.search(comparison_text) and not has_any_comparison_support:
+            errors.append(f"{location} 存在越界表达：市场或同类比较语言未绑定页面对比原文、竞品页或行业对照")
         for restriction in set(EATING_RESTRICTION_RE.findall(text)):
             if restriction not in all_claim_text:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
