@@ -258,6 +258,9 @@ def public_text(value: Any, empty: str = "未提供") -> str:
             text,
             flags=re.IGNORECASE,
         )
+    text = re.sub(r"独立\s*用户原声\s*用户资料", "独立用户原声资料", text)
+    text = re.sub(r"独立\s+用户原声", "独立用户原声", text)
+    text = re.sub(r"用户原声\s+资料", "用户原声资料", text)
     text = re.sub(r"(?:用户原声\s*){2,}", "用户原声", text)
     text = re.sub(r"未取得\s+", "未取得", text)
     text = re.sub(r"\.\s*压缩包", "（压缩包）", text)
@@ -447,7 +450,7 @@ def build_report_01(data: dict[str, Any]) -> str:
     p2_summary = "；".join(str(item.get("value_statement")) for item in p2_values) or "暂无信任与买前确认价值"
     dyn_summary = "；".join(str(item.get("statement")) for item in dyn_facts) or "当前未登记动态交易信息"
     role_rows = [
-        ["核心价值", p0_statement, "最值得优先验证、最可能影响选择；当前仍继承P0状态与资料边界"],
+        ["核心价值", p0_statement, "当前作为优先验证方向；是否真正影响选择仍需用户与业务验证"],
         ["商品识别锚", anchor_summary, "负责让用户认出商品，不自动成为购买理由"],
         ["购买支撑", p1_summary, "负责解释适配、使用、性能或便利，不与核心价值抢同一角色"],
         ["信任与买前确认", p2_summary, "负责降低顾虑、选对商品和理解证据，不把检测或参数直接当P0"],

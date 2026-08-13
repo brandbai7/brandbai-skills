@@ -14,6 +14,7 @@ from index_product_sources import build_inventory, index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
 from validate_product_value_delivery import (
+    suspicious_bounded_audit_cadence,
     suspicious_bounded_micro_cadence,
     suspicious_dense_cadence,
     suspicious_fixed_cadence,
@@ -2324,6 +2325,88 @@ def test_v021_method_consistency_regressions(root: Path) -> None:
     assert any("客户残句" in error for error in client_fragment["errors"])
 
 
+def test_v022_real_delivery_regressions(root: Path) -> None:
+    cadence_start = datetime.now().astimezone().replace(microsecond=0)
+    claimed_deltas = (14, 19, 11, 23, 9, 18, 13, 25, 11, 19, 13, 17) * 3
+    claimed_times = [cadence_start]
+    for delta in claimed_deltas:
+        claimed_times.append(claimed_times[-1] + timedelta(seconds=delta))
+    assert suspicious_bounded_audit_cadence(claimed_times)
+    assert not suspicious_bounded_audit_cadence(
+        [cadence_start + timedelta(seconds=index * index * 3 + index * 11) for index in range(30)]
+    )
+
+    delivery = root / "v022-real-delivery-regressions"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    claims_path = data / "source_claim_ledger.jsonl"
+    original_claims = read_jsonl(claims_path)
+    seed = dict(original_claims[0])
+    mechanical_claims = []
+    rechecked_times = [claimed_times[-1] + timedelta(minutes=5)]
+    for delta in (9, 14, 12, 16, 14, 19, 11, 15, 17, 12, 19, 12) * 3:
+        rechecked_times.append(rechecked_times[-1] + timedelta(seconds=delta))
+    for index in range(len(claimed_times)):
+        claim = dict(seed)
+        claim["claim_id"] = f"CLM-{index + 1:03d}"
+        claim["claim_type"] = "other"
+        claim["critical"] = False
+        claim["claimed_at"] = claimed_times[index].isoformat()
+        claim["rechecked_at"] = rechecked_times[index].isoformat()
+        mechanical_claims.append(claim)
+    write_jsonl(claims_path, mechanical_claims)
+    mechanical_timing = validate_delivery(delivery)
+    assert mechanical_timing["status"] == "failed"
+    assert any("受限整数区间内持续交替" in error for error in mechanical_timing["errors"])
+    write_jsonl(claims_path, original_claims)
+
+    anchor_path = data / "anchor_ledger.jsonl"
+    original_anchors = read_jsonl(anchor_path)
+    anchors = [dict(anchor) for anchor in original_anchors]
+    anchors[0]["statement"] = "页面原料可与同类养生花果茶形成差异点。"
+    write_jsonl(anchor_path, anchors)
+    unsupported_anchor = validate_delivery(delivery)
+    assert unsupported_anchor["status"] == "failed"
+    assert any("比较语言" in error or "产品替代对象" in error for error in unsupported_anchor["errors"])
+    write_jsonl(anchor_path, original_anchors)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    original_chains = read_jsonl(fabe_path)
+    chains = [dict(chain) for chain in original_chains]
+    chains[0]["advantage"] = "独立小袋免熬煮，直接拿取。"
+    write_jsonl(fabe_path, chains)
+    unsupported_convenience = validate_delivery(delivery)
+    assert unsupported_convenience["status"] == "failed"
+    assert any("限定词“免熬煮”" in error for error in unsupported_convenience["errors"])
+    write_jsonl(fabe_path, original_chains)
+
+    facts_path = data / "fact_ledger.jsonl"
+    original_facts = read_jsonl(facts_path)
+    facts = [dict(fact) for fact in original_facts]
+    facts[0]["statement"] = f"{facts[0]['statement']}；页面未标示过敏原。"
+    write_jsonl(facts_path, facts)
+    unsupported_absence = validate_delivery(delivery)
+    assert unsupported_absence["status"] == "failed"
+    assert any("缺席声明" in error and "未标示" in error for error in unsupported_absence["errors"])
+    write_jsonl(facts_path, original_facts)
+
+    manifest_path = data / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest["limitations"] = ["用户原声仅来自页面，未取得独立 U 用户资料"]
+    write_json(manifest_path, manifest)
+    client_fragment = validate_delivery(delivery)
+    assert client_fragment["status"] == "failed"
+    assert any("客户残句" in error for error in client_fragment["errors"])
+
+    assert "独立用户原声" in public_text("未取得独立 U 用户资料")
+    assert "用户原声 用户原声" not in public_text("未取得独立 U 用户资料")
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -2380,6 +2463,7 @@ def main() -> int:
         test_v019_reference_and_derivation_regressions(root)
         test_v020_field_binding_and_value_relevance_regressions(root)
         test_v021_method_consistency_regressions(root)
+        test_v022_real_delivery_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)
