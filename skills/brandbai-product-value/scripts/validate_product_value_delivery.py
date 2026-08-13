@@ -360,7 +360,9 @@ UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"原料形态不可见或被打碎(?:的)?冲泡饮品|"
     r"(?:一包一次|量小需频繁补配)(?:的)?速溶茶|"
     r"仅写单一冲泡方式(?:的)?茶|"
-    r"未公开(?:同类)?检测(?:与|和)?(?:体系)?认证(?:的)?茶饮"
+    r"未公开(?:同类)?检测(?:与|和)?(?:体系)?认证(?:的)?茶饮|"
+    r"(?:不需要|无需|不用|不必).{0,20}(?:为不同场景)?(?:准备|购买|配备).{0,12}不同形态(?:的)?(?:茶饮|产品|商品)|"
+    r"(?:本品|本商品|当前商品).{0,10}与未公开(?:认证|营养表|营养成分表).{0,10}(?:差异|区别)"
     r"|(?:需要额外(?:分装|称量|处理)的)?(?:碎料|碎片|粉末|散料)(?:形态|产品|原料)?"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
@@ -494,6 +496,9 @@ MALFORMED_OCR_RE = re.compile(
 PUBLIC_FRAGMENT_RE = re.compile(
     r"仅在\s+出现|与\s*等(?:工艺|页面|信息|主张|口径)?|"
     r"在中(?:以|被|为|记录|说明)|"
+    r"列入(?:\s+|\s*(?:PV|SF|SRC|ID|ANCHOR|FABE|CLM|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,}\s+)(?:待复核|待确认)(?:项)?|"
+    r"(?:相关规格|冲突)在(?:\s+|\s*(?:PV|SF|SRC|ID|ANCHOR|FABE|CLM|V|F|H|EX|U|DYN|STRAT|GAP|P0D)-\d{3,}\s+)留档|"
+    r"[；;]\s*详(?:见)?\s*$|"
     r"(?:不同|冲突|差异|不一致)[^。！？\n|]{0,30}[，,；;：:]\s*$"
 )
 EMPTY_PARENS_RE = re.compile(r"[（(]\s*[)）]")
@@ -518,6 +523,19 @@ UNESTABLISHED_ADVANTAGE_RE = re.compile(
     r"(?:(?:相对|比较)?优势.{0,18}|A\s*层.{0,12})(?:暂不成立|尚未成立|待验证)",
     re.IGNORECASE,
 )
+CAFFEINE_NEGATIVE_RE = re.compile(r"(?:无|不含|不靠|不依赖|无需依赖)\s*咖啡因|咖啡因\s*(?:为零|零添加|未添加)")
+P0_VALUE_AXIS_PATTERNS = {
+    "hydration": re.compile(r"补水|多喝水|日常饮水"),
+    "sensory": re.compile(r"口感|味道|风味|清甜|清甘|回甘|甜润|温和|香气"),
+    "caffeine": re.compile(r"咖啡因|咖啡|提神|睡眠|好眠"),
+    "preparation": re.compile(r"额外(?:加料|配料)|调配|熬煮|炖煮|准备|分装|称量"),
+    "duration": re.compile(r"整天|全天|续杯|耐泡|持续饮用"),
+    "portability": re.compile(r"外出|携带|随身|旅行|出门"),
+    "versatility": re.compile(r"冷热|煮沸|闷泡|多种方式|两种方式|不同场景"),
+    "visibility": re.compile(r"看得见|可见|透明|产地明确"),
+    "trust": re.compile(r"认证|检测|安心|安全|品质"),
+    "nutrition": re.compile(r"营养|能量|脂肪|蛋白质|碳水|钠"),
+}
 INFERRED_DYNAMIC_YEAR_RE = re.compile(
     r"年份.{0,12}(?:根据|依据|按).{0,20}(?:抓取|采集|截图|下载|访问|页面保存).{0,12}(?:推定|推断|补全|确定)"
 )
@@ -2332,6 +2350,15 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if not str(value.get("value_statement", "")).strip():
             errors.append(f"{value_id} 的 value_statement 为空")
         value_statement = str(value.get("value_statement", "")).strip()
+        p0_axes = {
+            name for name, pattern in P0_VALUE_AXIS_PATTERNS.items() if pattern.search(value_statement)
+        }
+        if value.get("layer") == "P0" and len(p0_axes) >= 4:
+            errors.append(
+                f"{value_id} 的核心价值同时包含多个独立收益轴，共 {len(p0_axes)} 个"
+                f"（{', '.join(sorted(p0_axes))}）；P0 必须只保留一个核心用户变化，"
+                "口感、成分/刺激物、准备方式、持续时长和信任证据等其余内容下沉到 P1、P2 或 FABE"
+            )
         if (
             value.get("layer") == "P0"
             and len(value_statement) > 60
@@ -2344,6 +2371,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             )
         if (value.get("layer") != "deferred" or value.get("p0_candidate") is True) and not fabe_by_value.get(value_id):
             errors.append(f"{value_id} 缺少 FABE 完整推导链")
+        if value.get("p0_candidate") is True and value.get("layer") == "P2":
+            errors.append(
+                f"{value_id} 属于 P2 信任或买前确认信息，不能直接作为 P0 候选；"
+                "如确有战略潜力，应另建一条以用户任务和结果表达的 P0/P1/deferred 价值候选"
+            )
         value_positive_text = " ".join(
             str(value.get(key, ""))
             for key in ("user_task", "value_statement", "user_perception_goal", "scope")
@@ -2536,6 +2568,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 f"{location} 存在越界表达：没有用户原声或研究资料，"
                 "不能声称最常见、主流、普遍或多数用户存在该问题，也不能把某项问题写成用户的核心、主要或关键顾虑"
             )
+        if CAFFEINE_NEGATIVE_RE.search(text) and not CAFFEINE_NEGATIVE_RE.search(all_claim_text):
+            errors.append(
+                f"{location} 将商品写成无咖啡因或不依赖咖啡因，但逐字原文没有该主张；"
+                "页面对咖啡或睡眠的场景描述不能替代商品的咖啡因事实"
+            )
         if SULFUR_SAFETY_BENEFIT_RE.search(text) and not SULFUR_SAFETY_ASSOCIATION_RE.search(all_claim_text):
             errors.append(f"{location} 存在越界表达：页面无直接依据时，不能把无硫熏主张扩写为对安全、健康、危害或风险的用户利益")
         if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(comparison_text) and not has_any_comparison_support:
@@ -2566,6 +2603,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{location} 含“难入口温和”等语义矛盾残句，必须回到原文重新表述")
         if PUBLIC_ID_RESIDUE_RE.search(text):
             errors.append(f"{location} 含内部 ID 删减后的残余片段，必须重写完整客户句")
+        if PUBLIC_FRAGMENT_RE.search(text):
+            errors.append(f"{location} 含隐藏内部字段后形成的客户残句，必须回到账本重写完整句子：{text}")
 
     conflict_blocked_surfaces = (
         ("anchor_ledger", anchors),
@@ -2684,6 +2723,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         candidate_ids = []
     if len(candidate_ids) != len(set(candidate_ids)):
         errors.append("candidate_value_ids 不得重复")
+    if decision.get("recommended_value_id") and len(candidate_ids) < 2:
+        errors.append(
+            "已有推荐 P0 时，candidate_value_ids 至少需要两个不同的用户价值候选；"
+            "不得用单一价值与 P2 检测、认证或参数信息形成伪候选比较"
+        )
     declared_candidate_ids = {value_id for value_id, value in values_by_id.items() if value.get("p0_candidate") is True}
     if set(candidate_ids) != declared_candidate_ids:
         missing_from_decision = sorted(declared_candidate_ids.difference(candidate_ids))
@@ -2699,6 +2743,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"P0 候选池引用了不存在的 value_id: {value_id}")
         elif values_by_id[value_id].get("p0_candidate") is not True:
             errors.append(f"{value_id} 在 P0 候选池中，但 p0_candidate 不是 true")
+    candidate_statements: dict[str, str] = {}
+    for value_id in candidate_ids:
+        statement = re.sub(r"[\s，,。；;：:]", "", str(values_by_id.get(value_id, {}).get("value_statement", "")))
+        if not statement:
+            continue
+        if statement in candidate_statements:
+            errors.append(
+                f"P0 候选 {value_id} 与 {candidate_statements[statement]} 的价值说明相同；"
+                "候选池必须比较不同用户价值轴，不能用同义重复充数"
+            )
+        else:
+            candidate_statements[statement] = value_id
     recommended_id = decision.get("recommended_value_id")
     if recommended_id:
         if recommended_id not in value_ids:
