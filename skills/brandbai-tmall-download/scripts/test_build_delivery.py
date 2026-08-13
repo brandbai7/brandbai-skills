@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -10,11 +9,12 @@ from openpyxl import load_workbook
 
 from build_delivery import build_delivery
 from package_delivery import package_directory
+from test_support import workspace_temp
 
 
 class BuildDeliveryTests(unittest.TestCase):
     def test_builds_workbooks_in_expected_plain_delivery_shape(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp:
+        with workspace_temp() as temp:
             root = Path(temp) / "BrandBAI_天猫测试"
             item_id = "123456789"
             product_dir = root / "data" / "商品采集" / item_id
@@ -29,13 +29,34 @@ class BuildDeliveryTests(unittest.TestCase):
                 "shop": {"text": "合成测试旗舰店", "href": "https://example.invalid/shop"},
                 "canonical_url": f"https://detail.tmall.com/item.htm?id={item_id}",
                 "selected_sku_id": "987654",
-                "snapshot": {"price_texts": ["79.9"], "sales_texts": ["已售 100+"], "stock_texts": ["有货"]},
+                "sku_mapping_status": "selected_sku_mapped",
+                "selected_sku_snapshot": [{"name": "规格", "value": "规格A"}],
+                "parameter_scope_status": "page_level_not_confirmed_for_selected_sku",
+                "parameter_warnings": [],
+                "material_status": "complete_observed_material",
+                "commerce_snapshot_status": "observed_partial_snapshot",
+                "effective_detail_image_count": 0,
+                "snapshot": {
+                    "price_status": "observed_structured",
+                    "price_entries": [
+                        {"role": "promotion_price", "amount": "79.9", "text": "到手价 ￥79.9", "context": "商品交易区"},
+                        {"role": "benefit_amount", "amount": "5", "text": "优惠券 ￥5", "context": "购买可用"},
+                    ],
+                    "price_texts": ["到手价 ￥79.9"],
+                    "benefit_texts": ["优惠券 ￥5"],
+                    "sales_texts": ["已售 100+"],
+                    "stock_texts": ["有货"],
+                },
                 "collected_at": "2026-08-07T00:00:00+00:00",
                 "completion_state": "complete_observed_product",
+                "detail_load_state": "detail_module_observed",
+                "detail_load_steps": 4,
+                "detail_scroll_restored": True,
                 "parameters": [{"name": "品牌", "value": "合成品牌"}],
                 "sku_groups": [{"name": "规格", "values": ["规格A", "规格B"], "selected_value": "规格A"}],
                 "media_records": [{
-                    "asset_id": f"tmall:{item_id}:main_image:001", "kind": "main_image", "order": 1,
+                    "asset_id": f"tmall:{item_id}:main_image:001", "kind": "main_image", "order": 3, "download_order": 1,
+                    "content_status": "content_image",
                     "status": "downloaded", "file": "03_商品素材/合成测试商品/主图/001_main_image.webp",
                     "source_url": "https://img.alicdn.com/synthetic/a.webp", "source_url_query_redacted": True,
                     "bytes": 16, "content_type": "image/webp",
@@ -88,7 +109,20 @@ class BuildDeliveryTests(unittest.TestCase):
             self.assertTrue((root / "03_问大家.xlsx").is_file())
             self.assertTrue((root / "04_采集说明.md").is_file())
             product_book = load_workbook(root / "01_商品资料.xlsx", read_only=True)
-            self.assertEqual(product_book.sheetnames, ["商品总览", "规格参数", "SKU快照", "素材索引", "完整性"])
+            self.assertEqual(product_book.sheetnames, ["商品总览", "页面通用参数", "规格参数待确认", "SKU快照", "价格与权益", "素材索引", "完整性"])
+            summary_headers = [cell.value for cell in next(product_book["商品总览"].iter_rows(max_row=1))]
+            self.assertIn("SKU映射状态", summary_headers)
+            self.assertIn("价格识别状态", summary_headers)
+            self.assertIn("详情加载步数", summary_headers)
+            self.assertIn("详情位置已恢复", summary_headers)
+            self.assertIn("当前选中规格", summary_headers)
+            self.assertIn("内容资料状态", summary_headers)
+            self.assertIn("经营快照状态", summary_headers)
+            price_rows = list(product_book["价格与权益"].iter_rows(values_only=True))
+            self.assertEqual(price_rows[1][1:4], ("promotion_price", "79.9", "到手价 ￥79.9"))
+            self.assertEqual(price_rows[2][1:4], ("benefit_amount", "5", "优惠券 ￥5"))
+            media_rows = list(product_book["素材索引"].iter_rows(values_only=True))
+            self.assertEqual(media_rows[1][3:6], ("3", "1", "content_image"))
             product_book.close()
             review_book = load_workbook(root / "02_评价明细.xlsx", read_only=True)
             self.assertEqual(review_book.sheetnames, ["评价明细", "采集状态"])

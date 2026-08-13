@@ -18,7 +18,7 @@ BrandBAI Skills 面向内容电商，把既有专家方法、确定性脚本、�
 | Skill | Main job | Example sub-capabilities |
 | --- | --- | --- |
 | `brandbai-douyin-download` | 下载公开抖音作品、媒体和评论 | 主页、搜索结果、插件自选、视频、图文、封面、原声、发布文案、评论、普通版与分析准备版 |
-| `brandbai-tmall-download` | 下载公开天猫商品事实与用户评价 | 详情页、主图、详情图、SKU、规格参数、价格快照、评价、商品事实交接包 |
+| `brandbai-tmall-download` | 下载公开天猫／淘宝商品事实与用户表达 | 参数、主图、图文详情、视频按模块读取；SKU 映射、结构化价格与权益；评价和问大家独立下载 |
 | `brandbai-xiaohongshu-download` | 下载公开小红书笔记、素材、搜索快照和评论 | 单笔记、账号置顶加最近 N 条、关键词搜索前 N 条、图文、视频、评论、普通版与分析准备版 |
 | `brandbai-tiktok-download` | 下载公开 TikTok 作品、跨市场搜索快照、素材和评论 | 单作品、主页置顶加最近 N 条、综合／视频／照片搜索、双语证据、市场扫描、达人候选、创意对标、官宣接收与联盟内容证据 |
 | `brandbai-douyin-account-analysis` | 分析抖音影响力账号的内容表达与用户接收 | 作品基线、视频表达、评论语义、语义对齐、候选机制、证据包 |
