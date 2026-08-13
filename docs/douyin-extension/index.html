@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="BrandBAI 下载助手 v0.10.1 官方支持页：在本机整理用户有权使用的抖音、TikTok、小红书及天猫/淘宝公开内容。">
+  <meta name="description" content="BrandBAI 下载助手 v0.10.13 官方支持页：在本机整理用户有权使用的抖音、TikTok、小红书及天猫/淘宝公开内容。">
   <title>BrandBAI 下载助手｜官方支持</title>
   <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -21,7 +21,7 @@
   <main class="shell">
     <section class="hero">
       <div class="brand"><span class="brand-mark">B</span><span>布兰德老白 BrandBAI</span></div>
-      <p class="eyebrow">Chrome Extension · v0.10.1 · 2026年8月12日</p>
+      <p class="eyebrow">Chrome Extension · v0.10.13 · 2026年8月13日</p>
       <h1>把四平台公开内容，整理成可回溯的本地资料包</h1>
       <p class="lead">确认本版本数据说明后，识别当前已登录且有权访问的抖音、TikTok、小红书及天猫/淘宝页面，并按用户主动选择在本机完成下载、结构化整理、可选本机翻译和导出。</p>
       <div class="actions">
@@ -33,7 +33,7 @@
     <section class="trust-row" aria-label="数据处理说明">
       <article class="trust-card"><strong class="check">本机处理</strong><span>页面识别、任务进度、翻译缓存、ZIP 与 Excel 均在用户电脑中处理。</span></article>
       <article class="trust-card"><strong class="check">不读取登录凭据</strong><span>不读取、导出或上传密码、Cookie、请求头与验证码。</span></article>
-      <article class="trust-card"><strong class="check">授权可撤回</strong><span>确认后自动识别当前页来填充界面；下载、导出和双语仍需点击，并可随时撤回授权。</span></article>
+      <article class="trust-card"><strong class="check">授权可撤回</strong><span>确认后自动识别当前页来填充界面；下载、导出和双语仍需点击，撤回后停止受控任务和本机翻译资源。</span></article>
     </section>
 
     <h2 class="section-title">当前免费版能力</h2>
@@ -43,7 +43,18 @@
       <article class="feature-card"><span class="number">03</span><h2>TikTok 本机双语</h2><p>用户主动启用后，用 Chrome 本机能力生成中英双语 Excel；始终保留原文，不自动调用云端翻译。</p></article>
       <article class="feature-card"><span class="number">04</span><h2>小红书笔记资料</h2><p>整理单篇笔记、公开一级评论与列表页资料，并支持跨关键词去重和作者汇总。</p></article>
       <article class="feature-card"><span class="number">05</span><h2>天猫/淘宝商品资料</h2><p>将商品参数、主图、图文详情和视频分模块读取后合并；评价与问大家独立导出。</p></article>
-      <article class="feature-card"><span class="number">06</span><h2>结构化本地交付</h2><p>在本机生成 ZIP、Excel 与说明，区分成功、质量排除、页面未提供、失败与部分完成。</p></article>
+      <article class="feature-card"><span class="number">06</span><h2>结构化本地交付</h2><p>在本机生成 ZIP、Excel 与说明，区分已收录、自动过滤、页面未提供、下载失败与阶段成果。</p></article>
+    </section>
+
+    <section class="content-card">
+      <h2>v0.10.13 本机任务与撤回边界</h2>
+      <ul>
+        <li><strong>可靠启动：</strong>本机 ZIP 整理会等待本机整理模块明确就绪并确认任务；未完成确认时不会把任务显示为已经启动，而会给出实际错误。</li>
+        <li><strong>如实完成：</strong>即使 Chrome 的扩展后台进程重启，扩展仍会恢复本机任务回执和最终状态。平台图标、提示图、分隔条或低质量素材会作为“已过滤”保留明细，不计为资料缺口，也不影响已收录资料的后续使用；只有页面未提供、下载失败、尚未处理或导出阶段成果时才显示“部分完成”。</li>
+        <li><strong>避免重复：</strong>同一标签页同一时间只启动一个受控 ZIP 任务，同一任务的重复请求会被拒绝，避免重复下载或相互清理文件。</li>
+        <li><strong>撤回与清理：</strong>撤回确认后停止新的页面处理和受控任务，清理仍由扩展控制的未完成临时文件与任务状态，并释放正在使用或等待中的 TikTok 本机翻译资源。已经完成并保存到下载目录的文件，以及由 Chrome 管理的本机语言模型，不会被扩展自动删除。</li>
+      </ul>
+      <p>v0.10.9 至 v0.10.13 未新增支持平台、数据用途、共享对象、网站范围或扩展权限；相关版本只优化任务可靠性、当前标签页绑定、侧栏打开时机、小红书操作反馈、完成状态和 Excel 可读性。v0.10.8 新增的阿里临时签名视频 CDN 访问规则继续仅用于用户主动下载天猫商品视频。</p>
     </section>
 
     <section class="content-card">
