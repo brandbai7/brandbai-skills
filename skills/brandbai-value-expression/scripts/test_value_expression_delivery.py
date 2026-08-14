@@ -10,7 +10,15 @@ from pathlib import Path
 from build_value_expression_report import build_delivery
 from init_value_expression_delivery import build_plan, init_delivery
 from validate_value_expression_delivery import validate_delivery
-from value_expression_common import ROUTES, now_iso, read_json, read_jsonl, write_json, write_jsonl
+from value_expression_common import (
+    ROUTES,
+    now_iso,
+    read_json,
+    read_jsonl,
+    value_expression_id,
+    write_json,
+    write_jsonl,
+)
 
 
 def make_product_value_delivery(root: Path) -> Path:
@@ -305,10 +313,20 @@ def run_test() -> None:
         delivery = temp_root / "value-expression"
         source_material = temp_root / "source-material.pdf"
         source_material.write_bytes(b"synthetic source material")
-        plan = build_plan(delivery, upstream, source_material)
+        plan = build_plan(delivery, upstream, source_material, "V2")
         assert plan["dry_run"] is True
+        assert plan["output_version"] == "V2"
+        assert plan["value_expression_id"] == value_expression_id("PV-0123456789ab", "V2")
         assert not delivery.exists(), "dry-run 不得创建交付目录"
-        init_delivery(delivery, upstream, source_material)
+        try:
+            build_plan(delivery, upstream, source_material, "V0")
+            raise AssertionError("非法 output_version 应被拒绝")
+        except ValueError as exc:
+            assert "output_version" in str(exc)
+        init_delivery(delivery, upstream, source_material, "V2")
+        initialized_manifest = read_json(delivery / "data" / "expression_manifest.json")
+        assert initialized_manifest["output_version"] == "V2"
+        assert initialized_manifest["value_expression_id"] == value_expression_id("PV-0123456789ab", "V2")
         populate_expression(delivery)
         dry_run = build_delivery(delivery, write=False)
         assert dry_run["status"] == "dry_run"
@@ -330,6 +348,13 @@ def run_test() -> None:
         assert any("不得用新校验器给旧Skill交付补签" in error for error in failed["errors"])
         write_json(manifest_path, current_manifest)
 
+        mismatched_manifest = dict(current_manifest)
+        mismatched_manifest["value_expression_id"] = "VE-000000000000"
+        write_json(manifest_path, mismatched_manifest)
+        failed = validate_delivery(delivery)
+        assert any("product_value_id / output_version 不一致" in error for error in failed["errors"])
+        write_json(manifest_path, current_manifest)
+
         report_path = delivery / "02_资料说明与验证计划.md"
         report_path.write_text(report_path.read_text(encoding="utf-8") + "\n手工补写页面盘点。\n", encoding="utf-8")
         failed = validate_delivery(delivery)
@@ -347,10 +372,40 @@ def run_test() -> None:
         build_delivery(delivery, write=True)
         assert validate_delivery(delivery)["status"] == "passed"
 
+        contradictory_existing = json.loads(json.dumps(existing, ensure_ascii=False))
+        contradictory_existing[-1]["page_shows"] = "透明亚克力展架中的页面报告截图。"
+        scans_path = delivery / "data" / "six_path_ledger.jsonl"
+        original_scans = read_jsonl(scans_path)
+        contradictory_scans = json.loads(json.dumps(original_scans, ensure_ascii=False))
+        contradictory_scans[0]["boundary"] = "不得虚构透明亚克力展架、报告翻页等实际不存在的素材。"
+        write_jsonl(existing_path, contradictory_existing)
+        write_jsonl(scans_path, contradictory_scans)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("不得同时把它写成实际不存在" in error for error in failed["errors"])
+        write_jsonl(existing_path, existing)
+        write_jsonl(scans_path, original_scans)
+        build_delivery(delivery, write=True)
+        assert validate_delivery(delivery)["status"] == "passed"
+
         vis_path = delivery / "data" / "vis_ledger.jsonl"
         vis = read_jsonl(vis_path)
         original_vis = json.loads(json.dumps(vis, ensure_ascii=False))
 
+        vis[2]["external_priority"] = None
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("核心呈现卡必须各覆盖一个主价值" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["human_language"] = "一箱可以喝整周。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("使用周期缺少上游事实支持" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
         vis[0]["fact_ids"] = ["F-002"]
         vis[0]["subtitle_track"] = "单位μg/g，限值10，结果ND。"
         write_jsonl(vis_path, vis)
@@ -390,6 +445,33 @@ def run_test() -> None:
         build_delivery(delivery, write=True)
         failed = validate_delivery(delivery)
         assert any("不可直接观测" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["single_variable"] = "是否包含详情页截图作为证据画面"
+        validations[0]["control_version"] = "对照版字幕写'原生味'，不出现详情页截图。"
+        validations[0]["test_version"] = "测试版字幕写'无熏硫 原生味'，出现详情页截图。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("不得同时改变字幕" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["validation_task"] = "比较两种方式对一包全部内容物证明的影响。"
+        validations[0]["single_variable"] = "是否连续展示当前SKU单包全部内容物。"
+        validations[0]["control_version"] = "对照版采用预先摆盘展示五种原料。"
+        validations[0]["test_version"] = "测试版采用当前SKU单包连续倒出全部内容物。"
+        validations[0]["primary_metrics"] = ["评论中的一包全部内容物复述"]
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("不得使用预摆盘" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["decision_rule"] = "不达样本显著性不升级。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("没有登记样本量或统计检验方法" in error for error in failed["errors"])
 
         write_jsonl(validation_path, original_validations)
         write_jsonl(vis_path, original_vis)

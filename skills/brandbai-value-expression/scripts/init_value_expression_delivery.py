@@ -16,6 +16,7 @@ from value_expression_common import (
     UPSTREAM_DELIVERY_STATUSES,
     file_sha256,
     now_iso,
+    normalize_output_version,
     read_json,
     read_jsonl,
     upstream_paths,
@@ -57,9 +58,15 @@ def load_upstream(product_value_delivery: Path) -> dict[str, Any]:
     }
 
 
-def build_plan(out: Path, product_value_delivery: Path, source_materials: Path | None) -> dict[str, Any]:
+def build_plan(
+    out: Path,
+    product_value_delivery: Path,
+    source_materials: Path | None,
+    output_version: str = "V1",
+) -> dict[str, Any]:
     upstream = load_upstream(product_value_delivery)
     manifest = upstream["manifest"]
+    output_version = normalize_output_version(output_version)
     return {
         "action": "initialize_value_expression_delivery",
         "dry_run": True,
@@ -69,6 +76,8 @@ def build_plan(out: Path, product_value_delivery: Path, source_materials: Path |
         "brand": manifest["brand"],
         "product": manifest["product"],
         "sku": manifest["sku"],
+        "output_version": output_version,
+        "value_expression_id": value_expression_id(manifest["product_value_id"], output_version),
         "source_materials": str(source_materials.resolve()) if source_materials else "not_provided",
         "will_create": [
             *REPORT_FILES,
@@ -84,7 +93,12 @@ def build_plan(out: Path, product_value_delivery: Path, source_materials: Path |
     }
 
 
-def init_delivery(out: Path, product_value_delivery: Path, source_materials: Path | None) -> dict[str, Any]:
+def init_delivery(
+    out: Path,
+    product_value_delivery: Path,
+    source_materials: Path | None,
+    output_version: str = "V1",
+) -> dict[str, Any]:
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"目标目录不是空目录，拒绝覆盖: {out}")
     upstream = load_upstream(product_value_delivery)
@@ -97,7 +111,7 @@ def init_delivery(out: Path, product_value_delivery: Path, source_materials: Pat
     timestamp = now_iso()
     data = out / "data"
     data.mkdir(parents=True, exist_ok=True)
-    output_version = "V1"
+    output_version = normalize_output_version(output_version)
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "skill_version": SKILL_VERSION,
@@ -215,17 +229,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--product-value", required=True, type=Path)
     parser.add_argument("--source-materials", type=Path)
+    parser.add_argument("--output-version", default="V1")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    plan = build_plan(args.out, args.product_value, args.source_materials)
+    plan = build_plan(args.out, args.product_value, args.source_materials, args.output_version)
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
-    manifest = init_delivery(args.out, args.product_value, args.source_materials)
+    manifest = init_delivery(args.out, args.product_value, args.source_materials, args.output_version)
     print(json.dumps({"status": "initialized", "target": str(args.out.resolve()), "manifest": manifest}, ensure_ascii=False, indent=2))
     return 0
 

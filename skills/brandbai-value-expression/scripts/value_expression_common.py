@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 
 SCHEMA_VERSION = "0.1.1"
-SKILL_VERSION = "0.1.2"
+SKILL_VERSION = "0.1.3"
 
 ANALYSIS_STATUSES = {"draft", "complete", "partial", "insufficient", "stale"}
 DELIVERY_STATUSES = {"ready", "conditional", "blocked", "stale"}
@@ -73,6 +74,13 @@ def value_expression_id(product_value_id: str, output_version: str = "V1") -> st
     normalized = f"{product_value_id.strip().casefold()}|{output_version.strip().casefold()}"
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
     return f"VE-{digest}"
+
+
+def normalize_output_version(value: str) -> str:
+    normalized = str(value or "").strip().upper()
+    if not re.fullmatch(r"V[1-9]\d*", normalized):
+        raise ValueError("output_version 必须使用 V1、V2、V3 等正整数版本")
+    return normalized
 
 
 def file_sha256(path: Path) -> str:
