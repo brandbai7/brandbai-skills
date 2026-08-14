@@ -2407,6 +2407,70 @@ def test_v022_real_delivery_regressions(root: Path) -> None:
     assert "用户原声 用户原声" not in public_text("未取得独立 U 用户资料")
 
 
+def test_v023_conflict_and_task_grounding_regressions(root: Path) -> None:
+    delivery = root / "v023-conflict-and-task-grounding"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    data = delivery / "data"
+    manifest_path = data / "product_manifest.json"
+    original_manifest = read_json(manifest_path)
+    manifest = dict(original_manifest)
+    manifest["limitations"] = ["包装图 NET WT 10g 与规格栏 20g/包存在冲突，待核对。"]
+    write_json(manifest_path, manifest)
+    missing_weight_claim = validate_delivery(delivery)
+    assert missing_weight_claim["status"] == "failed"
+    assert any("克重冲突" in error and "10g" in error for error in missing_weight_claim["errors"])
+
+    manifest["limitations"] = [
+        "因原文主张时间戳未补齐，已从 OBS-003 移除 usage 标记并将 text_density 降为 low。"
+    ]
+    write_json(manifest_path, manifest)
+    audit_downgrade = validate_delivery(delivery)
+    assert audit_downgrade["status"] == "failed"
+    assert any("修改证据分类来通过门禁" in error for error in audit_downgrade["errors"])
+    write_json(manifest_path, original_manifest)
+
+    fabe_path = data / "fabe_ledger.jsonl"
+    original_chains = read_jsonl(fabe_path)
+    for phrase in (
+        "无需反复称量或长时间熬煮。",
+        "不需要额外准备器具。",
+        "关键规格已完整披露。",
+        "用户不需额外操作。",
+    ):
+        chains = [dict(chain) for chain in original_chains]
+        chains[0]["benefit"] = phrase
+        write_jsonl(fabe_path, chains)
+        unsupported_task = validate_delivery(delivery)
+        assert unsupported_task["status"] == "failed"
+        assert any("限定词" in error for error in unsupported_task["errors"]), phrase
+    write_jsonl(fabe_path, original_chains)
+
+    anchor_path = data / "anchor_ledger.jsonl"
+    original_anchors = read_jsonl(anchor_path)
+    anchors = [dict(anchor) for anchor in original_anchors]
+    anchors[0]["statement"] = "页面列出产地，配料来源可追溯。"
+    write_jsonl(anchor_path, anchors)
+    unsupported_traceability = validate_delivery(delivery)
+    assert unsupported_traceability["status"] == "failed"
+    assert any("页面列出产地不自动等于可追溯" in error for error in unsupported_traceability["errors"])
+    write_jsonl(anchor_path, original_anchors)
+
+    facts_path = data / "fact_ledger.jsonl"
+    original_facts = read_jsonl(facts_path)
+    facts = [dict(fact) for fact in original_facts]
+    facts[0]["statement"] = f"{facts[0]['statement']}，无需反复调配。"
+    write_jsonl(facts_path, facts)
+    unsupported_direct_fact = validate_delivery(delivery)
+    assert unsupported_direct_fact["status"] == "failed"
+    assert any("无需反复调配" in error for error in unsupported_direct_fact["errors"])
+    write_jsonl(facts_path, original_facts)
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -2464,6 +2528,7 @@ def main() -> int:
         test_v020_field_binding_and_value_relevance_regressions(root)
         test_v021_method_consistency_regressions(root)
         test_v022_real_delivery_regressions(root)
+        test_v023_conflict_and_task_grounding_regressions(root)
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

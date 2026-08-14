@@ -316,7 +316,8 @@ NUMBER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])\d+(?:\.\d+)?%?(?![A-Za-z0-9])")
 DIRECT_QUOTE_TERMS_RE = re.compile(
     r"好吸收|道地(?:品种|药材|产区)?|无添加|无防腐剂|适合.{0,8}(?:小白|老人|长辈|儿童|孕妇|人群)|"
     r"哪些人(?:适合|不宜)|禁止食用|不宜食用|遵医嘱|建议冷藏|无需熬煮|"
-    r"(?:生黄精|生精|黄精)多糖|国家标准|推荐量|通过.{0,4}检测|安心好携带"
+    r"(?:生黄精|生精|黄精)多糖|国家标准|推荐量|通过.{0,4}检测|安心好携带|"
+    r"无需反复调配|可追溯"
 )
 ATOMIC_CLAIM_TERMS_RE = re.compile(
     r"每\s*100\s*克|饱和脂肪|碳水化合物|蛋白质|生产日期|保质期|贮存条件|储存条件|"
@@ -431,6 +432,22 @@ STRICT_FABE_SOURCE_TERMS = (
     "洗器具",
     "不打开包装",
     "完整的成分表",
+    "称量",
+    "熬煮",
+    "器具",
+    "完整",
+    "额外操作",
+)
+TRACEABILITY_RE = re.compile(r"可追溯|追溯(?:到|至)")
+AUDIT_DOWNGRADE_ACTION_RE = re.compile(
+    r"(?:移除|删除).{0,30}(?:标记|flag)|"
+    r"(?:text_density|文字密度).{0,30}(?:降为|降级)|"
+    r"(?:降为|降级).{0,30}(?:text_density|文字密度)",
+    re.IGNORECASE,
+)
+AUDIT_DOWNGRADE_REASON_RE = re.compile(
+    r"时间戳|原文主张|claim|四遍读取|observation|OBS-",
+    re.IGNORECASE,
 )
 ABSENCE_ASSERTION_RE = re.compile(r"未(?:标示|标注|说明|提供|公开|列出|披露|显示)")
 SELF_COMPARISON_REFERENCE_RE = re.compile(
@@ -500,6 +517,10 @@ TOTAL_WEIGHT_RE = re.compile(
 PER_UNIT_WEIGHT_RE = re.compile(
     r"(?P<weight>\d+(?:\.\d+)?)\s*(?:g|克)\s*/\s*(?:包|袋)|"
     r"(?:每包|每袋|单包|单袋)[^\d]{0,6}(?P<labeled>\d+(?:\.\d+)?)\s*(?:g|克)",
+    re.IGNORECASE,
+)
+WEIGHT_MENTION_RE = re.compile(
+    r"(?<![\d.])(?P<weight>\d+(?:\.\d+)?)\s*(?:g|克)(?![A-Za-z])",
     re.IGNORECASE,
 )
 MALFORMED_OCR_RE = re.compile(
@@ -601,6 +622,15 @@ def package_count_ranges(claim: dict[str, Any]) -> list[tuple[int, int, str]]:
     """Return package-count ranges explicit in any original claim."""
 
     return package_count_ranges_from_text(claim.get("verbatim_text", ""))
+
+
+def gram_values_from_text(value: Any) -> set[float]:
+    """Return explicit gram values from one text surface."""
+
+    return {
+        round(float(match.group("weight")), 6)
+        for match in WEIGHT_MENTION_RE.finditer(INTERNAL_ID_RE.sub("", str(value or "")))
+    }
 
 
 def normalized_spec_phrase(value: Any) -> str:
@@ -1781,6 +1811,26 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             + "、".join(undeclared_claim_phrases)
             + "；不得只在事实边界或缺口中补写来源原文"
         )
+    claimed_gram_values = {
+        value
+        for claim in source_claims
+        for value in gram_values_from_text(claim.get("verbatim_text", ""))
+    }
+    undeclared_conflict_grams = sorted(
+        {
+            value
+            for _location, text in declared_conflict_surfaces
+            if SKU_CONFLICT_RE.search(text)
+            for value in gram_values_from_text(text)
+            if value not in claimed_gram_values
+        }
+    )
+    if undeclared_conflict_grams:
+        errors.append(
+            "资料边界已声明克重冲突，但以下冲突规格没有完整进入 source_claim_ledger.jsonl："
+            + "、".join(f"{value:g}g" for value in undeclared_conflict_grams)
+            + "；观察摘要、事实边界或缺口不能替代可定位、经复核的原文主张"
+        )
     if count_conflicts:
         errors.append(
             "SKU/包装原文存在互不相容的小包数量："
@@ -2637,6 +2687,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             )
         if SULFUR_SAFETY_BENEFIT_RE.search(text) and not SULFUR_SAFETY_ASSOCIATION_RE.search(all_claim_text):
             errors.append(f"{location} 存在越界表达：页面无直接依据时，不能把无硫熏主张扩写为对安全、健康、危害或风险的用户利益")
+        if TRACEABILITY_RE.search(text) and not TRACEABILITY_RE.search(all_claim_text):
+            errors.append(
+                f"{location} 存在越界表达：页面列出产地不自动等于可追溯；"
+                "必须有逐字可追溯主张或追溯系统证据"
+            )
         if UNSUPPORTED_PRODUCT_COMPARATOR_RE.search(comparison_text) and not has_any_comparison_support:
             errors.append(f"{location} 存在越界表达：无来源的产品替代对象不得进入价值、识别锚或 P0 结论")
         elif UNSUPPORTED_PRODUCT_TARGET_RE.search(comparison_text) and not has_any_comparison_support:
@@ -2648,6 +2703,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{location} 新增了原文没有的限制性结论“{restriction}”")
 
     for location, text in iter_client_narrative_texts(manifest, facts, fabe, anchors, values, decision, gaps):
+        if AUDIT_DOWNGRADE_ACTION_RE.search(text) and AUDIT_DOWNGRADE_REASON_RE.search(text):
+            errors.append(
+                f"{location} 记录了为绕过原文摘录而移除观察标记或降低文字密度；"
+                "必须重新检查来源、恢复真实观察属性并补齐可见原文，不能修改证据分类来通过门禁"
+            )
         if DUPLICATED_CLIENT_WORD_RE.search(text):
             errors.append(f"{location} 含重复词或内部拼接残片，需改写为自然客户中文")
         if (
