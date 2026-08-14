@@ -222,15 +222,15 @@ def build_report_01(data: dict[str, Any]) -> str:
         "",
         "当前只输出建议验证任务；未提供真实业务输入、样本量和历史基线时，不设置虚假阈值和正式执行话术。",
         "",
-        "| 验证任务 | 必须保留 | 只改变量 | 主看指标 | 成功后回写 | 当前状态 |",
-        "|---|---|---|---|---|---|",
+        "| 验证任务 | 对照版 | 测试版 | 必须保留 | 唯一变量 | 指标与获取方式 | 判断与回写 | 当前状态 |",
+        "|---|---|---|---|---|---|---|---|",
     ])
     for item in data["validations"][:3]:
         lines.append(
-            f"| {md(item.get('validation_task'))} | {md(item.get('must_keep'))} | {md(item.get('single_variable'))} | {md(item.get('primary_metrics'))} | {md(item.get('writeback'))} | {TEST_STATUS_LABELS.get(item.get('status'), md(item.get('status')))} |"
+            f"| {md(item.get('validation_task'))} | {md(item.get('control_version'))} | {md(item.get('test_version'))} | {md(item.get('must_keep'))} | {md(item.get('single_variable'))} | {md(item.get('primary_metrics'))}；{md(item.get('measurement_method'))} | {md(item.get('decision_rule'))}；{md(item.get('writeback'))} | {TEST_STATUS_LABELS.get(item.get('status'), md(item.get('status')))} |"
         )
     if not data["validations"]:
-        lines.append("| 尚未形成验证任务 | 当前商品与核心价值不变 | 待业务目标确定后只选择一个主变量 | 按真实经营任务确定 | 回写候选／已验证资产 | 待补输入 |")
+        lines.append("| 尚未形成验证任务 | 待定义 | 待定义 | 当前商品与核心价值不变 | 待业务目标确定后只选择一个主变量 | 按真实经营任务确定 | 回写候选／已验证资产 | 待补输入 |")
 
     lines.extend([
         "",

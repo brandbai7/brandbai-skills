@@ -146,8 +146,12 @@ def init_delivery(out: Path, product_value_delivery: Path, source_materials: Pat
                 "fact_id": item.get("fact_id", ""),
                 "fact_type": item.get("fact_type", ""),
                 "statement": item.get("statement", ""),
+                "source_quotes": item.get("source_quotes", []),
                 "locator": item.get("locator", ""),
                 "boundary": item.get("boundary", ""),
+                "evidence_detail_confidence": item.get("evidence_detail_confidence"),
+                "exact_fields_verified": item.get("exact_fields_verified"),
+                "verification_locator": item.get("verification_locator", ""),
             }
             for item in upstream["facts"]
         ],
@@ -171,7 +175,10 @@ def init_delivery(out: Path, product_value_delivery: Path, source_materials: Pat
         existing.append(
             {
                 "expression_id": fact.get("fact_id", ""),
+                "expression_origin": "upstream",
+                "source_form": "upstream_registered",
                 "value_ids": [],
+                "fact_ids": [fact.get("fact_id", "")],
                 "source_statement": fact.get("statement", ""),
                 "source_id": fact.get("source_id", ""),
                 "locator": fact.get("locator", ""),

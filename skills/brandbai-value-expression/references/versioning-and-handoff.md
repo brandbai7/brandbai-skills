@@ -14,7 +14,7 @@
 
 ## 页面和用户资料增量
 
-新增页面表达若只是对既有事实的呈现，可以登记为新的上游EX后更新本Skill。若包含新事实、跨SKU信息或冲突，先回到商品价值Skill更新事实和价值，不在本Skill静默吸收。
+新增页面表达若只是对既有事实的传播语言或可见形式，在本轮登记为 `PEX-` 并回指上游事实；不要求为了盘点页面画面反复重做商品价值底座。若包含新事实、精确证据字段、跨SKU信息或冲突，先回到商品价值Skill更新事实和价值，不在本Skill静默吸收。
 
 新增用户语言只能增强场景、动作、感觉词、结果词、比较词和自然比喻，不能覆盖商品事实或把单例体验扩成普遍功效。
 
@@ -25,6 +25,7 @@
 ```text
 expression_manifest.json
 upstream_snapshot.json
+existing_expression_ledger.jsonl
 vis_ledger.jsonl
 validation_ledger.jsonl
 gap_ledger.jsonl

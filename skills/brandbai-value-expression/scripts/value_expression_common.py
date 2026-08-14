@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.1.0"
-SKILL_VERSION = "0.1.1"
+SCHEMA_VERSION = "0.1.1"
+SKILL_VERSION = "0.1.2"
 
 ANALYSIS_STATUSES = {"draft", "complete", "partial", "insufficient", "stale"}
 DELIVERY_STATUSES = {"ready", "conditional", "blocked", "stale"}
@@ -32,6 +32,17 @@ VIS_STATUSES = {
     "stale",
 }
 TEST_STATUSES = {"suggested", "ready", "running", "completed", "blocked", "stale"}
+EXPRESSION_ORIGINS = {"upstream", "source_material"}
+EXPRESSION_SOURCE_FORMS = {
+    "upstream_registered",
+    "detail_page",
+    "packaging",
+    "image",
+    "video_frame",
+    "original_document",
+    "other",
+}
+EXPRESSION_STATUSES = {"inventory_pending", "page_existing_unvalidated", "stale"}
 
 DATA_FILES = (
     "expression_manifest.json",
