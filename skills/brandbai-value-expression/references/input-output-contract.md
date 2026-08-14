@@ -27,7 +27,7 @@ data/p0_decision.json
 
 ## 2. 可选输入
 
-可以同时提供当前商品详情页、包装、图片、视频帧、既有页面或内容素材，用于盘点页面已经怎么说、怎么拍。补充素材若包含尚未登记的新商品事实、跨 SKU 信息或冲突，先退回商品价值 Skill 更新上游；不得在本 Skill 静默新增事实或改变 P0。
+可以同时提供当前商品详情页、包装、图片、视频帧、既有页面或内容素材，用于盘点页面已经怎么说、怎么拍。补充素材中的公开传播语言和可见形式使用本轮 `PEX-` 页面表达登记，但它们不是新增商品事实；若包含尚未登记的新商品事实、跨 SKU 信息或冲突，先退回商品价值 Skill 更新上游，不得在本 Skill 静默新增事实或改变 P0。
 
 评论或用户原声只有在上游已经登记为可用用户语义资产时才能调用。未经授权不得直接外部引用个人原话。
 
@@ -68,11 +68,14 @@ created_at, updated_at
 ### existing_expression_ledger.jsonl
 
 ```text
-expression_id, value_ids, source_statement, source_id, locator,
+expression_id, expression_origin, source_form, value_ids, fact_ids,
+source_statement, source_id, locator,
 page_says, page_shows, current_perception, reusable, gap, status, boundary
 ```
 
-`expression_id` 继承上游 `EX-`，不另建平行页面表达编号。页面出现过只表示“已有表达”，不表示“已验证有效”。
+上游已登记表达继续继承 `EX-`，`expression_origin=upstream`、`source_form=upstream_registered`。本轮对补充商品素材实际盘点出的页面语言或可见形式使用稳定 `PEX-001` 起编号，`expression_origin=source_material`，并至少回指一个上游事实；`source_form` 使用 `detail_page`、`packaging`、`image`、`video_frame`、`original_document` 或 `other`。
+
+`PEX-` 只登记页面怎么说、怎么拍，不得把未入上游的规格、检测小字、认证结论或其他新主张升级为事实。提供了补充商品素材且分析状态为 `complete` 或 `partial` 时，至少形成一条 `PEX-`；普通版页面盘点必须由本账本确定性生成，不得只手工写进 Markdown。页面出现过只表示“已有表达”，不表示“已验证有效”。
 
 ### six_path_ledger.jsonl
 
@@ -118,10 +121,11 @@ validation_status, boundary, external_priority
 
 ```text
 test_id, vis_ids, validation_task, must_keep, single_variable,
-primary_metrics, writeback, status, requirements, boundary
+control_version, test_version, primary_metrics, measurement_method,
+decision_rule, writeback, status, requirements, boundary
 ```
 
-只有建议验证任务时使用 `suggested`；不得伪造样本量、阈值、结果或已验证状态。
+对照版、测试版和唯一变量必须互相一致；平台行为指标与评论语义分别读取，不得写成“留存用户的评论复述比例”等平台无法直接返回的混合指标。没有样本与基线时可以给出探索性比较规则，但不得伪造样本量、阈值、结果或已验证状态。
 
 ### gap_ledger.jsonl
 
@@ -133,6 +137,7 @@ gap_id, category, missing, impact, minimum_needed, priority, state
 
 ```text
 VE-<12位十六进制>
+EX-001 / PEX-001
 PATH-001
 SLOT-01 ... SLOT-12
 VIS-001
@@ -140,4 +145,4 @@ TEST-001
 GAP-001
 ```
 
-上游 `PV-`、`F-/U-/EX-`、`V-`、`ANCHOR-` 和 P0 决策 ID 只继承，不重编号。VIS 是资产索引，不是镜头号、页面图片号或播放顺序。
+上游 `PV-`、`F-/U-/EX-`、`V-`、`ANCHOR-` 和 P0 决策 ID 只继承，不重编号。`PEX-` 是本轮补充商品素材的页面表达索引，不是商品事实。VIS 是资产索引，不是镜头号、页面图片号或播放顺序。

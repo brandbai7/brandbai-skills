@@ -52,6 +52,18 @@ def make_product_value_delivery(root: Path) -> Path:
                 "locator": "商品页首屏",
                 "boundary": "这是页面表达，不代表效果已验证。",
             },
+            {
+                "fact_id": "F-002",
+                "fact_type": "F-EVIDENCE",
+                "statement": "详情页截图显示检测结果为ND（未检出），单项结论符合。",
+                "source_id": "SRC-002",
+                "source_quotes": ["ND", "未检出", "符合"],
+                "locator": "商品页检测截图",
+                "boundary": "仅为详情页截图级证据，精确小字未核验。",
+                "evidence_detail_confidence": "medium",
+                "exact_fields_verified": False,
+                "verification_locator": "",
+            },
         ],
     )
     write_jsonl(data / "fabe_ledger.jsonl", [{"fabe_id": "FABE-001"}])
@@ -196,6 +208,25 @@ def populate_expression(delivery: Path) -> None:
             "status": "page_existing_unvalidated",
         }
     )
+    existing.append(
+        {
+            "expression_id": "PEX-001",
+            "expression_origin": "source_material",
+            "source_form": "detail_page",
+            "value_ids": ["V-001"],
+            "fact_ids": ["F-001"],
+            "source_statement": "详情页以商品正面和透明杯展示当前饮品。",
+            "source_id": "SOURCE-MATERIAL-001",
+            "locator": "详情页第1页",
+            "page_says": "每瓶300毫升。",
+            "page_shows": "商品正面与透明杯同框。",
+            "current_perception": "能看懂商品和单瓶规格。",
+            "reusable": "商品正面与透明杯同框。",
+            "gap": "尚未验证表达效果。",
+            "status": "page_existing_unvalidated",
+            "boundary": "只表示页面采用过该表达，不代表已经有效。",
+        }
+    )
     write_jsonl(data / "existing_expression_ledger.jsonl", existing)
     write_jsonl(data / "six_path_ledger.jsonl", route_rows())
 
@@ -236,7 +267,11 @@ def populate_expression(delivery: Path) -> None:
                 "validation_task": "比较两种气泡呈现动作是否更容易被用户复述。",
                 "must_keep": "商品、核心事实、字幕和发布条件保持一致。",
                 "single_variable": "只改变开瓶近景与倒入杯中近景。",
+                "control_version": "对照版使用开瓶近景。",
+                "test_version": "测试版使用倒入杯中近景。",
                 "primary_metrics": ["前5秒留存", "评论中的气泡感复述"],
+                "measurement_method": "分别读取两版前5秒留存；在相同观察窗口内独立编码评论是否复述气泡感。",
+                "decision_rule": "先比较同口径留存，再单独比较评论复述；样本不足时只记录方向，不升级资产状态。",
                 "writeback": "将结果回写为候选、已验证或不建议误用。",
                 "status": "suggested",
                 "requirements": "需要两条同条件真实素材及同口径观察窗口。",
@@ -268,10 +303,12 @@ def run_test() -> None:
     try:
         upstream = make_product_value_delivery(temp_root)
         delivery = temp_root / "value-expression"
-        plan = build_plan(delivery, upstream, None)
+        source_material = temp_root / "source-material.pdf"
+        source_material.write_bytes(b"synthetic source material")
+        plan = build_plan(delivery, upstream, source_material)
         assert plan["dry_run"] is True
         assert not delivery.exists(), "dry-run 不得创建交付目录"
-        init_delivery(delivery, upstream, None)
+        init_delivery(delivery, upstream, source_material)
         populate_expression(delivery)
         dry_run = build_delivery(delivery, write=False)
         assert dry_run["status"] == "dry_run"
@@ -282,7 +319,81 @@ def run_test() -> None:
         assert "## 3｜核心卖点感知化呈现卡" in report
         assert "VIS-001" not in report and "V-001" not in report
 
+        manifest_path = delivery / "data" / "expression_manifest.json"
+        current_manifest = read_json(manifest_path)
+        old_manifest = dict(current_manifest)
+        old_manifest["schema_version"] = "0.1.0"
+        old_manifest["skill_version"] = "0.1.1"
+        write_json(manifest_path, old_manifest)
+        failed = validate_delivery(delivery)
+        assert any("旧交付需要用当前版本重新初始化" in error for error in failed["errors"])
+        assert any("不得用新校验器给旧Skill交付补签" in error for error in failed["errors"])
+        write_json(manifest_path, current_manifest)
+
+        report_path = delivery / "02_资料说明与验证计划.md"
+        report_path.write_text(report_path.read_text(encoding="utf-8") + "\n手工补写页面盘点。\n", encoding="utf-8")
+        failed = validate_delivery(delivery)
+        assert any("与 data 账本不同步" in error for error in failed["errors"])
+        build_delivery(delivery, write=True)
+        assert validate_delivery(delivery)["status"] == "passed"
+
+        existing_path = delivery / "data" / "existing_expression_ledger.jsonl"
+        existing = read_jsonl(existing_path)
+        write_jsonl(existing_path, [item for item in existing if item.get("expression_origin") != "source_material"])
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("没有 source_material / PEX" in error for error in failed["errors"])
+        write_jsonl(existing_path, existing)
+        build_delivery(delivery, write=True)
+        assert validate_delivery(delivery)["status"] == "passed"
+
         vis_path = delivery / "data" / "vis_ledger.jsonl"
+        vis = read_jsonl(vis_path)
+        original_vis = json.loads(json.dumps(vis, ensure_ascii=False))
+
+        vis[0]["fact_ids"] = ["F-002"]
+        vis[0]["subtitle_track"] = "单位μg/g，限值10，结果ND。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("未核验的精确字段" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["fact_ids"] = ["F-002"]
+        vis[0]["visual_track"] = "展示检测报告原件并停在ND一行。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("称为原件" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["user_question"] = "打开一包能否同时看到全部五味内容物？"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("单包内容物" in error for error in failed["errors"])
+
+        write_jsonl(vis_path, original_vis)
+        validation_path = delivery / "data" / "validation_ledger.jsonl"
+        validations = read_jsonl(validation_path)
+        original_validations = json.loads(json.dumps(validations, ensure_ascii=False))
+        validations[0]["validation_task"] = "只把上下分屏顺序互换。"
+        validations[0]["single_variable"] = "只改左右分屏顺序。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("方向描述不一致" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["primary_metrics"] = ["前5秒留存的评论复述比例"]
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("不可直接观测" in error for error in failed["errors"])
+
+        write_jsonl(validation_path, original_validations)
+        write_jsonl(vis_path, original_vis)
+        build_delivery(delivery, write=True)
         vis = read_jsonl(vis_path)
         original_sound = vis[0].pop("sound_track")
         write_jsonl(vis_path, vis)

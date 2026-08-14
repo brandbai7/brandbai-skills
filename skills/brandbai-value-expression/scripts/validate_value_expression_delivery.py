@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from build_value_expression_report import build_report_01, build_report_02
 from value_expression_common import (
     ACTIVE_VALUE_LAYERS,
     ANALYSIS_STATUSES,
@@ -16,8 +18,13 @@ from value_expression_common import (
     CONTENT_OBJECTS,
     DECISION_TASKS,
     DELIVERY_STATUSES,
+    EXPRESSION_ORIGINS,
+    EXPRESSION_SOURCE_FORMS,
+    EXPRESSION_STATUSES,
     ROUTES,
     ROUTE_ROLES,
+    SCHEMA_VERSION,
+    SKILL_VERSION,
     SLOT_STATUSES,
     TEST_STATUSES,
     UPSTREAM_ANALYSIS_STATUSES,
@@ -43,9 +50,9 @@ UPSTREAM_FIELDS = {
     "anchor_ids", "file_hashes", "captured_at",
 }
 EXISTING_FIELDS = {
-    "expression_id", "value_ids", "source_statement", "source_id", "locator",
-    "page_says", "page_shows", "current_perception", "reusable", "gap",
-    "status", "boundary",
+    "expression_id", "expression_origin", "source_form", "value_ids", "fact_ids",
+    "source_statement", "source_id", "locator", "page_says", "page_shows",
+    "current_perception", "reusable", "gap", "status", "boundary",
 }
 PATH_FIELDS = {
     "scan_id", "value_id", "route", "role", "translation", "reason",
@@ -67,7 +74,8 @@ VIS_FIELDS = {
 }
 VALIDATION_FIELDS = {
     "test_id", "vis_ids", "validation_task", "must_keep", "single_variable",
-    "primary_metrics", "writeback", "status", "requirements", "boundary",
+    "control_version", "test_version", "primary_metrics", "measurement_method",
+    "decision_rule", "writeback", "status", "requirements", "boundary",
 }
 GAP_FIELDS = {"gap_id", "category", "missing", "impact", "minimum_needed", "priority", "state"}
 TRACK_FIELDS = (
@@ -79,6 +87,58 @@ SLOT_GROUPS = {
     "05": "欲望建立", "06": "欲望建立", "07": "欲望建立", "08": "欲望建立",
     "09": "阻力解除", "10": "阻力解除", "11": "阻力解除", "12": "氛围连接",
 }
+
+EXACT_FIELD_PATTERNS = (
+    re.compile(r"(?:GB\s*/\s*T|GB|ISO|FSSC)\s*-?\s*\d[0-9A-Za-z./-]*", re.IGNORECASE),
+    re.compile(r"CNAS(?:[0-9A-Za-z./-]+)?", re.IGNORECASE),
+    re.compile(r"(?:单位|限值|报告编号|签发日期|检测方法(?:标准)?)[：:\s]*[0-9A-Za-z.μµ/%°℃_-]+", re.IGNORECASE),
+)
+ORIGINAL_ASSET_RE = re.compile(r"(?:报告|证书|检测单|文件)原件|原始报告|原件报告")
+SINGLE_PACK_CLAIM_RE = re.compile(
+    r"(?:(?:一包|单包|一袋|单袋).{0,24}(?:全部|同时|五味|多种|内容物)|"
+    r"(?:全部|同时|五味|多种|内容物).{0,24}(?:一包|单包|一袋|单袋))"
+)
+
+
+def normalized(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return re.sub(r"[\s:：,，;；()（）]+", "", text)
+
+
+def joined_text(record: dict[str, Any], fields: tuple[str, ...]) -> str:
+    parts: list[str] = []
+    for field in fields:
+        value = record.get(field, "")
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+        else:
+            parts.append(str(value))
+    return "\n".join(parts)
+
+
+def exact_field_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for pattern in EXACT_FIELD_PATTERNS:
+        tokens.extend(match.group(0) for match in pattern.finditer(text))
+    return sorted(set(tokens))
+
+
+def unsupported_exact_tokens(
+    record: dict[str, Any],
+    fields: tuple[str, ...],
+    fact_lookup: dict[str, dict[str, Any]],
+) -> list[str]:
+    linked = [fact_lookup[item] for item in map(str, list_value(record, "fact_ids")) if item in fact_lookup]
+    if not any(item.get("exact_fields_verified") is False for item in linked):
+        return []
+    support_parts: list[str] = []
+    for fact in linked:
+        support_parts.append(str(fact.get("statement", "")))
+        quotes = fact.get("source_quotes", [])
+        if isinstance(quotes, list):
+            support_parts.extend(str(item) for item in quotes)
+    support = normalized(" ".join(support_parts))
+    return [token for token in exact_field_tokens(joined_text(record, fields)) if normalized(token) not in support]
 
 
 def missing_fields(record: dict[str, Any], required: set[str]) -> list[str]:
@@ -134,6 +194,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append(f"expression_manifest.json 缺少字段: {', '.join(missing)}")
     if not re.fullmatch(r"VE-[0-9a-f]{12}", str(manifest.get("value_expression_id", ""))):
         errors.append("value_expression_id 必须使用 VE- 加 12 位小写十六进制")
+    if manifest.get("schema_version") != SCHEMA_VERSION:
+        errors.append(f"schema_version 必须为 {SCHEMA_VERSION}；旧交付需要用当前版本重新初始化")
+    if manifest.get("skill_version") != SKILL_VERSION:
+        errors.append(f"skill_version 必须为 {SKILL_VERSION}；不得用新校验器给旧Skill交付补签")
     if not re.fullmatch(r"PV-[0-9a-f]{12}", str(manifest.get("product_value_id", ""))):
         errors.append("product_value_id 格式无效")
     if manifest.get("analysis_status") not in ANALYSIS_STATUSES:
@@ -168,7 +232,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("upstream file_hashes 必须是对象")
 
     ledger_specs = (
-        ("existing_expression_ledger", existing, "expression_id", EXISTING_FIELDS, r"EX-\d{3,}"),
+        ("existing_expression_ledger", existing, "expression_id", EXISTING_FIELDS, r"(?:EX|PEX)-\d{3,}"),
         ("six_path_ledger", scans, "scan_id", PATH_FIELDS, r"PATH-\d{3,}"),
         ("slot_scan_ledger", slots, "slot_id", SLOT_FIELDS, r"SLOT-(?:0[1-9]|1[0-2])"),
         ("vis_ledger", vis, "vis_id", VIS_FIELDS, r"VIS-\d{3,}"),
@@ -197,14 +261,61 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if item.get("layer") in ACTIVE_VALUE_LAYERS and item.get("downstream_readiness") != "blocked"
     }
     fact_ids = {str(item) for item in upstream.get("fact_ids", [])}
-    expression_ids = {str(item) for item in upstream.get("expression_ids", [])}
+    fact_lookup = {
+        str(item.get("fact_id", "")): item
+        for item in upstream.get("facts", [])
+        if isinstance(item, dict) and item.get("fact_id")
+    }
+    upstream_expression_ids = {str(item) for item in upstream.get("expression_ids", [])}
     existing_ids = {str(item.get("expression_id", "")) for item in existing}
-    if not existing_ids <= expression_ids:
-        errors.append(f"现有页面表达不是上游 EX 资产: {', '.join(sorted(existing_ids - expression_ids))}")
+    source_expression_count = 0
     for record in existing:
+        expression_id = str(record.get("expression_id", ""))
+        origin = str(record.get("expression_origin", ""))
+        source_form = str(record.get("source_form", ""))
+        if origin not in EXPRESSION_ORIGINS:
+            errors.append(f"{expression_id} expression_origin 不在允许范围")
+        if source_form not in EXPRESSION_SOURCE_FORMS:
+            errors.append(f"{expression_id} source_form 不在允许范围")
+        if record.get("status") not in EXPRESSION_STATUSES:
+            errors.append(f"{expression_id} status 不在允许范围")
+        if origin == "upstream":
+            if expression_id not in upstream_expression_ids or not expression_id.startswith("EX-"):
+                errors.append(f"{expression_id} 标为上游表达时必须继承有效 EX 资产")
+            if source_form != "upstream_registered":
+                errors.append(f"{expression_id} 上游表达的 source_form 必须为 upstream_registered")
+        if origin == "source_material":
+            source_expression_count += 1
+            if not expression_id.startswith("PEX-") or expression_id in upstream_expression_ids:
+                errors.append(f"{expression_id} 补充素材表达必须使用独立 PEX- 编号")
+            if source_form == "upstream_registered":
+                errors.append(f"{expression_id} 补充素材表达不得标为 upstream_registered")
+        unknown_facts = set(map(str, list_value(record, "fact_ids"))) - fact_ids
+        if unknown_facts:
+            errors.append(f"{expression_id} 引用了未知事实: {', '.join(sorted(unknown_facts))}")
+        if origin == "source_material" and not list_value(record, "fact_ids"):
+            errors.append(f"{expression_id} 补充素材表达至少回指一个上游事实")
         unknown_values = set(map(str, list_value(record, "value_ids"))) - set(upstream_values)
         if unknown_values:
-            errors.append(f"{record.get('expression_id')} 引用了未知价值: {', '.join(sorted(unknown_values))}")
+            errors.append(f"{expression_id} 引用了未知价值: {', '.join(sorted(unknown_values))}")
+        if manifest.get("analysis_status") in {"complete", "partial"}:
+            for field in ("source_statement", "source_id", "locator", "current_perception", "boundary"):
+                if not nonempty_text(record, field):
+                    errors.append(f"{expression_id} 正式盘点缺少 {field}")
+            if not nonempty_text(record, "page_says") and not nonempty_text(record, "page_shows"):
+                errors.append(f"{expression_id} 必须填写 page_says 或 page_shows")
+            if not nonempty_text(record, "reusable") and not nonempty_text(record, "gap"):
+                errors.append(f"{expression_id} 必须填写 reusable 或 gap")
+            if record.get("status") == "inventory_pending":
+                errors.append(f"{expression_id} 仍为 inventory_pending，不得正式交付")
+
+    source_materials = str(manifest.get("source_materials", "")).strip()
+    if (
+        manifest.get("analysis_status") in {"complete", "partial"}
+        and source_materials not in {"", "not_provided", "未提供"}
+        and source_expression_count == 0
+    ):
+        errors.append("已提供补充商品素材，但 existing_expression_ledger 没有 source_material / PEX 页面表达盘点")
 
     scans_by_value: dict[str, list[dict[str, Any]]] = defaultdict(list)
     scan_role_lookup: dict[tuple[str, str], str] = {}
@@ -225,9 +336,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         unknown_facts = set(map(str, list_value(record, "fact_ids"))) - fact_ids
         if unknown_facts:
             errors.append(f"{record.get('scan_id')} 引用了未知事实: {', '.join(sorted(unknown_facts))}")
-        unknown_ex = set(map(str, list_value(record, "expression_ids"))) - expression_ids
+        unknown_ex = set(map(str, list_value(record, "expression_ids"))) - existing_ids
         if unknown_ex:
             errors.append(f"{record.get('scan_id')} 引用了未知页面表达: {', '.join(sorted(unknown_ex))}")
+        unsupported = unsupported_exact_tokens(record, ("translation",), fact_lookup)
+        if unsupported:
+            errors.append(f"{record.get('scan_id')} 使用了上游未核验的精确字段: {', '.join(unsupported)}")
 
     if manifest.get("analysis_status") in {"complete", "partial"}:
         if not active_values:
@@ -265,6 +379,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"SLOT-{number} 标为不适用时不得关联 VIS")
 
     vis_ids = {str(item.get("vis_id", "")) for item in vis}
+    existing_map = {str(item.get("expression_id", "")): item for item in existing}
     vis_by_value: dict[str, list[dict[str, Any]]] = defaultdict(list)
     priorities: list[int] = []
     for record in vis:
@@ -301,7 +416,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         unknown_facts = set(map(str, list_value(record, "fact_ids"))) - fact_ids
         if unknown_facts:
             errors.append(f"{vis_id} 引用了未知事实: {', '.join(sorted(unknown_facts))}")
-        unknown_ex = set(map(str, list_value(record, "expression_ids"))) - expression_ids
+        unknown_ex = set(map(str, list_value(record, "expression_ids"))) - existing_ids
         if unknown_ex:
             errors.append(f"{vis_id} 引用了未知页面表达: {', '.join(sorted(unknown_ex))}")
         if not list_value(record, "fact_ids"):
@@ -314,6 +429,29 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{vis_id} applicable_objects 必须是五大作业对象的非空子集")
         if record.get("validation_status") not in VIS_STATUSES:
             errors.append(f"{vis_id} validation_status 不在允许范围")
+        positive_fields = (
+            "user_question", "target_perception", "human_language", "visual_track",
+            "action_track", "sound_track", "subtitle_track", "prop_track", "scene_track",
+            "effect_bgm_track", "commerce_handoff_track", "must_keep", "variable_parts",
+        )
+        unsupported = unsupported_exact_tokens(record, positive_fields, fact_lookup)
+        if unsupported:
+            errors.append(f"{vis_id} 使用了上游未核验的精确字段: {', '.join(unsupported)}")
+        positive_text = joined_text(record, positive_fields)
+        if ORIGINAL_ASSET_RE.search(positive_text):
+            has_original = any(
+                existing_map.get(expression_id, {}).get("source_form") == "original_document"
+                for expression_id in map(str, list_value(record, "expression_ids"))
+            )
+            if not has_original:
+                errors.append(f"{vis_id} 把截图或页面素材称为原件，但没有 original_document 页面表达依据")
+        proof_claim = joined_text(record, ("user_question", "target_perception", "human_language"))
+        if SINGLE_PACK_CLAIM_RE.search(proof_claim):
+            proof_method = joined_text(record, ("action_track", "must_keep"))
+            has_continuity = bool(re.search(r"连续|一镜到底|不中断|不剪辑", proof_method))
+            has_no_supplement = bool(re.search(r"未拆封|不补料|不换包|不拼接|单包全部", proof_method))
+            if not has_continuity or not has_no_supplement:
+                errors.append(f"{vis_id} 声称单包内容物时必须保留未拆封单包、连续展示和不补料/不换包证明")
         priority = record.get("external_priority")
         if priority is not None:
             if not isinstance(priority, int) or not 1 <= priority <= 5:
@@ -344,6 +482,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     if len(validations) > 3:
         errors.append("第一轮内容验证最多保留 3 个任务")
+    vis_map = {str(item.get("vis_id", "")): item for item in vis}
     for record in validations:
         test_id = str(record.get("test_id", ""))
         unknown_vis = set(map(str, list_value(record, "vis_ids"))) - vis_ids
@@ -353,11 +492,50 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{test_id} 至少关联一个 VIS")
         if not list_value(record, "primary_metrics"):
             errors.append(f"{test_id} 必须给出与任务匹配的观察指标")
-        for field in ("validation_task", "must_keep", "single_variable", "writeback", "requirements", "boundary"):
+        for field in (
+            "validation_task", "must_keep", "single_variable", "control_version",
+            "test_version", "measurement_method", "decision_rule", "writeback",
+            "requirements", "boundary",
+        ):
             if not nonempty_text(record, field):
                 errors.append(f"{test_id} 缺少必填内容 {field}")
         if record.get("status") not in TEST_STATUSES:
             errors.append(f"{test_id} status 不在允许范围")
+        if normalized(record.get("control_version")) == normalized(record.get("test_version")):
+            errors.append(f"{test_id} 对照版与测试版不得相同")
+        task_text = str(record.get("validation_task", ""))
+        variable_text = str(record.get("single_variable", ""))
+        if ("上下" in task_text and "左右" in variable_text) or ("左右" in task_text and "上下" in variable_text):
+            errors.append(f"{test_id} 验证任务与 single_variable 的方向描述不一致")
+        for metric in map(str, list_value(record, "primary_metrics")):
+            if re.search(r"(?:留存|完播|点击).{0,16}(?:评论|复述)|(?:评论|复述).{0,16}(?:留存|完播|点击)", metric):
+                errors.append(f"{test_id} 把平台行为指标与评论语义混成不可直接观测的单一指标: {metric}")
+        linked_vis = [vis_map[item] for item in map(str, list_value(record, "vis_ids")) if item in vis_map]
+        proxy = dict(record)
+        proxy["fact_ids"] = sorted({
+            str(fact_id)
+            for item in linked_vis
+            for fact_id in list_value(item, "fact_ids")
+        })
+        unsupported = unsupported_exact_tokens(
+            proxy,
+            ("validation_task", "must_keep", "single_variable", "control_version", "test_version"),
+            fact_lookup,
+        )
+        if unsupported:
+            errors.append(f"{test_id} 使用了上游未核验的精确字段: {', '.join(unsupported)}")
+        validation_positive_text = joined_text(
+            record,
+            ("validation_task", "must_keep", "single_variable", "control_version", "test_version"),
+        )
+        if ORIGINAL_ASSET_RE.search(validation_positive_text):
+            linked_expression_ids = {
+                str(expression_id)
+                for item in linked_vis
+                for expression_id in list_value(item, "expression_ids")
+            }
+            if not any(existing_map.get(item, {}).get("source_form") == "original_document" for item in linked_expression_ids):
+                errors.append(f"{test_id} 把截图或页面素材称为原件，但关联 VIS 没有 original_document 依据")
 
     if manifest.get("analysis_status") == "insufficient" and not gaps:
         errors.append("analysis_status=insufficient 时至少需要一条资料缺口")
@@ -382,6 +560,25 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"01_卖点可视化呈现.md 缺少章节: {heading}")
     if report_01.count("### 呈现卡") > 5:
         errors.append("普通版核心呈现卡超过 5 张")
+
+    report_data = {
+        "manifest": manifest,
+        "upstream": upstream,
+        "existing": existing,
+        "scans": scans,
+        "slots": slots,
+        "vis": vis,
+        "validations": validations,
+        "gaps": gaps,
+    }
+    expected_reports = {
+        "report_01": build_report_01(report_data).rstrip() + "\n",
+        "report_02": build_report_02(report_data).rstrip() + "\n",
+    }
+    for report_key, expected in expected_reports.items():
+        actual = paths[report_key].read_text(encoding="utf-8")
+        if actual != expected:
+            errors.append(f"{paths[report_key].name} 与 data 账本不同步，请重新运行报告构建器")
 
     return {
         "status": "passed" if not errors else "failed",

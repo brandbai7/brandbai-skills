@@ -20,7 +20,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.2 | 微博明星／工作室／品牌账号、单微博、搜索、普通话题、明星超话和热搜榜单的正文、素材、互动、评论、回复与转发证据 | Prototype · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.23 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实；拦截未入账规格冲突、证据属性降级绕行、无来源任务扩写及产地追溯过度结论 | Prototype · Noncommercial |
-| [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.1 | 继承有效商品价值，逐项扫描六条翻译路径与十二类感知槽位，形成画面、动作、声音、字幕、道具等原子呈现及验证计划 | Prototype · Noncommercial |
+| [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.2 | 继承有效商品价值，以EX/PEX盘点页面表达，逐项扫描六路与十二槽位，形成证据边界清晰的多轨呈现及单变量验证计划 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
 
@@ -119,7 +119,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 [在 WorkBuddy 安装 brandbai-product-value v0.1.23](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.23%2Fbrandbai-product-value.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-value-expression v0.1.1](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.1%2Fbrandbai-value-expression.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-value-expression v0.1.2](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.2%2Fbrandbai-value-expression.zip&channelType=github)
 
 同一仓库会分别发布多个 Skill，因此安装链接固定到各自版本，不使用仓库级 `latest`。如果宿主不支持网页唤起，可从对应版本的 GitHub Release 手动下载 ZIP：
 
@@ -128,7 +128,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 - [Tmall Download v0.3.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.3.2)
 - [TikTok Download v0.2.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tiktok-download-v0.2.1)
 - [Product Value v0.1.23](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.23)
-- [Value Expression v0.1.1](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.1)
+- [Value Expression v0.1.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.2)
 
 每个压缩包根目录都直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。
 

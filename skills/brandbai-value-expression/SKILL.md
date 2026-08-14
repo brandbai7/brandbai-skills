@@ -4,7 +4,7 @@ description: Translate a current BrandBAI product-value foundation into evidence
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.1"
+  version: "0.1.2"
   category: content-commerce
 ---
 
@@ -48,7 +48,7 @@ python scripts/init_value_expression_delivery.py `
   --dry-run
 ```
 
-确认目标目录后去掉`--dry-run`。初始化器校验上游状态、记录版本和文件哈希、继承页面`EX-`表达并创建空白资产；拒绝覆盖非空目录。
+确认目标目录后去掉`--dry-run`。初始化器校验上游状态、记录版本和文件哈希、继承上游页面`EX-`表达并创建空白资产；拒绝覆盖非空目录。实际检查补充详情页、包装或素材后，把页面怎么说、怎么拍登记为`PEX-`，不能只手工写进普通版。
 
 ## 建立结构化资产
 
@@ -65,14 +65,14 @@ data/validation_ledger.jsonl
 data/gap_ledger.jsonl
 ```
 
-内部稳定ID使用`VE-`、`PATH-`、`SLOT-01—12`、`VIS-`、`TEST-`和`GAP-`；上游`PV-`、`F-/U-/EX-`、`V-`、`ANCHOR-`与P0决策只继承，不重编号。
+内部稳定ID使用`VE-`、`PEX-`、`PATH-`、`SLOT-01—12`、`VIS-`、`TEST-`和`GAP-`；上游`PV-`、`F-/U-/EX-`、`V-`、`ANCHOR-`与P0决策只继承，不重编号。`PEX-`只记录本轮补充素材中的传播语言与画面形式，不新增商品事实。
 
 ## 完成卖点感知化
 
 严格按顺序执行：
 
 1. 核对上游商品、SKU、版本、P0状态和必需文件哈希，冻结价值分层；
-2. 盘点上游已登记的页面表达：页面怎么说、怎么拍、用户当前能感知什么、可复用点和缺口；
+2. 盘点上游`EX-`和本轮补充商品素材；补充素材使用`PEX-`记录页面怎么说、怎么拍、来源形态、用户当前能感知什么、可复用点和缺口；
 3. 对每个准备沟通的P0/P1/P2逐项扫描数字化、感官化、差异化、情境化、证据化和人格化；
 4. 每个价值选择1条主路径和1—2条辅助路径，未选路径也写本轮不优先/不适用及理由；
 5. 扫描01—12十二类感知原子槽位，适用则建立VIS，不适用写清原因，不机械凑满；
@@ -80,7 +80,7 @@ data/gap_ledger.jsonl
 7. 每个VIS完整填写画面、动作、声音、字幕、道具五条基础轨；场景、特效/BGM和商品/包装/商品页承接逐项判断；
 8. 写明必须保留、可变部分、不建议误用、适用经营对象、验证状态和边界；
 9. 选择最多5个核心VIS进入普通版，至少包含推荐P0的一个感知资产；
-10. 如有验证条件，最多提出3个单变量建议任务；没有样本和基线时不设虚假阈值；
+10. 如有验证条件，最多提出3个单变量建议任务；分别写清对照版、测试版、唯一变量、指标获取方式和判断规则，没有样本和基线时不设虚假阈值；
 11. 记录资料缺口、完成状态、失效条件和后续内容组装接口后停止。
 
 页面已有表达使用`page_existing_unvalidated`，新增设计默认使用`suggested_untested`。页面出现过不等于有效；只有真实内容、直播或页面版本与对应数据、评论、观察窗口和必要对照对位后，才能进入后续资产回写并升级状态。
@@ -109,7 +109,7 @@ python scripts/build_value_expression_report.py --delivery "<输出目录>"
 python scripts/validate_value_expression_delivery.py --delivery "<输出目录>"
 ```
 
-只有退出码为0才能交付。校验会检查上游一致性、逐价值六路完整性、1主+1—2辅、十二槽位、VIS单一职责、事实引用、五轨与扩展轨、普通版复杂度、验证状态和内部信息泄露。
+只有退出码为0才能交付。校验会检查上游一致性、`EX-/PEX-`页面盘点、逐价值六路完整性、1主+1—2辅、十二槽位、VIS单一职责、事实引用、截图与原件边界、未核验精确字段、单包连续证明、五轨与扩展轨、验证任务可观测性、普通版与data同步、复杂度和内部信息泄露。
 
 ## 判定完成状态
 
@@ -126,8 +126,10 @@ python scripts/validate_value_expression_delivery.py --delivery "<输出目录>"
 - 把识别锚、包装、检测、方便、权益或氛围升级为P0；
 - 把建议资产、页面已有表达或单次测试写成已验证有效；
 - 跨SKU、扩大功效、生成绝对承诺或虚构第一人称体验；
+- 把详情页截图称为报告原件，或把上游未核验的单位、限值、编号、日期、标准与认证名称写成精确证据；
+- 用预摆样品证明“一包／一袋”的实际内容物，或把留存与评论语义拼成平台无法直接返回的混合指标；
 - 按VIS编号、十二槽位或P0/P1/P2顺序直接拼成内容；
 - 在业务目标、人群、账号/达人、内容对象和交易承接不齐时生成确定方向、钩子、完整信息链、脚本、达人原话、Brief或动态CTA；
 - 伪造样本量、阈值、数据结果、转化归因或成功结论。
 
-完成后把当前有效`expression_manifest.json`、`upstream_snapshot.json`、`vis_ledger.jsonl`、`validation_ledger.jsonl`和`gap_ledger.jsonl`交给后续内容组装或资产回写Skill；下游不得改写上游商品价值和本层资产状态。
+完成后把当前有效`expression_manifest.json`、`upstream_snapshot.json`、`existing_expression_ledger.jsonl`、`vis_ledger.jsonl`、`validation_ledger.jsonl`和`gap_ledger.jsonl`交给后续内容组装或资产回写Skill；下游必须能解析`EX-/PEX-`来源，不得改写上游商品价值和本层资产状态。
