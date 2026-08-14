@@ -50,6 +50,8 @@ data/p0_decision.json
 
 Markdown 是普通阅读入口；`data/` 是卖点呈现资产、版本、验证与后续内容组装的单一事实源。普通版最多显示5个核心呈现资产和3个建议验证任务，完整资产保留在数据底稿。
 
+同一商品价值底座首次输出使用 `output_version=V1`。保留旧交付并生成修订版时必须依次使用 `V2`、`V3` 等新版本；`value_expression_id` 由 `product_value_id + output_version` 确定，两个并存版本不得复用同一组合。
+
 ## 4. 结构化数据
 
 ### expression_manifest.json
@@ -113,7 +115,7 @@ must_preserve_tracks, adaptable_tracks,
 validation_status, boundary, external_priority
 ```
 
-每个 VIS 只能有一个主价值和一个主要决策任务。画面、动作、声音、字幕、道具五条基础轨不得为空；场景、特效/BGM和商品/包装/商品页承接也必须逐项判断。`external_priority` 为空或1—5，决定普通版最多5张核心呈现卡，不表示内容播放顺序。
+每个 VIS 只能有一个主价值和一个主要决策任务。画面、动作、声音、字幕、道具五条基础轨不得为空；场景、特效/BGM和商品/包装/商品页承接也必须逐项判断。`external_priority` 为空或从1开始连续的1—5，决定普通版最多5张核心呈现卡，不表示内容播放顺序。可沟通价值不超过5个时，核心卡必须各覆盖一个主价值；`SLOT-02`一级识别锚不得进入核心卡。包数不能自行换算为“整周、几天、一个月”等使用周期；这些周期词必须由关联上游事实直接支持。
 
 ### validation_ledger.jsonl
 
@@ -125,7 +127,7 @@ control_version, test_version, primary_metrics, measurement_method,
 decision_rule, writeback, status, requirements, boundary
 ```
 
-对照版、测试版和唯一变量必须互相一致；平台行为指标与评论语义分别读取，不得写成“留存用户的评论复述比例”等平台无法直接返回的混合指标。没有样本与基线时可以给出探索性比较规则，但不得伪造样本量、阈值、结果或已验证状态。
+对照版、测试版和唯一变量必须互相一致；证据截图是唯一变量时，两版字幕保持相同；单包构成验证的两版均使用当前SKU真实单包，不以预摆样品替代。平台行为指标与评论语义分别读取，不得写成“留存用户的评论复述比例”等平台无法直接返回的混合指标。没有样本与基线时可以给出探索性比较规则，但不得使用“显著性”判断，也不得伪造样本量、阈值、结果或已验证状态。
 
 ### gap_ledger.jsonl
 

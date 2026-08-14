@@ -33,6 +33,7 @@ from value_expression_common import (
     delivery_paths,
     read_json,
     read_jsonl,
+    value_expression_id,
 )
 
 
@@ -98,6 +99,15 @@ SINGLE_PACK_CLAIM_RE = re.compile(
     r"(?:(?:一包|单包|一袋|单袋).{0,24}(?:全部|同时|五味|多种|内容物)|"
     r"(?:全部|同时|五味|多种|内容物).{0,24}(?:一包|单包|一袋|单袋))"
 )
+SUBTITLE_QUOTE_RE = re.compile(
+    r"字幕(?:仅)?(?:写|为|保持)?[：:\s]*[\"'“‘]([^\"'”’]+)[\"'”’]"
+)
+VISUAL_EVIDENCE_VARIABLE_RE = re.compile(r"截图|证据画面|报告画面|证明画面")
+PREARRANGED_RE = re.compile(r"预先?摆盘|预摆|提前摆盘")
+SIGNIFICANCE_RE = re.compile(r"显著性?|p\s*值|p-value", re.IGNORECASE)
+STATISTICAL_DESIGN_RE = re.compile(r"样本量|统计检验|显著性检验|置信区间|p\s*值|p-value", re.IGNORECASE)
+NONEXISTENT_VISUAL_RE = re.compile(r"不得虚构([^。；\n]+?)(?:等)?实际不存在")
+USAGE_PERIOD_RE = re.compile(r"(?:\d+\s*(?:天|周|个月|月)|一整天|整天|一周|整周|一个月|整月)")
 
 
 def normalized(value: Any) -> str:
@@ -194,6 +204,13 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append(f"expression_manifest.json 缺少字段: {', '.join(missing)}")
     if not re.fullmatch(r"VE-[0-9a-f]{12}", str(manifest.get("value_expression_id", ""))):
         errors.append("value_expression_id 必须使用 VE- 加 12 位小写十六进制")
+    output_version = str(manifest.get("output_version", ""))
+    if not re.fullmatch(r"V[1-9]\d*", output_version):
+        errors.append("output_version 必须使用 V1、V2、V3 等正整数版本")
+    elif manifest.get("product_value_id"):
+        expected_id = value_expression_id(str(manifest.get("product_value_id")), output_version)
+        if manifest.get("value_expression_id") != expected_id:
+            errors.append("value_expression_id 与 product_value_id / output_version 不一致")
     if manifest.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"schema_version 必须为 {SCHEMA_VERSION}；旧交付需要用当前版本重新初始化")
     if manifest.get("skill_version") != SKILL_VERSION:
@@ -317,6 +334,24 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     ):
         errors.append("已提供补充商品素材，但 existing_expression_ledger 没有 source_material / PEX 页面表达盘点")
 
+    visible_page_text = normalized("\n".join(str(item.get("page_shows", "")) for item in existing))
+    boundary_text = "\n".join(
+        [joined_text(item, ("translation", "reason", "boundary")) for item in scans]
+        + [
+            joined_text(item, ("human_language", "visual_track", "prop_track", "misuse", "boundary"))
+            for item in vis
+        ]
+        + [
+            joined_text(item, ("validation_task", "control_version", "test_version", "boundary"))
+            for item in validations
+        ]
+    )
+    for match in NONEXISTENT_VISUAL_RE.finditer(boundary_text):
+        for item in re.split(r"[、,/和及]", match.group(1)):
+            token = normalized(item.removesuffix("等"))
+            if len(token) >= 2 and token in visible_page_text:
+                errors.append(f"页面盘点已登记可见元素“{item.strip()}”，不得同时把它写成实际不存在")
+
     scans_by_value: dict[str, list[dict[str, Any]]] = defaultdict(list)
     scan_role_lookup: dict[tuple[str, str], str] = {}
     for record in scans:
@@ -438,6 +473,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if unsupported:
             errors.append(f"{vis_id} 使用了上游未核验的精确字段: {', '.join(unsupported)}")
         positive_text = joined_text(record, positive_fields)
+        linked_fact_text = normalized("\n".join(
+            joined_text(fact_lookup[fact_id], ("statement", "source_quotes", "boundary"))
+            for fact_id in map(str, list_value(record, "fact_ids"))
+            if fact_id in fact_lookup
+        ))
+        unsupported_periods = sorted({
+            match.group(0)
+            for match in USAGE_PERIOD_RE.finditer(positive_text)
+            if normalized(match.group(0)) not in linked_fact_text
+        })
+        if unsupported_periods:
+            errors.append(f"{vis_id} 使用周期缺少上游事实支持: {', '.join(unsupported_periods)}")
         if ORIGINAL_ASSET_RE.search(positive_text):
             has_original = any(
                 existing_map.get(expression_id, {}).get("source_form") == "original_document"
@@ -454,7 +501,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{vis_id} 声称单包内容物时必须保留未拆封单包、连续展示和不补料/不换包证明")
         priority = record.get("external_priority")
         if priority is not None:
-            if not isinstance(priority, int) or not 1 <= priority <= 5:
+            if type(priority) is not int or not 1 <= priority <= 5:
                 errors.append(f"{vis_id} external_priority 必须为空或 1—5 整数")
             else:
                 priorities.append(priority)
@@ -462,6 +509,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("external_priority 1—5 不能重复")
     if len(priorities) > 5:
         errors.append("普通版最多选择 5 个核心呈现资产")
+    if priorities and set(priorities) != set(range(1, len(priorities) + 1)):
+        errors.append("external_priority 必须从 1 开始连续编号")
+    core_vis = [item for item in vis if type(item.get("external_priority")) is int]
+    for item in core_vis:
+        if str(item.get("slot_number", "")) == "02":
+            errors.append(f"{item.get('vis_id')} 是一级识别锚，不得进入普通版核心呈现卡")
     if manifest.get("analysis_status") in {"complete", "partial"}:
         for value_id in sorted(active_values):
             if not vis_by_value.get(value_id):
@@ -469,6 +522,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         recommended = str(upstream.get("recommended_value_id", ""))
         if not any(item.get("external_priority") for item in vis_by_value.get(recommended, [])):
             errors.append("普通版核心呈现资产必须至少包含上游推荐 P0 的一个 VIS")
+        if len(active_values) <= 5:
+            core_primary_values = {str(item.get("value_id", "")) for item in core_vis}
+            missing_core_values = active_values - core_primary_values
+            if missing_core_values:
+                errors.append(
+                    "可沟通价值不超过 5 个时，普通版核心呈现卡必须各覆盖一个主价值；缺少: "
+                    + ", ".join(sorted(missing_core_values))
+                )
 
     for record in slots:
         number = str(record.get("slot_number", ""))
@@ -507,6 +568,28 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         variable_text = str(record.get("single_variable", ""))
         if ("上下" in task_text and "左右" in variable_text) or ("左右" in task_text and "上下" in variable_text):
             errors.append(f"{test_id} 验证任务与 single_variable 的方向描述不一致")
+        control_text = str(record.get("control_version", ""))
+        test_text = str(record.get("test_version", ""))
+        if VISUAL_EVIDENCE_VARIABLE_RE.search(variable_text):
+            control_subtitle = SUBTITLE_QUOTE_RE.search(control_text)
+            test_subtitle = SUBTITLE_QUOTE_RE.search(test_text)
+            if (
+                control_subtitle
+                and test_subtitle
+                and normalized(control_subtitle.group(1)) != normalized(test_subtitle.group(1))
+            ):
+                errors.append(f"{test_id} 把证据画面设为唯一变量时，不得同时改变字幕")
+        pack_test_text = joined_text(
+            record,
+            ("validation_task", "single_variable", "control_version", "test_version", "measurement_method", "writeback"),
+        ) + "\n" + "\n".join(map(str, list_value(record, "primary_metrics")))
+        if SINGLE_PACK_CLAIM_RE.search(pack_test_text) and PREARRANGED_RE.search(control_text):
+            errors.append(f"{test_id} 衡量单包构成时，对照版也必须来自当前 SKU 的真实单包，不得使用预摆盘")
+        significance_text = joined_text(record, ("decision_rule", "measurement_method", "requirements"))
+        if SIGNIFICANCE_RE.search(significance_text):
+            design_text = joined_text(record, ("measurement_method", "requirements"))
+            if not STATISTICAL_DESIGN_RE.search(design_text):
+                errors.append(f"{test_id} 使用显著性判断但没有登记样本量或统计检验方法")
         for metric in map(str, list_value(record, "primary_metrics")):
             if re.search(r"(?:留存|完播|点击).{0,16}(?:评论|复述)|(?:评论|复述).{0,16}(?:留存|完播|点击)", metric):
                 errors.append(f"{test_id} 把平台行为指标与评论语义混成不可直接观测的单一指标: {metric}")
