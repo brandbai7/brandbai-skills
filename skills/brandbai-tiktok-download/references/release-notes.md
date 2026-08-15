@@ -1,0 +1,27 @@
+# BrandBAI TikTok Download 0.2.2
+
+## 0.2.2
+
+- 支持读取 BrandBAI 下载助手导出的 `作品清单.xlsx` 或 `brandbai.tiktok.selection/v1` JSON，冻结去重作品 ID、选择顺序、来源页面和关键词，再进入详情页补齐素材；
+- 选择快照写入 `data/input_selection.json`，普通版 `01_作品清单.xlsx` 增加“输入选择”工作表；
+- 请求独立原声但 TikTok 公开页面未提供地址时，明确记录 `not_provided` 与 `partial_asset_unavailable`，不静默缩小素材分母；
+- 对应 MP4 已保存时，采集说明会提示可播放检查视频内嵌声音，同时保留例如 `19/20` 的真实素材缺口；
+- 运行清单和普通版说明分别统计已下载、页面未提供和下载失败；缺失互动指标保持未知，不自动补成 0；
+- 与 BrandBAI 下载助手 v0.11.30／v0.11.31 已验证的 TikTok 作品选择和素材状态合同对齐。
+
+## 验收边界
+
+- 自动化验证只使用合成数据，不包含真实达人、评论、媒体、Cookie、请求头或临时签名 URL；
+- 浏览器侧栏在其他扩展竞争时仍需单独做界面兼容验收，不作为本版本 Skill 完成声明；
+- 本 Skill 只负责公开可见内容的下载、结构化和完整性说明，不自动生成达人、用户、商品或增长结论。
+
+## 0.2.1
+
+- 增加 `market-scan`、`influence-shortlist`、`creative-benchmark`、`campaign-reception` 和 `shop-affiliate-evidence` 五个业务预设；
+- 冻结市场、语言、来源界面、观察时区、授权模式和下游用途；
+- 区分公开 TikTok 内容、官方经营数据和后续分析结论；
+- 增加跨市场任务字段、商业披露与商品锚点可见状态合同。
+
+## 授权
+
+采用 PolyForm Noncommercial License 1.0.0。企业内部使用、客户交付、收费服务、插件、SaaS、数据服务及其他预期商业用途，需要通过 **brandlaobai@163.com** 取得 BrandBAI 书面商业授权。
