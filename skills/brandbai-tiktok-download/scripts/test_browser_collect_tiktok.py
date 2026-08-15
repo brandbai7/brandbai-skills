@@ -1,7 +1,8 @@
 import unittest
 
 from browser_collect_tiktok import (
-    comments_from_payload, items_from_payload, normalize_assets, page_kind, search_url,
+    comments_from_payload, items_from_payload, missing_requested_asset_records,
+    normalize_assets, page_kind, search_url,
 )
 
 
@@ -37,6 +38,17 @@ class BrowserCollectorTests(unittest.TestCase):
         self.assertTrue(exhausted)
         self.assertEqual(rows[0]["author_display"], "")
         self.assertEqual(rows[0]["declared_reply_count"], 2)
+
+    def test_missing_independent_audio_is_not_a_download_failure(self):
+        work = {
+            "work_id": "7654321098765432101", "work_type": "video",
+            "assets": [{"kind": "video", "order": 1, "url": "https://v16.tiktokcdn.com/v.mp4"}],
+        }
+        rows = missing_requested_asset_records(work, ["media", "audio"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kind"], "audio")
+        self.assertEqual(rows[0]["status"], "not_provided")
+        self.assertIn("embedded audio", rows[0]["error_reason"])
 
 
 if __name__ == "__main__":

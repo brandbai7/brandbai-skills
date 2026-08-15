@@ -23,6 +23,29 @@ class RunFoundationTests(unittest.TestCase):
             with self.assertRaises(CollectionError):
                 build_plan(args)
 
+    def test_plugin_selection_dry_run(self):
+        from openpyxl import Workbook
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selection = root / "works.xlsx"
+            book = Workbook()
+            sheet = book.active
+            sheet.title = "作品清单"
+            sheet.append(["作品ID", "类型", "作品链接", "来源页面类型", "来源排序"])
+            sheet.append([
+                "7654321098765432101", "视频",
+                "https://www.tiktok.com/@synthetic/video/7654321098765432101",
+                "creator", 1,
+            ])
+            book.save(selection)
+            book.close()
+            code = main([
+                "batch", "--selection-file", str(selection),
+                "--profile-dir", str(root / "profile"), "--out", str(root / "delivery"), "--dry-run",
+            ])
+            self.assertEqual(code, 0)
+            self.assertFalse((root / "delivery").exists())
+
     def test_photo_search_plan_and_paid_features_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = build_parser().parse_args(["batch", "--search", "skincare", "--search-tab", "photo",

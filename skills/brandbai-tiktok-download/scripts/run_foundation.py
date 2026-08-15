@@ -14,6 +14,7 @@ from collector_core import (
     canonical_work_url, normalize_work_targets, work_type_from_url,
 )
 from package_delivery import PackageError, package_directory
+from selection_contract import SelectionContractError, load_selection
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--work", action="append", help="Repeat for more TikTok video or photo URLs")
     source.add_argument("--profile", help="One TikTok creator profile URL or @handle")
     source.add_argument("--search", help="One TikTok search keyword")
+    source.add_argument("--selection-file", type=Path, help="BrandBAI TikTok 作品清单.xlsx or selection/v1 JSON")
     parser.add_argument("--recent", type=int, default=5, help="Recent non-pinned works; visible pinned works are additional")
     parser.add_argument("--search-limit", type=int, default=10)
     parser.add_argument("--search-tab", choices=["general", "video", "photo"], default="general")
@@ -58,8 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def build_plan(args: argparse.Namespace) -> dict[str, object]:
     targets = normalize_work_targets(args.work) if args.work else []
-    if (args.profile or args.search) and args.mode != "batch":
-        raise CollectionError("Profile and search collection require mode=batch")
+    selection_rows: list[dict[str, object]] = []
+    selection_metadata: dict[str, object] = {}
+    if args.selection_file:
+        selection_rows, selection_metadata = load_selection(args.selection_file)
+    if (args.profile or args.search or args.selection_file) and args.mode != "batch":
+        raise CollectionError("Profile, search and selection-file collection require mode=batch")
     if targets and args.mode == "batch":
         raise CollectionError("mode=batch is for profile or search; use work/comments/all for explicit works")
     assets = normalize_assets(args.assets)
@@ -88,6 +94,13 @@ def build_plan(args: argparse.Namespace) -> dict[str, object]:
         "search": ({"keyword": args.search, "tab": args.search_tab,
                     "filters": args.search_filter or ["relevance"], "url": search_url(args.search, args.search_tab),
                     "first_visible_results": max(1, args.search_limit)} if args.search else None),
+        "selection": ({
+            "file": str(args.selection_file.expanduser().resolve()),
+            "contract": selection_metadata.get("contract", "brandbai.tiktok.selection/v1"),
+            "page_type": selection_metadata.get("page_type", "selection"),
+            "keyword": selection_metadata.get("keyword", ""),
+            "selected_works": len(selection_rows),
+        } if args.selection_file else None),
         "assets": assets, "comment_limit": max(0, args.comment_limit),
         "include_replies": bool(args.include_replies),
         "privacy_mode": "comment_display_authors_retained" if args.retain_author_display else "comment_authors_pseudonymized",
@@ -105,8 +118,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         if args.dry_run:
             return 0
+        selection_rows, selection_metadata = load_selection(args.selection_file) if args.selection_file else ([], {})
         result = collect(
             work_targets=list(args.work or []), profile_target=args.profile, search_query=args.search,
+            selection_rows=selection_rows, selection_metadata=selection_metadata,
             recent=max(0, args.recent), search_limit=max(1, args.search_limit), search_tab=args.search_tab,
             search_filters=args.search_filter or ["relevance"], max_list_scroll_actions=max(0, args.max_list_scroll_actions),
             profile_dir=Path(plan["profile_dir"]), out=Path(plan["out"]), mode=args.mode,
@@ -120,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         package = package_directory(Path(plan["out"])) if args.zip else None
         print(json.dumps({"collection": result, "delivery": delivery, "package": package}, ensure_ascii=False, indent=2))
         return 0 if result.get("state") == "complete" else 3
-    except (CollectionError, DeliveryError, PackageError, OSError, ValueError) as exc:
+    except (CollectionError, DeliveryError, PackageError, SelectionContractError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 

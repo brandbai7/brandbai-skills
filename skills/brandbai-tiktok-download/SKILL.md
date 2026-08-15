@@ -1,10 +1,10 @@
 ---
 name: brandbai-tiktok-download
-description: Download public TikTok videos, photo posts, published captions, media, creator-profile selections, keyword-search snapshots and visible first-level comments through a visible signed-in Chrome session. Use for TikTok 单作品完整资料包、账号主页全部当前可见置顶加最近 N 条非置顶作品、搜索结果前 N 条、视频或图集素材、封面、可用原声、发布文案、基础互动数据、一级评论、Excel 与 ZIP，以及品牌海外市场扫描、达人候选池、竞品内容、官宣接收和 TikTok Shop 联盟内容的原始证据准备；默认只做采集、双语整理和质量说明，不做语音转写、语义分析、经营指标推算或商业结论。
+description: Download public TikTok videos, photo posts, published captions, media, creator-profile selections, keyword-search snapshots, BrandBAI plugin work-list selections and visible first-level comments through a visible signed-in Chrome session. Use for TikTok 单作品完整资料包、账号主页全部当前可见置顶加最近 N 条非置顶作品、搜索结果前 N 条、插件作品清单续跑、视频或图集素材、封面、可用独立原声、发布文案、基础互动数据、一级评论、Excel 与 ZIP，以及品牌海外市场扫描、达人候选池、竞品内容、官宣接收和 TikTok Shop 联盟内容的原始证据准备；默认只做采集、双语整理和质量说明，不做语音转写、语义分析、经营指标推算或商业结论。
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.1"
+  version: "0.2.2"
   category: content-commerce
 ---
 
@@ -21,7 +21,7 @@ metadata:
 - `work`：明确单条视频或图集的发布文案、基础数据和所选素材，不采评论。
 - `comments`：明确单作品的页面可见一级评论；回复只有在用户明确要求时实验采集。
 - `all`：明确单作品或一组作品的素材、数据、一级评论、Excel 与可选 ZIP。
-- `batch`：达人主页或关键词搜索；主页选择全部当前可见置顶加最近 N 条非置顶，搜索冻结指定标签页前 N 个可见结果。
+- `batch`：达人主页、关键词搜索或 BrandBAI 插件导出的 `作品清单.xlsx`／`selection/v1` JSON；主页选择全部当前可见置顶加最近 N 条非置顶，搜索冻结指定标签页前 N 个可见结果，选择文件按稳定作品 ID 续跑。
 
 支持的页面路由见 [浏览器路线](references/browser-route.md)。正式运行前阅读 [采集完成标准](references/collection-contract.md)，交付前阅读 [导出格式](references/export-format.md) 与 [平台字段](references/platform-fields.md)。用户要求跨国家内容理解、中英双语文案或评论时，另读 [翻译策略](references/translation-policy.md)。
 
@@ -48,6 +48,7 @@ Creative Center、TikTok One、Ads Manager 和 Seller／Affiliate Center 的指�
 - 播放、点赞、评论、收藏、分享等采集时点快照；
 - 单作品一级评论、达人主页批量、搜索普通／视频／照片页批量；
 - 断点续跑、去重、Excel、ZIP 和完整性状态。
+- 读取 BrandBAI TikTok 插件导出的 `作品清单`，进入作品详情补齐所选素材并保留原始选择快照。
 
 文本翻译不应一概归入付费能力：BrandBAI 下载助手 v0.9.0 在支持的 Chrome 桌面版中，可由用户主动生成发布文案、已采集一级评论和当前可见作品文案的中英双语 Excel。它使用浏览器内置语言识别与本机翻译，默认保留原文并补充中文和英文，不消耗云端字符额度；不支持或失败时不得静默回退到云端计费。
 
@@ -120,6 +121,20 @@ python scripts/run_foundation.py batch `
 
 `search-tab` 支持 `general`、`video`、`photo`。照片搜索也可批量，这是本 Skill 相比调研样本工具补足的场景。
 
+### 从 BrandBAI 插件作品清单继续下载
+
+```powershell
+python scripts/run_foundation.py batch `
+  --selection-file "<BrandBAI_TikTok作品清单_YYYYMMDD.xlsx>" `
+  --profile-dir "<私有Chrome资料夹>" `
+  --out "<交付目录>" `
+  --assets "media,cover,audio" `
+  --zip `
+  --dry-run
+```
+
+选择文件只保存作品 ID、规范链接、页面可见字段和选择范围，不包含 Cookie、请求头或临时签名资源地址。独立原声未提供时保留 `not_provided`，并说明对应 MP4 已保存时仍可播放视频内嵌声音；不得把 19/20 改写成 19/19。
+
 品牌市场扫描时同时冻结业务上下文：
 
 ```powershell
@@ -149,7 +164,7 @@ python scripts/run_foundation.py batch `
 - `03_搜索快照.xlsx`：仅搜索批量时生成
 - `04_作品素材/`
 - `05_采集说明.md`
-- `data/`：原始规范记录、选择快照、完成状态和交付 manifest
+- `data/`：原始规范记录、插件／文件选择快照、主页／搜索选择快照、完成状态和交付 manifest
 
 增加 `--zip` 后生成 ZIP64 压缩包。ZIP 不得包含 Chrome 资料夹、Cookie、任务缓存、带时效签名的原始请求或 QA 文件。
 
@@ -158,6 +173,8 @@ python scripts/run_foundation.py batch `
 - 单作品内容与所选主要素材已保存或明确公开不可用：`complete_visible_work`。
 - 主页所选作品已冻结并写入：`complete_visible_pinned_plus_recent_n`。
 - 搜索前 N 个可见位次已冻结：`complete_first_n_visible_results`。
+- 插件 Excel／selection JSON 的作品 ID 与顺序已冻结：`complete_explicit_selection`。
+- 用户请求的素材中至少一项公开页面未提供：`partial_asset_unavailable`；与下载失败分开记录。
 - 一级评论收到平台分页终止或可信页面末端证据：`complete_source_visible`。
 - 达到正数上限、回复未完全展开、登录验证阻断、选择数量不足或页面定位变化，只能标记部分完成。
 - 退出码 `3` 表示数据可保留和续跑，但不得对外写“完整下载”。
@@ -173,7 +190,7 @@ python scripts/run_foundation.py batch `
 在 `scripts/` 目录运行：
 
 ```powershell
-python -m unittest test_collector_core.py test_browser_collect_tiktok.py test_build_delivery.py test_run_foundation.py
+python -m unittest test_collector_core.py test_selection_contract.py test_browser_collect_tiktok.py test_build_delivery.py test_run_foundation.py
 ```
 
 测试只使用合成数据，不打开 TikTok、不启动 Chrome，也不产生付费请求。
