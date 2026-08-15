@@ -12,6 +12,7 @@ BrandBAI_TikTok采集_对象_YYYYMMDD/
    ├─ works.jsonl
    ├─ comments.jsonl
    ├─ assets.jsonl
+   ├─ input_selection.json
    ├─ profile_selection.json
    ├─ search_snapshots.jsonl
    └─ delivery_manifest.json
@@ -29,6 +30,7 @@ BrandBAI_TikTok采集_对象_YYYYMMDD/
 
 - `02_评论明细.xlsx`：评论 ID、作品 ID、层级、匿名作者标识、原文、时间、点赞、声明与保存回复数、采集时间。双语版追加识别语言、语言置信度、中文、English、翻译状态、翻译引擎和生成时间。
 - `03_搜索快照.xlsx`：关键词、标签页、筛选、原始位次、作品类型、规范链接、采集时间和范围状态。
+- `输入选择`：读取插件 Excel／selection JSON 时写入 `01_作品清单.xlsx`，保留选择顺序、作品 ID、来源页面、关键词、原始位次和规范链接。
 
 ## 空值规则
 
@@ -36,6 +38,7 @@ BrandBAI_TikTok采集_对象_YYYYMMDD/
 - 页面未展示：值留空，状态 `not_visible`。
 - 用户未请求：状态 `not_requested`。
 - 公开不可用：`not_available`。
+- 公开页面没有提供用户请求的独立素材地址：`not_provided`；独立原声与对应 MP4 的成功状态分开记录。
 - 采集异常：`failed` 并保留简短原因。
 - K/M/B 页面缩写同时写入 `metric_text`；换算值写入独立解析列。
 

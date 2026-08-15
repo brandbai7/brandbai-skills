@@ -80,6 +80,7 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     searches = _load_jsonl(data / "search_snapshots.jsonl")
     run = _load_json(data / "run_manifest.json", {})
     profile = _load_json(data / "profile_selection.json", {})
+    selection = _load_json(data / "input_selection.json", {})
     if not works and not comments and not searches:
         raise DeliveryError("No TikTok collection data was found")
 
@@ -138,6 +139,15 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
             row.get("work_id"), row.get("rank"), row.get("work_type"), row.get("is_pinned"),
             row.get("selection_reason"), row.get("title"), row.get("url"),
         ] for row in profile.get("selected") or []])
+    if selection:
+        _sheet(book, "输入选择", [
+            "选择顺序", "作品ID", "类型", "作者账号", "作者名称", "标题/发布文案", "是否置顶",
+            "来源页面类型", "来源关键词", "来源排序", "规范链接", "选择原因",
+        ], [[
+            row.get("selection_rank"), row.get("work_id"), row.get("work_type"), row.get("author_handle"),
+            row.get("author_name"), row.get("title"), row.get("is_pinned"), row.get("source_page_type"),
+            row.get("source_keyword"), row.get("source_rank"), row.get("url"), row.get("selection_reason"),
+        ] for row in selection.get("works") or []])
     _style(book)
     work_path = out / "01_作品清单.xlsx"
     out.mkdir(parents=True, exist_ok=True)
@@ -184,6 +194,10 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
         search_path.unlink(missing_ok=True)
 
     (out / "04_作品素材").mkdir(parents=True, exist_ok=True)
+    asset_status_counts = run.get("asset_status_counts") or {
+        status: len([row for row in assets if row.get("status") == status])
+        for status in ("downloaded", "not_provided", "failed")
+    }
     note = f"""# BrandBAI TikTok 采集说明
 
 ## 本次交付
@@ -191,9 +205,13 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
 - 作品数：{len(works)}
 - 评论记录：{len(comments)}
 - 素材记录：{len(assets)}
+- 已下载素材：{asset_status_counts.get('downloaded', 0)}
+- 公开页面未提供：{asset_status_counts.get('not_provided', 0)}
+- 下载失败：{asset_status_counts.get('failed', 0)}
 - 搜索快照数：{len(searches)}
 - 运行状态：{run.get('state', 'unknown')}
 - 主页选择状态：{profile.get('state', 'not_applicable')}
+- 插件／文件选择状态：{selection.get('state', 'not_applicable')}
 - 搜索选择状态：{run.get('search_selection_state', 'not_applicable')}
 - 业务预设：{business_context.get('business_preset') or '未指定'}
 - 目标市场：{business_context.get('market_scope') or '未指定'}
@@ -215,11 +233,14 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
 5. 发布文案来自平台作品字段；Python 采集包不自动做语音转写、OCR 或云端翻译。本机双语证据可由支持该能力的 BrandBAI 下载助手生成。
 6. 本包只做下载、结构化和质量说明，不生成达人画像、用户语义、商品匹配、传播机制或销售归因。
 7. Cookie、请求头、验证码、Chrome 资料夹和短期签名链接不进入交付包。
+8. 作品没有独立原声地址时记录为“公开页面未提供”，不写成下载失败；若对应 MP4 已保存，可直接播放检查视频内嵌声音。
 """
     (out / "05_采集说明.md").write_text(note, encoding="utf-8")
     summary = {
         "built_at": utc_now(), "works": len(works), "comments": len(comments), "assets": len(assets),
         "search_snapshots": len(searches), "run_state": run.get("state", "unknown"),
+        "explicit_selection_state": selection.get("state", "not_applicable"),
+        "asset_status_counts": asset_status_counts,
         "business_context": business_context,
         "work_workbook": work_path.name,
         "comment_workbook": comment_path.name if comment_path.is_file() else "",

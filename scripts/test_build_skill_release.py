@@ -118,13 +118,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 TIKTOK_SKILL_DIR,
                 temp,
-                "brandbai-tiktok-download-v0.2.1",
+                "brandbai-tiktok-download-v0.2.2",
             )
             archive_path = temp / "brandbai-tiktok-download.zip"
             checksum_path = temp / "brandbai-tiktok-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.2.1")
+            self.assertEqual(result["version"], "0.2.2")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)

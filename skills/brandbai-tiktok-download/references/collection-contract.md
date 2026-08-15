@@ -8,6 +8,8 @@
 | 主页选择 | `partial_selection_shortfall` | 非置顶少于 N，或动作预算结束仍不能确认 |
 | 搜索 | `complete_first_n_visible_results` | 指定关键词、标签页和采集时点的前 N 个可见位次已冻结 |
 | 搜索 | `partial_search_shortfall` | 当前可见结果少于 N，或未确认继续加载终止 |
+| 明确选择 | `complete_explicit_selection` | 插件 Excel／selection JSON 中的去重作品 ID、顺序和来源快照已冻结 |
+| 素材 | `partial_asset_unavailable` | 用户请求了素材，但公开页面未提供至少一项可独立下载地址 |
 | 一级评论 | `complete_source_visible` | 分页接口或可信页面末端给出终止证据 |
 | 一级评论 | `partial_limit_sample` | 达到用户设置的正数上限 |
 | 回复 | `partial_reply_not_expanded` | 一级评论已保存，但至少一楼回复未完全展开 |
@@ -24,6 +26,8 @@
 - `media_saved_count`：通过校验并成功写入的素材数。
 
 页面明确显示 0、实际保存 0、没有请求、没有展示和采集失败是五种不同状态。退出码 `3` 的结果可以续跑和内部复核，但不得在对外交付中写成“全部完成”。
+
+独立原声没有地址时写 `not_provided`，不能静默忽略，也不能写成网络下载失败。若同一作品的 MP4 已成功保存，说明视频内嵌声音仍可直接播放检查；素材计数仍按真实请求口径保留缺口，例如 `19/20`。
 
 ## 终止证据
 

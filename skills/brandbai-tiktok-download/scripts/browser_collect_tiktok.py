@@ -267,8 +267,39 @@ def _write_jsonl_replace(path: Path, records: Iterable[dict[str, Any]]) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def missing_requested_asset_records(work: dict[str, Any], requested: list[str]) -> list[dict[str, Any]]:
+    """Represent requested public assets that TikTok did not provide.
+
+    A missing independent audio URL is a real evidence gap, not a failed video.
+    Keeping an explicit record prevents a 19/20 package from being reported as
+    19/19 and lets the ordinary delivery explain that the saved MP4 still has
+    playable audio when the media download succeeded.
+    """
+
+    available = {str(asset.get("kind") or "") for asset in work.get("assets") or []}
+    expected: list[tuple[str, str]] = []
+    if "media" in requested:
+        media_kind = "photo" if work.get("work_type") == "photo" else "video"
+        if media_kind not in available:
+            expected.append((media_kind, "TikTok public page did not provide a downloadable media URL"))
+    if "cover" in requested and "cover" not in available:
+        expected.append(("cover", "TikTok public page did not provide a cover URL"))
+    if "audio" in requested and "audio" not in available:
+        expected.append((
+            "audio",
+            "TikTok public page did not provide an independent audio URL; a saved MP4 remains playable with its embedded audio",
+        ))
+    return [{
+        "asset_id": derived_id("asset", work["work_id"], kind, 1),
+        "work_id": work["work_id"], "kind": kind, "order": 1,
+        "status": "not_provided", "local_file": "", "source_url": "",
+        "source_url_state": "not_provided", "bytes": 0, "sha256": "",
+        "error_reason": reason,
+    } for kind, reason in expected]
+
+
 def _download_assets(context: Any, out: Path, work: dict[str, Any], requested: list[str], max_asset_mb: int) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
+    records = missing_requested_asset_records(work, requested)
     work_dir = out / "04_作品素材" / safe_filename(f"{work['work_id']}_{work.get('title') or 'work'}")
     work_dir.mkdir(parents=True, exist_ok=True)
     extensions = {"video": ".mp4", "audio": ".mp3", "cover": ".jpg", "photo": ".jpg"}
@@ -301,8 +332,25 @@ def _download_assets(context: Any, out: Path, work: dict[str, Any], requested: l
     return records
 
 
+def _merge_selection_fields(work: dict[str, Any], seed: dict[str, Any] | None) -> dict[str, Any]:
+    if not seed:
+        return work
+    for key in ("author_handle", "author_name", "title", "published_at"):
+        if work.get(key) in (None, "") and seed.get(key) not in (None, ""):
+            work[key] = seed[key]
+    work["is_pinned"] = bool(seed.get("is_pinned"))
+    work["selection_reason"] = seed.get("selection_reason") or "插件作品清单"
+    work["selection_rank"] = seed.get("selection_rank") or seed.get("rank") or seed.get("source_rank")
+    work["source_page_type"] = seed.get("source_page_type") or "selection"
+    work["source_keyword"] = seed.get("source_keyword") or ""
+    work["source_rank"] = seed.get("source_rank") or seed.get("rank")
+    work["selection_snapshot_metrics"] = dict(seed.get("metrics") or {})
+    return work
+
+
 def collect(
     *, work_targets: list[str], profile_target: str | None, search_query: str | None,
+    selection_rows: list[dict[str, Any]] | None, selection_metadata: dict[str, Any] | None,
     recent: int, search_limit: int, search_tab: str, search_filters: list[str],
     max_list_scroll_actions: int, profile_dir: Path, out: Path, mode: str, assets: list[str],
     comment_limit: int, max_comment_scroll_actions: int, include_replies: bool,
@@ -326,6 +374,8 @@ def collect(
     response_items: dict[str, dict[str, Any]] = {}
     response_comments: dict[str, dict[str, Any]] = {}
     terminal_by_work: dict[str, bool] = {}
+    selection_snapshot: dict[str, Any] = {}
+    selection_by_id: dict[str, dict[str, Any]] = {}
 
     def observe_response(response: Any) -> None:
         url = response.url
@@ -356,7 +406,19 @@ def collect(
         page = context.pages[0] if context.pages else context.new_page()
         page.on("response", observe_response)
         targets = list(work_targets)
-        if profile_target:
+        if selection_rows:
+            normalized_rows = [dict(row) for row in selection_rows]
+            selection_by_id = {str(row["work_id"]): row for row in normalized_rows}
+            targets = [str(row["url"]) for row in normalized_rows]
+            selection_snapshot = {
+                "contract": (selection_metadata or {}).get("contract", "brandbai.tiktok.selection/v1"),
+                "source": dict(selection_metadata or {}),
+                "captured_at": (selection_metadata or {}).get("captured_at") or started,
+                "selected_count": len(normalized_rows),
+                "state": "complete_explicit_selection",
+                "works": normalized_rows,
+            }
+        elif profile_target:
             profile_url = canonical_profile_url(profile_target)
             page.goto(profile_url, wait_until="domcontentloaded", timeout=90_000)
             if login_wait:
@@ -370,6 +432,7 @@ def collect(
                 "profile": {"display_name": page.title(), "author_handle": canonical_handle(profile_target)},
             }
             targets = [row["url"] for row in selection["selected"]]
+            selection_by_id = {str(row["work_id"]): row for row in selection["selected"]}
         elif search_query:
             page.goto(search_url(search_query, search_tab), wait_until="domcontentloaded", timeout=90_000)
             if login_wait:
@@ -379,11 +442,13 @@ def collect(
                                              filters=search_filters, limit=search_limit)
             search_snapshots.append(snapshot)
             targets = [row["url"] for row in snapshot["results"]]
+            selection_by_id = {str(row["work_id"]): row for row in snapshot["results"]}
 
         for target in targets:
             page.goto(target, wait_until="domcontentloaded", timeout=90_000)
             page.wait_for_timeout(1800)
             work_id = canonical_work_id(target)
+            seed = selection_by_id.get(work_id)
             work = response_items.get(work_id)
             if not work:
                 dom = _dom_links(page)
@@ -392,18 +457,22 @@ def collect(
                 }
                 work = {
                     "platform": "tiktok", "work_id": work_id, "work_type": row.get("work_type"),
-                    "author_handle": canonical_handle(target), "author_name": "", "author_id": "",
-                    "title": row.get("title") or page.title(), "caption": "", "hashtags": [], "mentions": [],
+                    "author_handle": canonical_handle(target), "author_name": (seed or {}).get("author_name", ""), "author_id": "",
+                    "title": row.get("title") or (seed or {}).get("title") or page.title(), "caption": "", "hashtags": [], "mentions": [],
                     "published_at": None, "metrics": {}, "assets": [], "canonical_url": canonical_work_url(target),
                     "collected_at": utc_now(), "completion_state": "partial_selector_drift",
                     "source_scope": "visible_dom_fallback",
                 }
+            work = _merge_selection_fields(work, seed)
             collected_works[work_id] = work
             if mode in {"work", "all", "batch"} and assets:
                 new_assets = _download_assets(context, out, work, assets, max_asset_mb)
                 asset_rows.extend(new_assets)
-                if any(row["status"] != "downloaded" for row in new_assets):
-                    work["completion_state"] = "partial_asset_failure"
+                if str(work.get("completion_state") or "").startswith("complete_"):
+                    if any(row["status"] == "failed" for row in new_assets):
+                        work["completion_state"] = "partial_asset_failure"
+                    elif any(row["status"] == "not_provided" for row in new_assets):
+                        work["completion_state"] = "partial_asset_unavailable"
             if mode in {"comments", "all"}:
                 stable = 0
                 last_count = len(response_comments)
@@ -439,19 +508,29 @@ def collect(
     _write_jsonl_replace(data_dir / "search_snapshots.jsonl", search_snapshots)
     if profile_selection:
         atomic_write_json(data_dir / "profile_selection.json", profile_selection)
+    if selection_snapshot:
+        atomic_write_json(data_dir / "input_selection.json", selection_snapshot)
     states = [row.get("completion_state") for row in collected_works.values()]
     states.extend(comment_states.values())
     if profile_selection:
         states.append(profile_selection.get("state"))
+    if selection_snapshot:
+        states.append(selection_snapshot.get("state"))
     states.extend(row.get("state") for row in search_snapshots)
     complete = bool(states) and all(str(state or "").startswith("complete_") for state in states)
+    asset_status_counts = {
+        status: len([row for row in asset_rows if row.get("status") == status])
+        for status in ("downloaded", "not_provided", "failed")
+    }
     manifest = {
         "platform": "tiktok", "mode": mode, "started_at": started, "finished_at": utc_now(),
         "state": "complete" if complete else "partial", "resume": bool(resume),
         "works": len(collected_works), "comments": len(collected_comments), "assets": len(asset_rows),
         "comment_states": comment_states,
         "profile_selection_state": profile_selection.get("state", "not_applicable"),
+        "explicit_selection_state": selection_snapshot.get("state", "not_applicable"),
         "search_selection_state": search_snapshots[0].get("state") if search_snapshots else "not_applicable",
+        "asset_status_counts": asset_status_counts,
         "privacy": "comment_display_authors_retained" if retain_author_display else "comment_authors_pseudonymized",
         "business_context": dict(business_context or {}),
     }

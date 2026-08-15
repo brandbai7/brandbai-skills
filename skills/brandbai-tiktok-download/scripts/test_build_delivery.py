@@ -23,12 +23,22 @@ class BuildDeliveryTests(unittest.TestCase):
                         "captured_at": work["collected_at"], "state": "complete_first_n_visible_results",
                         "results": [{"rank": 1, "work_id": work["work_id"], "work_type": "photo", "title": "synthetic",
                                      "url": work["canonical_url"]}]}
+            selection = {
+                "contract": "brandbai.tiktok.selection/v1", "state": "complete_explicit_selection",
+                "works": [{"selection_rank": 1, "work_id": work["work_id"], "work_type": "photo",
+                           "author_handle": "demo", "title": "synthetic", "url": work["canonical_url"]}],
+            }
+            asset = {"asset_id": "a1", "work_id": work["work_id"], "kind": "audio", "order": 1,
+                     "status": "not_provided", "source_url_state": "not_provided", "bytes": 0,
+                     "error_reason": "independent audio not provided"}
             (data / "works.jsonl").write_text(json.dumps(work) + "\n", encoding="utf-8")
             (data / "comments.jsonl").write_text(json.dumps(comment) + "\n", encoding="utf-8")
             (data / "search_snapshots.jsonl").write_text(json.dumps(snapshot) + "\n", encoding="utf-8")
-            (data / "assets.jsonl").write_text("", encoding="utf-8")
+            (data / "assets.jsonl").write_text(json.dumps(asset) + "\n", encoding="utf-8")
+            (data / "input_selection.json").write_text(json.dumps(selection), encoding="utf-8")
             (data / "run_manifest.json").write_text(json.dumps({
                 "state": "complete", "comment_states": {work["work_id"]: "complete_source_visible"},
+                "asset_status_counts": {"downloaded": 0, "not_provided": 1, "failed": 0},
                 "business_context": {
                     "business_preset": "market-scan", "market_scope": "US",
                     "source_surface": "public_tiktok", "source_locale": "en-US",
@@ -47,8 +57,11 @@ class BuildDeliveryTests(unittest.TestCase):
             from openpyxl import load_workbook
             book = load_workbook(out / "01_作品清单.xlsx", read_only=True)
             self.assertIn("任务上下文", book.sheetnames)
+            self.assertIn("输入选择", book.sheetnames)
             book.close()
             self.assertIn("目标市场：US", (out / "05_采集说明.md").read_text(encoding="utf-8"))
+            self.assertIn("公开页面未提供：1", (out / "05_采集说明.md").read_text(encoding="utf-8"))
+            self.assertEqual(result["explicit_selection_state"], "complete_explicit_selection")
 
     def test_refuses_empty_delivery(self):
         with tempfile.TemporaryDirectory() as tmp:
