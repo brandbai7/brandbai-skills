@@ -6,18 +6,80 @@ import unittest
 from pathlib import Path
 
 from browser_collect_xiaohongshu import (
+    NOTE_SCRIPT,
     PROFILE_SCRIPT,
     SEARCH_SCRIPT,
     _normalize_comment_rows,
     _public_profile_selection,
     _public_search_snapshot,
     _collect_visible_list_records,
+    _media_dimensions,
+    _split_date_region_text,
+    _wait_for_login_or_ready,
     normalize_assets,
 )
 from collector_core import CollectionError
 
 
 class BrowserCollectorContractTests(unittest.TestCase):
+    def test_blob_video_recovers_public_mp4_from_inline_page_data(self) -> None:
+        self.assertIn("document.scripts", NOTE_SCRIPT)
+        self.assertIn("scriptVideoCandidates", NOTE_SCRIPT)
+        self.assertIn("host.endsWith('.xhscdn.com')", NOTE_SCRIPT)
+        self.assertIn("parsed.pathname", NOTE_SCRIPT)
+        self.assertIn("recoveredCandidates", NOTE_SCRIPT)
+        self.assertIn("logicalVideo.candidates", NOTE_SCRIPT)
+
+    def test_edited_date_is_not_misclassified_as_a_region(self) -> None:
+        self.assertEqual(_split_date_region_text("编辑于 04-20"), ("编辑于 04-20", ""))
+        self.assertEqual(_split_date_region_text("编辑于 04-20 上海"), ("编辑于 04-20", "上海"))
+        self.assertEqual(_split_date_region_text("01-04"), ("01-04", ""))
+        self.assertEqual(_split_date_region_text("01-04 IP属地：广东"), ("01-04", "广东"))
+
+    def test_final_mp4_dimensions_override_page_labels(self) -> None:
+        size = 92
+        body = (
+            size.to_bytes(4, "big")
+            + b"tkhd"
+            + bytes(size - 16)
+            + (720 << 16).to_bytes(4, "big")
+            + (1280 << 16).to_bytes(4, "big")
+        )
+        self.assertEqual(_media_dimensions(body, "video"), {"width": 720, "height": 1280})
+
+    def test_login_wait_returns_as_soon_as_target_is_visible(self) -> None:
+        class FakeLocator:
+            def __init__(self, page: "FakePage", role: bool = False) -> None:
+                self.page = page
+                self.role = role
+
+            def count(self) -> int:
+                if self.role:
+                    return 0
+                return int(self.page.waited_ms >= 2_000)
+
+        class FakePage:
+            def __init__(self) -> None:
+                self.waited_ms = 0
+                self.reloads = 0
+
+            def locator(self, _selector: str) -> FakeLocator:
+                return FakeLocator(self)
+
+            def get_by_role(self, *_args: object, **_kwargs: object) -> FakeLocator:
+                return FakeLocator(self, role=True)
+
+            def wait_for_timeout(self, milliseconds: int) -> None:
+                self.waited_ms += milliseconds
+
+            def reload(self, **_kwargs: object) -> None:
+                self.reloads += 1
+
+        page = FakePage()
+        self.assertTrue(_wait_for_login_or_ready(page, ".note-container", 10))
+        self.assertEqual(page.waited_ms, 2_000)
+        self.assertEqual(page.reloads, 0)
+
     def test_batch_list_records_do_not_require_detail_navigation(self) -> None:
         out = Path(__file__).resolve().parent / ".xhs_batch_list_test_runtime"
         if out.exists():

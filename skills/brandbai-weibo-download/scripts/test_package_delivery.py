@@ -20,6 +20,9 @@ class PackageDeliveryTests(unittest.TestCase):
             target = Path(result["zip"])
             self.assertTrue(target.is_file())
             self.assertEqual(len(result["sha256"]), 64)
+            checksum = Path(result["sha256_file"])
+            self.assertTrue(checksum.is_file())
+            self.assertEqual(checksum.read_text(encoding="utf-8"), f"{result['sha256']}  {target.name}\n")
             with zipfile.ZipFile(target) as archive:
                 self.assertEqual(sorted(archive.namelist()), [
                     "BrandBAI_微博普通版/01_账号资料.xlsx",

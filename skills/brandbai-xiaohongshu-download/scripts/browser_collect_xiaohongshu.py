@@ -51,14 +51,13 @@ NOTE_SCRIPT = r"""
   const title = clean(content.querySelector('.title')?.textContent);
   const body = clean(content.querySelector('.desc')?.innerText || content.querySelector('.desc')?.textContent);
   const dateText = clean(content.querySelector('.date')?.innerText || content.querySelector('.date')?.textContent);
-  const dateLocation = dateText.match(/^(.*?)(?:\s+)([^\s]+)$/);
   const tags = [...body.matchAll(/#([^#\s]+)/g)].map((match) => '#' + match[1]);
   const mentions = [...body.matchAll(/@([^@#\s]+)/g)].map((match) => '@' + match[1]);
 
-  const mediaRoot = root.querySelector('.media-container');
+  const mediaRoot = root.querySelector('.media-container') || root;
   const images = [];
   const imageSeen = new Set();
-  for (const image of [...(mediaRoot?.querySelectorAll('img') || [])]) {
+  for (const image of [...mediaRoot.querySelectorAll('img')]) {
     const source = image.currentSrc || image.src || '';
     if (!/^https?:\/\//i.test(source) || /avatar|picasso-static/i.test(source)) continue;
     const key = source.split('?')[0];
@@ -73,14 +72,65 @@ NOTE_SCRIPT = r"""
   const videos = [];
   const videoSeen = new Set();
   let hasBlobVideo = false;
-  for (const video of [...(mediaRoot?.querySelectorAll('video,video source') || [])]) {
+  for (const video of [...mediaRoot.querySelectorAll('video,video source')]) {
     const source = video.currentSrc || video.src || video.getAttribute('src') || '';
     if (source.startsWith('blob:')) hasBlobVideo = true;
     if (!/^https?:\/\//i.test(source)) continue;
     const key = source.split('?')[0];
     if (videoSeen.has(key)) continue;
     videoSeen.add(key);
-    videos.push({src: source, width: video.videoWidth || video.clientWidth || 0, height: video.videoHeight || video.clientHeight || 0});
+    videos.push({
+      src: source,
+      candidates: [source],
+      width: video.videoWidth || video.clientWidth || 0,
+      height: video.videoHeight || video.clientHeight || 0,
+    });
+  }
+
+  // Dynamic photos and some videos replace the public MP4 URL with a blob URL
+  // after the player starts. The same public media URL is still present in the
+  // page's inline hydration data, so recover only allow-listed MP4 candidates
+  // from that visible document and keep signed query parameters in memory.
+  if (hasBlobVideo) {
+    const player = mediaRoot.querySelector('video');
+    const recoveredCandidates = [];
+    let scriptText = [...document.scripts].map((script) => script.textContent || '').join('\n');
+    scriptText = scriptText
+      .replace(/\\u002F/gi, '/')
+      .replace(/\\\//g, '/')
+      .replace(/\\u0026/gi, '&')
+      .replace(/\\u003D/gi, '=')
+      .replace(/\\u003F/gi, '?')
+      .replace(/&amp;/gi, '&');
+    const scriptVideoCandidates = scriptText.match(/https?:\/\/[^"'\s<>]+/g) || [];
+    for (const source of scriptVideoCandidates) {
+      let parsed;
+      try {
+        parsed = new URL(source);
+      } catch {
+        continue;
+      }
+      const host = parsed.hostname.toLowerCase();
+      if (!(host === 'xhscdn.com' || host.endsWith('.xhscdn.com'))) continue;
+      if (!/\.mp4$/i.test(parsed.pathname)) continue;
+      const key = parsed.pathname;
+      if (videoSeen.has(key)) continue;
+      videoSeen.add(key);
+      recoveredCandidates.push(source);
+    }
+    if (recoveredCandidates.length) {
+      const logicalVideo = videos[0];
+      if (logicalVideo) {
+        logicalVideo.candidates = [...new Set([logicalVideo.src, ...(logicalVideo.candidates || []), ...recoveredCandidates])];
+      } else {
+        videos.push({
+          src: recoveredCandidates[0],
+          candidates: recoveredCandidates,
+          width: player?.videoWidth || player?.clientWidth || 0,
+          height: player?.videoHeight || player?.clientHeight || 0,
+        });
+      }
+    }
   }
 
   const counts = [...root.querySelectorAll('.engage-bar-container .buttons .count')]
@@ -92,8 +142,8 @@ NOTE_SCRIPT = r"""
     body,
     author_name: clean(authorRoot?.querySelector('.username')?.textContent),
     author_platform_id: authorMatch ? authorMatch[1] : '',
-    published_at_text: dateLocation ? clean(dateLocation[1]) : dateText,
-    region_text: dateLocation ? clean(dateLocation[2]) : '',
+    published_at_text: dateText,
+    region_text: '',
     topics: [...new Set(tags)],
     mentions: [...new Set(mentions)],
     metrics: {likes: counts[0] || '', collects: counts[1] || '', comments: counts[2] || declaredMatch?.[1] || '', shares: counts[3] || ''},
@@ -351,6 +401,32 @@ def _public_search_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     return public
 
 
+def _wait_for_login_or_ready(page: Any, selector: str, login_wait: int) -> bool:
+    """Wait for manual login without forcing users to sit through the full timeout."""
+    if page.locator(selector).count():
+        return True
+    if login_wait <= 0:
+        return False
+    print(
+        f"Visible Chrome is ready. Complete login or access confirmation within {login_wait} seconds.",
+        flush=True,
+    )
+    elapsed = 0
+    while elapsed < login_wait:
+        step = min(1, login_wait - elapsed)
+        page.wait_for_timeout(step * 1_000)
+        elapsed += step
+        if page.locator(selector).count():
+            return True
+        if page.get_by_role("link", name="我", exact=True).count():
+            page.reload(wait_until="domcontentloaded", timeout=120_000)
+            page.wait_for_timeout(2_500)
+            return bool(page.locator(selector).count())
+    page.reload(wait_until="domcontentloaded", timeout=120_000)
+    page.wait_for_timeout(2_500)
+    return bool(page.locator(selector).count())
+
+
 def _discover_search_results(
     page: Any,
     keyword: str,
@@ -375,11 +451,7 @@ def _discover_search_results(
     })
     page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
     page.wait_for_timeout(3_500)
-    if not page.locator('a[href*="/search_result/"]').count() and login_wait > 0:
-        print(f"Visible Chrome is ready. Complete login or access confirmation within {login_wait} seconds.")
-        page.wait_for_timeout(login_wait * 1_000)
-        page.reload(wait_until="domcontentloaded", timeout=120_000)
-        page.wait_for_timeout(3_000)
+    _wait_for_login_or_ready(page, 'a[href*="/search_result/"]', login_wait)
     for label in ["滑动验证", "安全验证", "请完成验证", "访问频繁"]:
         if page.get_by_text(label, exact=False).count():
             raise CollectionError("Xiaohongshu requires manual verification in the visible Chrome window")
@@ -448,11 +520,7 @@ def _discover_profile_notes(
 ) -> dict[str, Any]:
     page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
     page.wait_for_timeout(3_500)
-    if not page.locator('a[href*="/explore/"]').count() and login_wait > 0:
-        print(f"Visible Chrome is ready. Complete login or access confirmation within {login_wait} seconds.")
-        page.wait_for_timeout(login_wait * 1_000)
-        page.reload(wait_until="domcontentloaded", timeout=120_000)
-        page.wait_for_timeout(3_000)
+    _wait_for_login_or_ready(page, 'a[href*="/explore/"]', login_wait)
     for label in ["滑动验证", "安全验证", "请完成验证", "访问频繁"]:
         if page.get_by_text(label, exact=False).count():
             raise CollectionError("Xiaohongshu requires manual verification in the visible Chrome window")
@@ -550,6 +618,97 @@ def _extension(clean_url: str, content_type: str, kind: str) -> str:
     return guessed or (".mp4" if kind == "video" else ".bin")
 
 
+def _split_date_region_text(value: str) -> tuple[str, str]:
+    """Split only an explicit or semantically credible Xiaohongshu region."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return "", ""
+    explicit = re.match(r"^(.*?)\s*IP属地[:：]?\s*([^\s]+)\s*$", text)
+    if explicit:
+        return explicit.group(1).strip(), explicit.group(2).strip()
+    parts = text.split(" ")
+    if len(parts) < 2:
+        return text, ""
+    region = parts[-1]
+    published = " ".join(parts[:-1])
+    published_looks_like_date = bool(re.search(
+        r"(?:编辑于|刚刚|昨天|前天|\d+\s*(?:分钟|小时|天)前|\d{1,4}[-/.年]\d{1,2}|\d{1,2}:\d{2})",
+        published,
+    ))
+    region_looks_like_text = any(char.isalpha() for char in region) and not bool(re.search(r"[\d:./-]", region))
+    return (published, region) if published_looks_like_date and region_looks_like_text else (text, "")
+
+
+def _media_dimensions(body: bytes, kind: str) -> dict[str, int]:
+    """Read final-file dimensions without trusting page labels."""
+    if kind == "video":
+        cursor = 0
+        while True:
+            type_offset = body.find(b"tkhd", cursor)
+            if type_offset < 0:
+                break
+            box_offset = type_offset - 4
+            cursor = type_offset + 4
+            if box_offset < 0 or box_offset + 8 > len(body):
+                continue
+            size = int.from_bytes(body[box_offset:box_offset + 4], "big")
+            if size == 1:
+                if box_offset + 16 > len(body) or int.from_bytes(body[box_offset + 8:box_offset + 12], "big") != 0:
+                    continue
+                size = int.from_bytes(body[box_offset + 12:box_offset + 16], "big")
+            box_end = box_offset + size
+            if size < 40 or box_end > len(body):
+                continue
+            width = round(int.from_bytes(body[box_end - 8:box_end - 4], "big") / 65536)
+            height = round(int.from_bytes(body[box_end - 4:box_end], "big") / 65536)
+            if 0 < width <= 16384 and 0 < height <= 16384:
+                return {"width": width, "height": height}
+        return {}
+
+    if body.startswith(b"\x89PNG\r\n\x1a\n") and len(body) >= 24:
+        return {"width": int.from_bytes(body[16:20], "big"), "height": int.from_bytes(body[20:24], "big")}
+    if body[:6] in {b"GIF87a", b"GIF89a"} and len(body) >= 10:
+        return {"width": int.from_bytes(body[6:8], "little"), "height": int.from_bytes(body[8:10], "little")}
+    if body.startswith(b"RIFF") and body[8:12] == b"WEBP" and len(body) >= 30:
+        chunk = body[12:16]
+        if chunk == b"VP8X":
+            return {
+                "width": 1 + int.from_bytes(body[24:27], "little"),
+                "height": 1 + int.from_bytes(body[27:30], "little"),
+            }
+        if chunk == b"VP8L" and len(body) >= 25 and body[20] == 0x2F:
+            bits = int.from_bytes(body[21:25], "little")
+            return {"width": (bits & 0x3FFF) + 1, "height": ((bits >> 14) & 0x3FFF) + 1}
+        marker = body.find(b"\x9d\x01\x2a", 20, min(len(body), 128))
+        if marker >= 0 and marker + 7 <= len(body):
+            return {
+                "width": int.from_bytes(body[marker + 3:marker + 5], "little") & 0x3FFF,
+                "height": int.from_bytes(body[marker + 5:marker + 7], "little") & 0x3FFF,
+            }
+    if body.startswith(b"\xff\xd8"):
+        offset = 2
+        while offset + 9 <= len(body):
+            if body[offset] != 0xFF:
+                offset += 1
+                continue
+            marker = body[offset + 1]
+            offset += 2
+            if marker in {0xD8, 0xD9}:
+                continue
+            if offset + 2 > len(body):
+                break
+            segment_length = int.from_bytes(body[offset:offset + 2], "big")
+            if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF} and offset + 7 <= len(body):
+                return {
+                    "width": int.from_bytes(body[offset + 5:offset + 7], "big"),
+                    "height": int.from_bytes(body[offset + 3:offset + 5], "big"),
+                }
+            if segment_length < 2:
+                break
+            offset += segment_length
+    return {}
+
+
 def _download_asset(context: Any, source: str, target_base: Path, *, kind: str, max_bytes: int) -> dict[str, Any]:
     clean_url, redacted = sanitize_media_url(source)
     response = context.request.get(source, timeout=90_000)
@@ -564,7 +723,7 @@ def _download_asset(context: Any, source: str, target_base: Path, *, kind: str, 
     partial = target.with_suffix(target.suffix + ".part")
     partial.write_bytes(body)
     partial.replace(target)
-    return {
+    result = {
         "local_file": str(target),
         "source_url": clean_url,
         "source_url_query_redacted": redacted,
@@ -573,23 +732,35 @@ def _download_asset(context: Any, source: str, target_base: Path, *, kind: str, 
         "sha256": hashlib.sha256(body).hexdigest(),
         "status": "downloaded",
     }
+    result.update(_media_dimensions(body, kind))
+    return result
 
 
 def _load_note(page: Any, navigation_url: str, login_wait: int) -> dict[str, Any]:
     page.goto(navigation_url, wait_until="domcontentloaded", timeout=120_000)
     page.wait_for_timeout(3_000)
-    if not page.locator(".note-container").count() and login_wait > 0:
-        print(f"Visible Chrome is ready. Complete login or access confirmation within {login_wait} seconds.")
-        page.wait_for_timeout(login_wait * 1_000)
-        page.reload(wait_until="domcontentloaded", timeout=120_000)
-        page.wait_for_timeout(2_500)
+    _wait_for_login_or_ready(page, ".note-container", login_wait)
     for label in ["滑动验证", "安全验证", "请完成验证", "访问频繁"]:
         if page.get_by_text(label, exact=False).count():
             raise CollectionError("Xiaohongshu requires manual verification in the visible Chrome window")
     try:
         page.locator(".note-container").wait_for(state="visible", timeout=25_000)
     except Exception as exc:
+        if not urlparse(navigation_url).query:
+            raise CollectionError(
+                "No visible Xiaohongshu note detail was found. Open the note from a visible list page and copy the full current address before retrying"
+            ) from exc
         raise CollectionError("No visible Xiaohongshu note detail was found") from exc
+    try:
+        page.locator(
+            ".note-container .media-container video, "
+            ".note-container .media-container img, "
+            ".note-container video"
+        ).first.wait_for(state="attached", timeout=8_000)
+    except Exception:
+        # Text-only notes and temporarily unavailable optional media remain valid
+        # note surfaces; the completion contract below records only observed media.
+        pass
     raw = page.evaluate(NOTE_SCRIPT)
     if not raw or not str(raw.get("title") or raw.get("body") or "").strip():
         raise CollectionError("Visible note title and body were not found")
@@ -777,6 +948,10 @@ def _collect_one_note(
     note_type = "live_photo" if raw.get("images") and raw.get("has_blob_video") else (
         "video" if raw.get("videos") or raw.get("has_blob_video") else ("image" if raw.get("images") else "text")
     )
+    published_at_text, region_text = _split_date_region_text(" ".join(filter(None, [
+        str(raw.get("published_at_text") or ""),
+        str(raw.get("region_text") or ""),
+    ])))
     note = {
         "note_id": note_id,
         "title": str(raw.get("title") or ""),
@@ -784,8 +959,8 @@ def _collect_one_note(
         "author_id": stable_pseudonym(author_key),
         "author_name": str(raw.get("author_name") or ""),
         "note_type": note_type,
-        "published_at_text": str(raw.get("published_at_text") or ""),
-        "region_text": str(raw.get("region_text") or ""),
+        "published_at_text": published_at_text,
+        "region_text": region_text,
         "topics": list(raw.get("topics") or []),
         "mentions": list(raw.get("mentions") or []),
         "metrics": dict(raw.get("metrics") or {}),
@@ -839,19 +1014,27 @@ def _collect_one_note(
             "requested": requested,
         }
         if requested:
-            try:
-                downloaded = _download_asset(
-                    context,
-                    source,
-                    out / "04_笔记素材" / note_id / f"{order:03d}_{kind}",
-                    kind=kind,
-                    max_bytes=max_asset_bytes,
-                )
-                downloaded["local_file"] = str(Path(downloaded["local_file"]).relative_to(out))
-                row.update(downloaded)
-            except Exception as exc:
+            candidate_sources = [source, *(item.get("candidates") or [])]
+            candidate_sources = list(dict.fromkeys(str(value or "") for value in candidate_sources if str(value or "")))
+            last_error: Exception | None = None
+            for candidate_source in candidate_sources:
+                try:
+                    downloaded = _download_asset(
+                        context,
+                        candidate_source,
+                        out / "04_笔记素材" / note_id / f"{order:03d}_{kind}",
+                        kind=kind,
+                        max_bytes=max_asset_bytes,
+                    )
+                    downloaded["local_file"] = str(Path(downloaded["local_file"]).relative_to(out))
+                    row.update(downloaded)
+                    last_error = None
+                    break
+                except Exception as exc:
+                    last_error = exc
+            if last_error is not None:
                 row["status"] = "failed"
-                row["error_reason"] = type(exc).__name__
+                row["error_reason"] = type(last_error).__name__
         asset_rows.append(row)
     if raw.get("has_blob_video") and not raw.get("videos"):
         live_video_requested = "video" in assets
@@ -1069,7 +1252,7 @@ def collect(
     manifest: dict[str, Any] = {
         "schema_version": "1.0",
         "collector": "brandbai-xiaohongshu-download",
-        "collector_version": "0.4.0",
+        "collector_version": "0.4.2",
         "mode": mode,
         "target_kind": "search" if search_query else ("profile" if profile_target else "notes"),
         "requested_note_ids": note_ids,
@@ -1221,7 +1404,8 @@ def collect(
                     manifest["note_states"][note_id] = "failed_no_visible_note"
                     if mode in {"comments", "all"}:
                         manifest["comment_states"][note_id] = "partial_runtime_error"
-                    manifest["warnings"].append(f"{note_id}: collection failed ({type(exc).__name__})")
+                    detail = f": {exc}" if isinstance(exc, CollectionError) and str(exc) else ""
+                    manifest["warnings"].append(f"{note_id}: collection failed ({type(exc).__name__}){detail}")
                 atomic_write_json(manifest_path, manifest)
         finally:
             context.close()
@@ -1258,7 +1442,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-scroll-actions", type=int, default=800)
     parser.add_argument("--include-replies", action="store_true", help="Experimental: expand source-visible replies")
     parser.add_argument("--retain-author-display", action="store_true", help="Retain comment display names; note author remains visible by default")
-    parser.add_argument("--login-wait", type=int, default=0)
+    parser.add_argument(
+        "--login-wait", type=int, default=180,
+        help="Seconds to allow manual login or access confirmation; continues early when the target becomes visible",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--chrome-path")
     parser.add_argument("--max-asset-mb", type=int, default=200)

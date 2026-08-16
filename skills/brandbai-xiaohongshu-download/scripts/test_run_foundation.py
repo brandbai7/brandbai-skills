@@ -35,6 +35,7 @@ class RunFoundationTests(unittest.TestCase):
             self.assertEqual(plan["notes"][0]["canonical_url"], "https://www.xiaohongshu.com/explore/0123456789abcdef01234567")
             self.assertEqual(plan["navigation_context"], "used_in_memory_only")
             self.assertEqual(plan["privacy_mode"], "comment_authors_pseudonymized")
+            self.assertEqual(plan["login_wait_seconds"], 180)
             self.assertFalse((base / "delivery").exists())
         finally:
             if base.exists():

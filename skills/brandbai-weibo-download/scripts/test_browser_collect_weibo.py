@@ -26,6 +26,7 @@ from browser_collect_weibo import (
     _new_unique_rows,
     _annotate_comment_sort,
     _collect_comments,
+    _expand_comment_replies,
     _merge_comment_record,
     _next_bottom_stability,
     _prepare_comment_sort_modes,
@@ -36,6 +37,72 @@ from collector_core import CollectionError
 
 
 class BrowserCollectorTests(unittest.TestCase):
+    def test_reply_expansion_skips_hidden_and_budgets_failed_controls(self) -> None:
+        class FakeCandidate:
+            def __init__(self, *, visible: bool, click_fails: bool = False) -> None:
+                self.visible = visible
+                self.click_fails = click_fails
+                self.failed = False
+                self.clicks = 0
+
+            def is_visible(self, *, timeout: int) -> bool:
+                self.visibility_timeout = timeout
+                return self.visible
+
+            def get_attribute(self, _name: str, *, timeout: int):
+                self.attribute_timeout = timeout
+                return "1" if self.failed else None
+
+            def scroll_into_view_if_needed(self, *, timeout: int) -> None:
+                self.scroll_timeout = timeout
+
+            def click(self, *, timeout: int) -> None:
+                self.click_timeout = timeout
+                self.clicks += 1
+                if self.click_fails:
+                    raise RuntimeError("synthetic detached control")
+
+            def evaluate(self, _expression: str, *, timeout: int) -> None:
+                self.evaluate_timeout = timeout
+                self.failed = True
+
+        class FakeCandidates:
+            def __init__(self, rows) -> None:
+                self.rows = rows
+
+            def count(self) -> int:
+                return len(self.rows)
+
+            def nth(self, index: int):
+                return self.rows[index]
+
+        class FakePage:
+            def __init__(self, rows) -> None:
+                self.rows = rows
+                self.waits = []
+
+            def get_by_text(self, _pattern):
+                return FakeCandidates(self.rows)
+
+            def wait_for_timeout(self, milliseconds: int) -> None:
+                self.waits.append(milliseconds)
+
+        hidden = FakeCandidate(visible=False)
+        failed = FakeCandidate(visible=True, click_fails=True)
+        successful = FakeCandidate(visible=True)
+        page = FakePage([hidden, failed, successful])
+
+        self.assertEqual(_expand_comment_replies(page, 8), 2)
+        self.assertEqual(hidden.clicks, 0)
+        self.assertTrue(failed.failed)
+        self.assertEqual(successful.clicks, 1)
+        self.assertLessEqual(failed.scroll_timeout, 400)
+        self.assertLessEqual(failed.click_timeout, 600)
+
+        self.assertEqual(_expand_comment_replies(page, 8), 1)
+        self.assertEqual(failed.clicks, 1)
+        self.assertEqual(successful.clicks, 2)
+
     def test_jsonl_checkpoint_retries_transient_windows_file_lock(self) -> None:
         real_replace = os.replace
         attempts = 0

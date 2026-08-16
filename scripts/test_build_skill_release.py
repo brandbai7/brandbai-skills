@@ -14,6 +14,7 @@ ANALYSIS_SKILL_DIR = ROOT / "skills" / "brandbai-douyin-account-analysis"
 TMALL_SKILL_DIR = ROOT / "skills" / "brandbai-tmall-download"
 XIAOHONGSHU_SKILL_DIR = ROOT / "skills" / "brandbai-xiaohongshu-download"
 TIKTOK_SKILL_DIR = ROOT / "skills" / "brandbai-tiktok-download"
+WEIBO_SKILL_DIR = ROOT / "skills" / "brandbai-weibo-download"
 PRODUCT_VALUE_SKILL_DIR = ROOT / "skills" / "brandbai-product-value"
 VALUE_EXPRESSION_SKILL_DIR = ROOT / "skills" / "brandbai-value-expression"
 
@@ -96,13 +97,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 XIAOHONGSHU_SKILL_DIR,
                 temp,
-                "brandbai-xiaohongshu-download-v0.4.0",
+                "brandbai-xiaohongshu-download-v0.4.2",
             )
             archive_path = temp / "brandbai-xiaohongshu-download.zip"
             checksum_path = temp / "brandbai-xiaohongshu-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.4.0")
+            self.assertEqual(result["version"], "0.4.2")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -135,6 +136,29 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("references/business-scenarios.md", names)
                 self.assertIn("references/translation-policy.md", names)
                 self.assertFalse(any(name.startswith("brandbai-tiktok-download/") for name in names))
+
+    def test_builds_weibo_skill_at_archive_root(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                WEIBO_SKILL_DIR,
+                temp,
+                "brandbai-weibo-download-v0.1.3",
+            )
+            archive_path = temp / "brandbai-weibo-download.zip"
+            checksum_path = temp / "brandbai-weibo-download.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.1.3")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("scripts/project_plan.py", names)
+                self.assertIn("scripts/project_runner.py", names)
+                self.assertIn("scripts/project_delivery.py", names)
+                self.assertIn("scripts/stress_test_local.py", names)
+                self.assertIn("scripts/live_resilience_test.py", names)
+                self.assertIn("references/release-notes.md", names)
+                self.assertFalse(any(name.startswith("brandbai-weibo-download/") for name in names))
 
     def test_builds_product_value_skill_with_contracts_and_validator(self):
         with workspace_temp() as temp:

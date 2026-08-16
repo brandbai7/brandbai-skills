@@ -45,11 +45,11 @@ python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-xiaohongshu-download/scripts
-python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
+python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
 cd ../../brandbai-tiktok-download/scripts
 python -m unittest test_collector_core.py test_selection_contract.py test_browser_collect_tiktok.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-weibo-download/scripts
-python -m unittest test_collector_core.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
+python -B -m unittest test_collector_core.py test_project_plan.py test_project_runner.py test_project_delivery.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py test_stress_test_local.py test_live_resilience_test.py
 cd ../../brandbai-product-value/scripts
 python -B test_product_value_delivery.py
 cd ../../brandbai-value-expression/scripts

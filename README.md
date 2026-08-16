@@ -15,9 +15,9 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | --- | --- | --- | --- |
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.4.0 | 抖音单篇、主页、搜索结果或插件自选作品的视频图文、封面、原声、发布文案和一级评论，支持 ZIP、长任务与断点续跑 | Community beta · Noncommercial |
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.3.2 | 天猫／淘宝参数、主图、图文详情和视频按模块读取，分开当前规格与页面参数，并输出结构化价格、素材双序号及内容／经营两层状态；评价和问大家保持独立下载 | Prototype · Noncommercial |
-| [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.0 | 单篇完整笔记与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
+| [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.2 | 单篇完整笔记与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.2 | TikTok 视频、图集、达人主页、搜索、插件作品清单续跑与可见一级评论；支持独立原声缺口、海外市场、达人候选、创意对标、官宣接收、联盟内容预设和本机中英双语证据 | Prototype · Noncommercial |
-| [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.2 | 微博明星／工作室／品牌账号、单微博、搜索、普通话题、明星超话和热搜榜单的正文、素材、互动、评论、回复与转发证据 | Prototype · Noncommercial |
+| [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.3 | 微博账号、单微博、搜索、话题、超话和热搜证据，支持多任务项目计划、断点恢复、合并交付与耐久测试 | Prototype · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.23 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实；拦截未入账规格冲突、证据属性降级绕行、无来源任务扩写及产地追溯过度结论 | Prototype · Noncommercial |
 | [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.3 | 继承有效商品价值，以EX/PEX盘点页面表达，逐项扫描六路与十二槽位，形成核心价值覆盖完整、证据边界清晰的多轨呈现及真实单变量验证计划 | Prototype · Noncommercial |
@@ -111,11 +111,13 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 [在 WorkBuddy 安装 brandbai-douyin-download v0.4.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fv0.4.0%2Fbrandbai-douyin-download.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-xiaohongshu-download v0.4.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-xiaohongshu-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-xiaohongshu-download-v0.4.0%2Fbrandbai-xiaohongshu-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-xiaohongshu-download v0.4.2](https://www.codebuddy.cn/work/launch?skillname=brandbai-xiaohongshu-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-xiaohongshu-download-v0.4.2%2Fbrandbai-xiaohongshu-download.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-tmall-download v0.3.2](https://www.codebuddy.cn/work/launch?skillname=brandbai-tmall-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tmall-download-v0.3.2%2Fbrandbai-tmall-download.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-tiktok-download v0.2.2](https://www.codebuddy.cn/work/launch?skillname=brandbai-tiktok-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-tiktok-download-v0.2.2%2Fbrandbai-tiktok-download.zip&channelType=github)
+
+[在 WorkBuddy 安装 brandbai-weibo-download v0.1.3](https://www.codebuddy.cn/work/launch?skillname=brandbai-weibo-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-weibo-download-v0.1.3%2Fbrandbai-weibo-download.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-product-value v0.1.23](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.23%2Fbrandbai-product-value.zip&channelType=github)
 
@@ -124,9 +126,10 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 同一仓库会分别发布多个 Skill，因此安装链接固定到各自版本，不使用仓库级 `latest`。如果宿主不支持网页唤起，可从对应版本的 GitHub Release 手动下载 ZIP：
 
 - [Douyin Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.4.0)
-- [Xiaohongshu Download v0.4.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.0)
+- [Xiaohongshu Download v0.4.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.2)
 - [Tmall Download v0.3.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.3.2)
 - [TikTok Download v0.2.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tiktok-download-v0.2.2)
+- [Weibo Download v0.1.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-weibo-download-v0.1.3)
 - [Product Value v0.1.23](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.23)
 - [Value Expression v0.1.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.3)
 
@@ -180,11 +183,11 @@ python -m unittest test_analysis_dataset.py test_analysis_delivery.py
 cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-xiaohongshu-download/scripts
-python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_run_foundation.py
+python -m unittest test_collector_core.py test_browser_collect_xiaohongshu.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
 cd ../../brandbai-tiktok-download/scripts
 python -m unittest test_collector_core.py test_selection_contract.py test_browser_collect_tiktok.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-weibo-download/scripts
-python -m unittest test_collector_core.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
+python -B -m unittest test_collector_core.py test_project_plan.py test_project_runner.py test_project_delivery.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py test_stress_test_local.py test_live_resilience_test.py
 cd ../../brandbai-product-value/scripts
 python -B test_product_value_delivery.py
 cd ../../brandbai-value-expression/scripts

@@ -810,12 +810,13 @@ def _page_blocker(page: Any) -> str:
     url = str(page.url or "")
     if "passport.weibo.com" in url or "login" in url:
         return "login"
-    if page.locator("main article").count():
-        return ""
     login_labels = {"扫码登录", "账号登录", "请登录后使用"}
     for label in ["安全验证", "访问频繁", "请输入验证码", *login_labels]:
-        if page.get_by_text(label, exact=False).count():
+        locator = page.get_by_text(label, exact=False).first
+        if locator.count() and locator.is_visible():
             return "login" if label in login_labels else "verification"
+    if page.locator("main article").count():
+        return ""
     return ""
 
 
@@ -1311,21 +1312,35 @@ def _expand_comment_replies(page: Any, remaining_actions: int) -> int:
     if remaining_actions <= 0:
         return 0
     actions = 0
-    # Click each currently visible control at most once per pass. Re-querying
-    # the first control in a tight loop can repeatedly click one unchanged
-    # "查看更多回复" button and stall large comment pages.
+    # Scan past hidden/stale controls and count visible attempts, including
+    # failures, against the reply budget. Otherwise one detached control can
+    # consume Playwright's full timeout on every pass and stall large pages.
     candidates = page.get_by_text(re.compile(
         r"(?:共|展开)\s*\d+\s*条回复|查看更多回复|加载更多回复|展开更多回复"
     ))
-    count = min(candidates.count(), remaining_actions, 8)
-    for index in range(count):
+    max_actions = min(remaining_actions, 8)
+    scan_count = min(candidates.count(), 24)
+    for index in range(scan_count):
+        if actions >= max_actions:
+            break
+        candidate = candidates.nth(index)
         try:
-            candidate = candidates.nth(index)
-            candidate.scroll_into_view_if_needed(timeout=2_000)
-            candidate.click(timeout=2_000)
-            page.wait_for_timeout(450)
+            if not candidate.is_visible(timeout=200):
+                continue
+            if candidate.get_attribute("data-brandbai-reply-failed", timeout=200) == "1":
+                continue
             actions += 1
+            candidate.scroll_into_view_if_needed(timeout=400)
+            candidate.click(timeout=600)
+            page.wait_for_timeout(350)
         except Exception:
+            try:
+                candidate.evaluate(
+                    "node => node.setAttribute('data-brandbai-reply-failed', '1')",
+                    timeout=200,
+                )
+            except Exception:
+                pass
             continue
     return actions
 
@@ -1333,6 +1348,7 @@ def _expand_comment_replies(page: Any, remaining_actions: int) -> int:
 def _collect_comments(
     page: Any, post_id: str, path: Path, *, limit: int, max_scroll_actions: int,
     include_replies: bool, retain_author_display: bool, resume: bool,
+    login_wait: int = 0,
 ) -> dict[str, Any]:
     existing = _read_jsonl_rows(path) if resume else []
     if not resume and path.exists():
@@ -1355,6 +1371,8 @@ def _collect_comments(
     exhausted_sorts: set[str] = set()
     limit_reached = False
     login_limited = False
+    login_recovery_attempted = False
+    login_recovery_succeeded = False
     sort_activation_failed = False
     scroll_budget_exhausted = False
     sort_modes, probe_scroll_actions = _prepare_comment_sort_modes(
@@ -1389,7 +1407,27 @@ def _collect_comments(
                 )
             raw = page.evaluate(COMMENTS_SCRIPT) or {}
             declared_text = str(raw.get("declared") or declared_text)
-            login_limited = login_limited or bool(raw.get("login_limited"))
+            current_login_limited = bool(raw.get("login_limited"))
+            if current_login_limited and login_wait > 0 and not login_recovery_attempted:
+                login_recovery_attempted = True
+                print(
+                    "More comments require Weibo login or confirmation. "
+                    f"Complete it in the visible Chrome window within {login_wait} seconds."
+                )
+                for _ in range(login_wait):
+                    page.wait_for_timeout(1_000)
+                    blocker = _page_blocker(page)
+                    probe = page.evaluate(COMMENTS_SCRIPT) or {}
+                    if not blocker and not bool(probe.get("login_limited")):
+                        login_recovery_succeeded = True
+                        login_limited = False
+                        page.wait_for_timeout(750)
+                        break
+                if login_recovery_succeeded:
+                    bottom_stability = 0
+                    previous_height = None
+                    continue
+            login_limited = login_limited or current_login_limited
             normalized = _normalize_comment_rows(
                 raw.get("rows") or [], post_id, retain_author_display, include_replies
             )
@@ -1513,6 +1551,8 @@ def _collect_comments(
         "sort_modes_exhausted": sorted(exhausted_sorts),
         "sort_runs": sort_runs,
         "login_limited": login_limited,
+        "login_recovery_attempted": login_recovery_attempted,
+        "login_recovery_succeeded": login_recovery_succeeded,
         "scroll_budget_exhausted": scroll_budget_exhausted,
         "finished_at": utc_now(),
     }
@@ -1721,6 +1761,7 @@ def _collect_one_post(
             page, post_id, out / "data" / "comments.jsonl", limit=comment_limit,
             max_scroll_actions=max_scroll_actions, include_replies=include_replies,
             retain_author_display=retain_author_display, resume=resume,
+            login_wait=login_wait,
         )
     if mode in {"reposts", "all"}:
         if comment_manifest:
@@ -1922,7 +1963,10 @@ def collect(
                         manifest["comment_states"][post_id] = "partial_runtime_error"
                     if mode in {"reposts", "all"}:
                         manifest["repost_states"][post_id] = "partial_runtime_error"
-                    manifest["warnings"].append(f"{post_id}: collection failed ({type(exc).__name__})")
+                    detail = " ".join(str(exc).split())[:240]
+                    warning = f"{post_id}: collection failed ({type(exc).__name__}: {detail})"
+                    manifest["warnings"].append(warning)
+                    print(f"WARNING: {warning}")
                 atomic_write_json(manifest_path, manifest)
         finally:
             context.close()

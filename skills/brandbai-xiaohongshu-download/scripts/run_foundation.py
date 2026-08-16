@@ -40,7 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-scroll-actions", type=int, default=800)
     parser.add_argument("--include-replies", action="store_true")
     parser.add_argument("--retain-author-display", action="store_true")
-    parser.add_argument("--login-wait", type=int, default=0)
+    parser.add_argument(
+        "--login-wait", type=int, default=180,
+        help="Seconds to allow manual login or access confirmation; continues early when the target becomes visible",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--chrome-path")
     parser.add_argument("--max-asset-mb", type=int, default=200)
@@ -82,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             "comment_limit": max(0, args.comment_limit),
             "include_replies": bool(args.include_replies),
             "privacy_mode": "comment_display_authors_retained" if args.retain_author_display else "comment_authors_pseudonymized",
+            "login_wait_seconds": max(0, args.login_wait),
             "profile_dir": str(profile),
             "out": str(out),
             "resume": bool(args.resume),
