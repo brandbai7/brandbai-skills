@@ -4,7 +4,7 @@ description: Download public Xiaohongshu notes through a visible signed-in Chrom
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.4.0"
+  version: "0.4.2"
   category: content-commerce
 ---
 
@@ -53,6 +53,8 @@ python -m pip install -r requirements-browser.txt
 
 私有 Chrome 资料夹必须放在仓库、同步盘和交付目录之外。任何正式采集先增加 `--dry-run` 核对范围，确认后再去掉。
 
+首次运行默认预留 180 秒供用户手动登录或完成访问确认；目标页面一旦可见就立即继续，不再等待完整倒计时。已登录且不希望等待时可显式设置 `--login-wait 0`。
+
 ## 常用任务
 
 ### 单篇完整资料包
@@ -69,6 +71,8 @@ python scripts/run_foundation.py all `
 ```
 
 正式执行前从当前可见页面地址栏复制完整链接。临时导航上下文只用于打开页面；输出只保留规范笔记链接。
+
+动态照片或视频若在播放器中显示为 `blob`，允许从同一公开页面的内嵌数据中恢复 `xhscdn.com` 白名单内的 MP4 地址；签名查询参数只用于当前内存下载，Excel、JSON、说明与 ZIP 仍只保留去参数后的来源地址。
 
 ### 只下载单篇评论
 

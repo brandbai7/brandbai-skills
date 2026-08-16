@@ -4,7 +4,7 @@ description: Collect public Weibo accounts, individual posts, profile posts, key
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.2"
+  version: "0.1.3"
   category: content-commerce
 ---
 
@@ -182,14 +182,22 @@ python scripts/run_foundation.py posts `
 
 ## 当前实现阶段
 
-`0.1.2` 在既有单微博、账号主页、关键词、普通话题、超话与热搜能力上，增加评论真实到底判断、按热度／按时间双排序合并、循环展开可见回复和逐排序终止证据。完整转发链、平台不返回的评论与回复、超话成员关系、热搜历史峰值、长图 OCR、视频语音转写和商业效果分析不属于稳定承诺。
+`0.1.3` 在既有单微博、账号主页、关键词、普通话题、超话与热搜能力上，增加多任务项目计划、同一可见 Chrome 会话顺序执行、断点恢复、合并交付、本地合成压力测试和低频真实页面耐久测试；同时缩短隐藏回复控件造成的等待，并支持登录恢复。完整转发链、平台不返回的评论与回复、超话成员关系、热搜历史峰值、长图 OCR、视频语音转写和商业效果分析不属于稳定承诺。
 
 ## 验证修改
 
 在 `scripts/` 目录运行：
 
 ```powershell
-python -m unittest test_collector_core.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py
+python -B -m unittest test_collector_core.py test_project_plan.py test_project_runner.py test_project_delivery.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py test_stress_test_local.py test_live_resilience_test.py
 ```
 
 这些测试只使用合成账号、微博、评论、转发和搜索快照，不打开微博、不启动 Chrome，也不产生付费请求。
+
+需要验证多任务合并、较大评论／转发集合、素材打包、SHA-256 和断点恢复时，运行本地合成压力测试：
+
+```powershell
+python stress_test_local.py --preset standard --report "<结果文件.json>"
+```
+
+`quick`、`standard` 和 `full` 依次提高项目数、互动记录数与合成素材体积。该脚本不访问微博，不能代替低频真实页面耐久测试；发布时必须分别报告自动化回归、本地压力结果、真实页面验收和仍未完成的项目。

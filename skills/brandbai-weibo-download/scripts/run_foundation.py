@@ -24,6 +24,9 @@ from collector_core import (
     normalize_topic_query,
 )
 from package_delivery import PackageError, package_directory
+from project_delivery import finalize_project_delivery
+from project_plan import build_project_dry_run, load_project_plan
+from project_runner import run_project_tasks
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--topic", help="One Weibo hashtag topic")
     source.add_argument("--supertopic", help="One Weibo supertopic /p/100808... URL or ID")
     source.add_argument("--hotlist", help="One Weibo hotlist category, such as 热搜 or 文娱")
+    source.add_argument("--project-plan", type=Path, help="A brandbai.weibo.project.v1 JSON plan")
     parser.add_argument("--supertopic-tab", default="热门", help="Visible supertopic tab, such as 热门, 最新 or 精华")
     parser.add_argument("--hotlist-limit", type=int, default=50, help="Ranked rows to retain; pinned and special visible rows are additional")
     parser.add_argument("--recent", type=int, default=5)
@@ -71,6 +75,40 @@ def main(argv: list[str] | None = None) -> int:
         topic = normalize_topic_query(args.topic) if args.topic else None
         supertopic_tab = normalize_supertopic_tab(args.supertopic_tab)
         hotlist = normalize_hotlist_category(args.hotlist) if args.hotlist else None
+        if args.project_plan:
+            project_plan = load_project_plan(args.project_plan.expanduser().resolve())
+            project_dry_run = build_project_dry_run(
+                project_plan,
+                mode=args.mode,
+                profile_dir=profile,
+                out=out,
+                assets=assets,
+                resume=bool(args.resume),
+                package_zip=bool(args.zip),
+            )
+            print(json.dumps(project_dry_run, ensure_ascii=False, indent=2))
+            if args.dry_run:
+                return 0
+            project = run_project_tasks(
+                project_plan, profile_dir=profile, out=out, mode=args.mode,
+                assets=assets, resume=bool(args.resume),
+                max_profile_scroll_actions=max(0, args.max_profile_scroll_actions),
+                max_search_scroll_actions=max(0, args.max_search_scroll_actions),
+                max_scroll_actions=max(1, args.max_scroll_actions),
+                login_wait=max(0, args.login_wait),
+                retain_author_display=bool(args.retain_author_display),
+                chrome_path=args.chrome_path, max_asset_mb=max(1, args.max_asset_mb),
+            )
+            finalization = finalize_project_delivery(out)
+            final_project = finalization["merge"].get("project_manifest") or project
+            package = package_directory(out) if args.zip else None
+            print(json.dumps({
+                "project": final_project,
+                "merge": finalization["merge"],
+                "delivery": finalization["delivery"],
+                "package": package,
+            }, ensure_ascii=False, indent=2))
+            return 0 if final_project.get("state") == "complete" else 3
         if hotlist and args.mode != "posts":
             raise CollectionError("Hotlist snapshot collection currently supports mode=posts only")
         plan = {

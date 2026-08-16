@@ -29,7 +29,7 @@ def package_directory(source_value: str | Path, zip_value: str | Path | None = N
     source = Path(source_value).expanduser().resolve()
     if not source.is_dir():
         raise PackageError(f"Delivery directory not found: {source}")
-    target = Path(zip_value).expanduser().resolve() if zip_value else source.with_suffix(".zip")
+    target = Path(zip_value).expanduser().resolve() if zip_value else (source.parent / f"{source.name}.zip")
     if target == source or source in target.parents:
         raise PackageError("ZIP output must be outside the delivery directory")
     target.parent.mkdir(parents=True, exist_ok=True)

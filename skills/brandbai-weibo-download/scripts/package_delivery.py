@@ -45,4 +45,10 @@ def package_directory(source_value: str | Path, zip_value: str | Path | None = N
     except Exception:
         partial.unlink(missing_ok=True)
         raise
-    return {"zip": str(target), "files": len(files), "bytes": target.stat().st_size, "sha256": sha256_file(target)}
+    digest = sha256_file(target)
+    checksum = target.with_suffix(target.suffix + ".sha256")
+    checksum.write_text(f"{digest}  {target.name}\n", encoding="utf-8")
+    return {
+        "zip": str(target), "files": len(files), "bytes": target.stat().st_size,
+        "sha256": digest, "sha256_file": str(checksum),
+    }
