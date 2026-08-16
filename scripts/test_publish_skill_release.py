@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "publish_skill_release.sh"
+WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 
 
 def find_bash():
@@ -44,6 +45,12 @@ def workspace_temp():
 
 @unittest.skipUnless(BASH, "bash is required to test the release publisher")
 class PublishSkillReleaseTests(unittest.TestCase):
+    def test_workflow_builds_only_the_tagged_skill(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn('--skill-dir "skills/${SKILL_NAME}"', workflow)
+        self.assertNotIn('for skill_dir in skills/*', workflow)
+
     def run_publisher(self, release_exists: bool, include_assets: bool = True):
         with workspace_temp() as temp:
             if include_assets:
