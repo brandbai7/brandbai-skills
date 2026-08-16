@@ -34,19 +34,14 @@ jobs:
           test -f "${notes_file}"
           echo "SKILL_NAME=${skill_name}" >> "${GITHUB_ENV}"
           echo "NOTES_FILE=${notes_file}" >> "${GITHUB_ENV}"
-      - name: Build all standalone Skill packages
+      - name: Build selected standalone Skill package
         shell: bash
         run: |
           mkdir -p dist
-          for skill_dir in skills/*; do
-            test -d "${skill_dir}" || continue
-            skill_name="$(basename "${skill_dir}")"
-            if [[ "${skill_name}" == "${SKILL_NAME}" ]]; then
-              python scripts/build_skill_release.py --skill-dir "${skill_dir}" --dist dist --tag "${GITHUB_REF_NAME}"
-            else
-              python scripts/build_skill_release.py --skill-dir "${skill_dir}" --dist dist
-            fi
-          done
+          python scripts/build_skill_release.py \
+            --skill-dir "skills/${SKILL_NAME}" \
+            --dist dist \
+            --tag "${GITHUB_REF_NAME}"
       - name: Publish GitHub Release
         shell: bash
         run: bash scripts/publish_skill_release.sh
