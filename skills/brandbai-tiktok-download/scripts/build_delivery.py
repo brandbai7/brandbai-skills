@@ -114,6 +114,24 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
     _sheet(book, "完整性", ["对象ID", "对象", "状态", "时间"], [
         [row.get("work_id"), "作品", row.get("completion_state"), row.get("collected_at")] for row in works
     ])
+    creator_snapshot = works[0].get("creator_snapshot") if len(works) == 1 else None
+    if isinstance(creator_snapshot, dict) and any(
+        creator_snapshot.get(key) not in (None, "")
+        for key in ("nickname", "platform_account", "stable_creator_id")
+    ):
+        _sheet(book, "达人快照", ["字段", "值"], [
+            ["昵称", creator_snapshot.get("nickname")],
+            ["TikTok账号", creator_snapshot.get("platform_account")],
+            ["稳定达人ID", creator_snapshot.get("stable_creator_id")],
+            ["主页链接", creator_snapshot.get("profile_url")],
+            ["简介", creator_snapshot.get("bio")],
+            ["粉丝数", creator_snapshot.get("followers")],
+            ["累计获赞", creator_snapshot.get("total_likes")],
+            ["快照时间", creator_snapshot.get("snapshot_at")],
+            ["来源作品ID", works[0].get("work_id")],
+            ["来源作品链接", works[0].get("canonical_url")],
+            ["采集边界", "仅使用当前作品页已经展示或加载的公开作者信息；未自动进入达人主页；未下载头像。"],
+        ])
     business_context = run.get("business_context") or {}
     if any(value not in (None, "") for value in business_context.values()):
         context_labels = {
@@ -231,9 +249,10 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
 3. 评论只有收到分页终止或可信页面末端证据才标记完整；自动滚动本身不构成全量证明。
 4. 回复未逐楼展开、达到正数上限或页面验证阻断时，保留部分完成状态。
 5. 发布文案来自平台作品字段；Python 采集包不自动做语音转写、OCR 或云端翻译。本机双语证据可由支持该能力的 BrandBAI 下载助手生成。
-6. 本包只做下载、结构化和质量说明，不生成达人画像、用户语义、商品匹配、传播机制或销售归因。
-7. Cookie、请求头、验证码、Chrome 资料夹和短期签名链接不进入交付包。
-8. 作品没有独立原声地址时记录为“公开页面未提供”，不写成下载失败；若对应 MP4 已保存，可直接播放检查视频内嵌声音。
+6. 单作品包可包含“达人快照”；它不自动进入达人主页，不下载头像，未展示字段保持空白。
+7. 本包只做下载、结构化和质量说明，不生成达人画像、用户语义、商品匹配、传播机制或销售归因。
+8. Cookie、请求头、验证码、Chrome 资料夹和短期签名链接不进入交付包。
+9. 作品没有独立原声地址时记录为“公开页面未提供”，不写成下载失败；若对应 MP4 已保存，可直接播放检查视频内嵌声音。
 """
     (out / "05_采集说明.md").write_text(note, encoding="utf-8")
     summary = {

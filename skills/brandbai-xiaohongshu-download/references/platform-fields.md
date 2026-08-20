@@ -18,6 +18,10 @@
 
 `selected` 每项保存 `note_id`、`rank`、`is_pinned`、`selection_reason`、`title`、`author_name`、`canonical_url` 和无查询参数 `cover_url`。`selection_reason` 取 `pinned` 或 `recent_non_pinned`。不得保存页面临时导航链接或令牌。
 
+## 单篇达人快照
+
+`nickname`、`platform_account`、`stable_creator_id`、`profile_url`、`bio`、`followers`、`total_likes`、`snapshot_at`、来源笔记 ID 和链接。只写当前笔记详情已经展示或加载的公开字段，不自动进入主页，不下载头像；未展示字段留空，明确 0 才写 `0`。
+
 ## 素材
 
 `asset_id`、`note_id`、`kind`、`order`、`source_url`、`local_file`、`width`、`height`、`bytes`、`sha256`、`status`、`error_reason`。

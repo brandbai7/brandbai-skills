@@ -15,6 +15,35 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 class BuildDeliveryTests(unittest.TestCase):
+    def test_direct_post_includes_creator_snapshot_without_avatar(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            out = Path(temp) / "delivery"
+            data = out / "data"
+            data.mkdir(parents=True)
+            write_jsonl(data / "posts.jsonl", [{
+                "post_id": "Synthetic1", "author_uid": "10001", "author_name": "合成作者",
+                "creator_snapshot": {
+                    "nickname": "合成作者", "platform_account": "10001", "stable_creator_id": "10001",
+                    "profile_url": "https://weibo.com/u/10001", "bio": "", "followers": None,
+                    "total_likes": None, "snapshot_at": "2026-08-20T00:00:00Z",
+                },
+                "body": "合成微博", "post_type": "text", "metrics": {},
+                "canonical_url": "https://weibo.com/10001/Synthetic1", "collected_at": "2026-08-20T00:00:00Z",
+                "completion_state": "complete_visible_post",
+            }])
+            (data / "run_manifest.json").write_text(
+                json.dumps({"state": "complete", "target_kind": "posts"}), encoding="utf-8"
+            )
+            build_delivery(out)
+            workbook = load_workbook(out / "01_账号资料.xlsx", read_only=True)
+            try:
+                self.assertIn("达人快照", workbook.sheetnames)
+                self.assertEqual(workbook["达人快照"]["B2"].value, "合成作者")
+                self.assertIsNone(workbook["达人快照"]["B7"].value)
+                self.assertIn("未下载头像", workbook["达人快照"]["B12"].value)
+            finally:
+                workbook.close()
+
     def test_builds_full_ordinary_delivery_with_zero_row_statuses(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
             out = Path(temp) / "delivery"

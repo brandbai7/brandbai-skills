@@ -129,6 +129,24 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
             row.get("note_id"), row.get("rank"), row.get("is_pinned"), row.get("selection_reason"),
             row.get("title"), row.get("author_name"), row.get("canonical_url"), row.get("cover_url"),
         ] for row in profile_selection.get("selected") or []])
+    creator_snapshot = notes[0].get("creator_snapshot") if len(notes) == 1 and not profile_selection and not searches else None
+    if isinstance(creator_snapshot, dict) and any(
+        creator_snapshot.get(key) not in (None, "")
+        for key in ("nickname", "platform_account", "stable_creator_id")
+    ):
+        _write_sheet(note_book, "达人快照", ["字段", "值"], [
+            ["昵称", creator_snapshot.get("nickname")],
+            ["小红书号", creator_snapshot.get("platform_account")],
+            ["稳定达人ID", creator_snapshot.get("stable_creator_id")],
+            ["主页链接", creator_snapshot.get("profile_url")],
+            ["简介", creator_snapshot.get("bio")],
+            ["粉丝数", creator_snapshot.get("followers")],
+            ["获赞与收藏", creator_snapshot.get("total_likes")],
+            ["快照时间", creator_snapshot.get("snapshot_at")],
+            ["来源笔记ID", notes[0].get("note_id")],
+            ["来源笔记链接", notes[0].get("canonical_url")],
+            ["采集边界", "仅使用当前笔记页已经展示或加载的公开作者信息；未自动进入达人主页；未下载头像。"],
+        ])
     topic_rows = []
     for note in notes:
         for order, topic in enumerate(note.get("topics") or [], start=1):

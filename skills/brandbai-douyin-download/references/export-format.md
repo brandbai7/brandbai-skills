@@ -19,6 +19,7 @@ Read this reference before producing an XLSX, defining a download contract, or p
 1. `使用说明`: creator, selection scope, counts, status, source, timestamps, and boundaries.
 2. `作品清单`: work ID, type, creator, title, publish time, interactions, selection reason, real URL, media folder, and download state.
 3. `素材明细`: one row per video/image/cover/audio/release-caption asset record, including status, size, and relative path. Keep `not_available` and `not_requested` records, but count only `downloaded`, `skipped_existing`, and generated caption rows with a filename as actual files in the summary.
+4. `达人快照`: only when the final delivery contains one explicit work and current-work data exposes public creator identity. Keep unknown values blank; do not fetch an avatar or navigate to the creator profile to enrich it.
 
 Put title and human-readable content before audit fields. Keep IDs as text and link each media row back to its work.
 
@@ -66,6 +67,7 @@ The raw `comments.csv` remains the canonical machine-readable table. Do not remo
 
 - Store aweme, comment, root, parent, evidence, and semantic sample IDs as text. Verify the exported XLSX XML/cell values preserve every digit; never accept scientific-notation precision loss.
 - Store known counts as integers. Unknown counts are blank, not `-`; confirmed zero is numeric `0`.
+- The creator snapshot uses only current-work visible or already-loaded public facts. Its timestamp and source work remain attached to the values.
 - Treat the platform-displayed comment count, collected top-level rows, top-level declared reply-count sum, and collected reply rows as separate measures. The displayed total may include replies; a top-level row's `reply_count` is metadata, not proof that those replies were collected.
 - Store known absolute timestamps as actual spreadsheet date-time values and display `yyyy-mm-dd hh:mm:ss`. If the page exposes only a relative time such as `1年前`, preserve that visible text; leave truly unknown timestamps blank.
 - Preserve the original visible comment text. Do not overwrite source text with classifications or cleaned prose.

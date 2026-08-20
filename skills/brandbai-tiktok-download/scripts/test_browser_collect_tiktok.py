@@ -16,7 +16,8 @@ class BrowserCollectorTests(unittest.TestCase):
 
     def test_normalizes_video_and_photo_payloads(self):
         payload = {"itemList": [
-            {"id": "7654321098765432101", "desc": "video #care", "author": {"uniqueId": "demo"},
+            {"id": "7654321098765432101", "desc": "video #care", "author": {"uniqueId": "demo", "nickname": "Demo"},
+             "authorStats": {"followerCount": 0, "heartCount": 12},
              "stats": {"playCount": 9, "diggCount": 2},
              "video": {"playAddr": "https://v16.tiktokcdn.com/v.mp4", "cover": "https://p16.tiktokcdn.com/c.jpg"}},
             {"id": "7654321098765432102", "desc": "photo", "author": {"uniqueId": "demo"},
@@ -30,6 +31,9 @@ class BrowserCollectorTests(unittest.TestCase):
         self.assertEqual(rows[0]["work_type"], "video")
         self.assertEqual(rows[1]["work_type"], "photo")
         self.assertEqual(len([asset for asset in rows[1]["assets"] if asset["kind"] == "photo"]), 2)
+        self.assertEqual(rows[0]["creator_snapshot"]["followers"], 0)
+        self.assertEqual(rows[0]["creator_snapshot"]["total_likes"], 12)
+        self.assertEqual(rows[0]["creator_snapshot"]["profile_url"], "https://www.tiktok.com/@demo")
 
     def test_comment_payload_tracks_terminal(self):
         payload = {"comments": [{"cid": "c1", "text": "synthetic comment", "user": {"uid": "u1"},

@@ -15,6 +15,8 @@
 
 认证和简介保存页面原文，不自动解释明星等级、机构关系或商务能力。
 
+单微博“达人快照”使用 `nickname`、`platform_account`、`stable_creator_id`、`profile_url`、`bio`、`followers`、`total_likes`、`snapshot_at`、来源微博 ID 和链接。字段仅来自当前详情页已展示或加载的公开信息；不进入主页补齐、不保存头像，未知值留空。
+
 ## 微博字段
 
 `post_id`、`author_uid`、`author_name`、`body`、`topics`、`mentions`、`published_at_text`、`region_text`、`source_text`、`post_type`、`metrics`、`original_post_id`、`canonical_url`、选择和搜索语境、`completion_state`。

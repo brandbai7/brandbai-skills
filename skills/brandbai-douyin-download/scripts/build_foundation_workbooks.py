@@ -372,6 +372,38 @@ def build_works_book(
     )
     style_hyperlink_column(asset_list, asset_record_count, 9, relative_local_path=True)
 
+    creator_snapshot = works[0].get("creator_snapshot") if len(works) == 1 else None
+    if isinstance(creator_snapshot, dict) and any(
+        creator_snapshot.get(key) not in (None, "")
+        for key in ("nickname", "platform_account", "stable_creator_id")
+    ):
+        snapshot_sheet = book.create_sheet("达人快照")
+        snapshot_rows = [
+            ["昵称", creator_snapshot.get("nickname")],
+            ["抖音号", creator_snapshot.get("platform_account")],
+            ["稳定达人ID", creator_snapshot.get("stable_creator_id")],
+            ["主页链接", creator_snapshot.get("profile_url")],
+            ["简介", creator_snapshot.get("bio")],
+            ["粉丝数", creator_snapshot.get("followers")],
+            ["累计获赞", creator_snapshot.get("total_likes")],
+            ["快照时间", creator_snapshot.get("snapshot_at")],
+            ["来源作品ID", works[0].get("aweme_id")],
+            ["来源作品链接", works[0].get("source_url")],
+            ["采集边界", "仅使用当前作品页已经展示或加载的公开作者信息；未自动进入达人主页；未下载头像。"],
+        ]
+        snapshot_sheet.append(["字段", "值"])
+        for row in snapshot_rows:
+            snapshot_sheet.append(row)
+        style_data_sheet(
+            snapshot_sheet, 2, len(snapshot_rows), widths=[24, 88], wrap_columns=[2],
+            text_columns=[1], integer_columns=[2], table_name="CreatorSnapshotTable", table_style="TableStyleMedium2",
+        )
+        for cell_ref in ("B5", "B11"):
+            cell = snapshot_sheet[cell_ref]
+            if str(cell.value or "").startswith(("http://", "https://")):
+                cell.hyperlink = str(cell.value)
+                cell.font = Font(name=FONT_NAME, size=10, color=LINK_BLUE, underline="single")
+
     intro.sheet_view.showGridLines = False
     style_title(intro, f"BrandBAI 抖音作品采集｜{creator}")
     style_summary(
@@ -391,6 +423,7 @@ def build_works_book(
         "素材规则：视频保存视频、封面与公开原声；图文保存全部可见图片、封面与公开原声。",
         "公开页面未提供或明确不可用的附件记为“源未提供”，不绕过平台限制。",
         "互动数据是采集时点快照，之后可能继续变化。",
+        "单作品包可包含“达人快照”；它只记录当前作品页已展示或加载的公开作者信息，不进入主页、不下载头像。",
         "本文件只呈现采集结果，不包含达人分析、语义标签或商业结论。",
     ])
     intro["A13"] = "本次口径与边界"

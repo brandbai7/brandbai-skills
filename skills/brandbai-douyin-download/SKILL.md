@@ -1,10 +1,10 @@
 ---
 name: brandbai-douyin-download
-description: Download public Douyin account, search-result, or explicitly selected works through a visible signed-in Chrome session, including video or image-post media, covers, available audio, release captions, metadata, and retrievable comments. Use for 抖音达人主页置顶加最近 N 条、搜索结果批量下载、插件作品清单 Excel 接力、任意作品多选、单作品作品包、批量一级评论、实验性二级回复、可选 ZIP、DataTool 类普通版导出，以及为后续分析保留可回溯原始数据。默认只完成下载、采集与质量核验，不自动生成语义标签或商业结论。
+description: Download public Douyin account, search-result, or explicitly selected works through a visible signed-in Chrome session, including video or image-post media, covers, available audio, release captions, metadata, single-work creator snapshots, and retrievable comments. Use for 抖音达人主页置顶加最近 N 条、搜索结果批量下载、插件作品清单 Excel 接力、任意作品多选、单作品作品包与当前页达人快照、批量一级评论、实验性二级回复、可选 ZIP、DataTool 类普通版导出，以及为后续分析保留可回溯原始数据。默认只完成下载、采集与质量核验，不自动进入达人主页、不下载头像、不生成语义标签或商业结论。
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.4.0"
+  version: "0.4.1"
   category: content-commerce
 ---
 
@@ -30,6 +30,8 @@ metadata:
 - `works`：下载主页所选作品的基础数据、视频或全部图文、封面和可用原声。
 - `comments`：下载明确作品或 `works.json` 对应作品的可检索评论。
 - `all`：依次完成 `works`、`comments` 和普通版交付。
+
+单作品包会在 `01_作品清单.xlsx` 增加“达人快照”，仅记录当前作品页已经展示或加载的昵称、抖音号、稳定达人 ID、主页链接、简介、粉丝数和累计获赞。页面未展示的字段留空，不补 0；不为补字段自动进入达人主页，也不下载头像。
 
 不要把视频、图文、评论分别拆成不同 Skill；它们共享同一登录资料夹、作品范围、断点状态和交付合同。
 
@@ -99,6 +101,8 @@ python scripts/run_foundation.py all `
   --out "<交付目录>" `
   --dry-run
 ```
+
+当最终作品包只有 1 条时，交付按单作品规则附带“达人快照”；多作品批量不把作者字段拼成达人分析表。
 
 ### 下载搜索页当前结果
 

@@ -42,6 +42,40 @@ class BuildDeliveryTests(unittest.TestCase):
             if out.exists():
                 shutil.rmtree(out)
 
+    def test_single_note_includes_creator_snapshot_without_avatar(self) -> None:
+        out = Path(__file__).resolve().parent / ".xhs_single_snapshot_test_runtime"
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir()
+        try:
+            write_jsonl(out / "data" / "notes.jsonl", [{
+                "note_id": "note-single-1", "title": "合成单篇", "body": "仅用于测试",
+                "author_id": "author-pseudonym", "author_name": "合成作者", "note_type": "image",
+                "creator_snapshot": {
+                    "nickname": "合成作者", "platform_account": "", "stable_creator_id": "profile-synthetic-1",
+                    "profile_url": "https://www.xiaohongshu.com/user/profile/profile-synthetic-1",
+                    "bio": "", "followers": None, "total_likes": None,
+                    "snapshot_at": "2026-08-20T00:00:00Z",
+                },
+                "metrics": {"likes": 12}, "canonical_url": "https://www.xiaohongshu.com/explore/note-single-1",
+                "completion_state": "complete_visible_note", "collected_at": "2026-08-20T00:00:00Z",
+            }])
+            (out / "data" / "run_manifest.json").write_text(
+                json.dumps({"state": "complete", "mode": "all", "target_kind": "notes"}), encoding="utf-8"
+            )
+            build_delivery(out)
+            workbook = load_workbook(out / "01_笔记清单.xlsx", read_only=True)
+            try:
+                self.assertIn("达人快照", workbook.sheetnames)
+                self.assertEqual(workbook["达人快照"]["B2"].value, "合成作者")
+                self.assertIsNone(workbook["达人快照"]["B7"].value)
+                self.assertIn("未下载头像", workbook["达人快照"]["B12"].value)
+            finally:
+                workbook.close()
+        finally:
+            if out.exists():
+                shutil.rmtree(out)
+
     def test_builds_three_workbooks_and_notes(self) -> None:
         out = Path(__file__).resolve().parent / ".xhs_delivery_test_runtime"
         if out.exists():

@@ -118,6 +118,9 @@ def normalize_item(node: dict[str, Any], source_url: str = "") -> dict[str, Any]
     image_rows = image_post.get("images") or image_post.get("image_list") or [] if isinstance(image_post, dict) else []
     work_type = "photo" if image_rows else (work_type_from_url(source_url) if source_url and "/photo/" in source_url else "video")
     stats = node.get("stats") or node.get("statistics") or {}
+    author_stats = node.get("authorStats") or node.get("author_stats") or author.get("stats") or {}
+    if not isinstance(author_stats, dict):
+        author_stats = {}
     video = node.get("video") if isinstance(node.get("video"), dict) else {}
     music = node.get("music") if isinstance(node.get("music"), dict) else {}
     assets: list[dict[str, Any]] = []
@@ -142,6 +145,22 @@ def normalize_item(node: dict[str, Any], source_url: str = "") -> dict[str, Any]
     hashtags = re.findall(r"#([^\s#]+)", caption)
     mentions = re.findall(r"@([A-Za-z0-9._-]+)", caption)
     create_time = node.get("createTime") or node.get("create_time")
+    stable_creator_id = str(author.get("secUid") or author.get("sec_uid") or author.get("id") or author.get("uid") or "")
+    creator_snapshot = {
+        "nickname": str(author.get("nickname") or author.get("nick_name") or ""),
+        "platform_account": handle,
+        "stable_creator_id": stable_creator_id,
+        "profile_url": canonical_profile_url(handle) if handle else "",
+        "bio": str(author.get("signature") or author.get("bioLink") or author.get("bio") or ""),
+        "followers": _int_value(author_stats.get("followerCount") if "followerCount" in author_stats else author_stats.get("follower_count")),
+        "total_likes": _int_value(
+            author_stats.get("heartCount") if "heartCount" in author_stats
+            else author_stats.get("heart_count") if "heart_count" in author_stats
+            else author_stats.get("diggCount")
+        ),
+        "snapshot_at": utc_now() if any((handle, stable_creator_id, author.get("nickname"), author.get("nick_name"))) else "",
+        "source": "current_work_detail",
+    }
     return {
         "platform": "tiktok", "work_id": work_id, "work_type": work_type,
         "author_handle": handle, "author_name": author.get("nickname") or author.get("nick_name") or "",
@@ -155,6 +174,7 @@ def normalize_item(node: dict[str, Any], source_url: str = "") -> dict[str, Any]
             "collects": _int_value(stats.get("collectCount") or stats.get("collect_count")),
             "shares": _int_value(stats.get("shareCount") or stats.get("share_count")),
         },
+        "creator_snapshot": creator_snapshot,
         "assets": assets,
         "canonical_url": canonical_work_url(source_url or work_id, handle=handle or "unknown", work_type=work_type),
         "collected_at": utc_now(), "completion_state": "complete_visible_work" if caption or assets else "partial_selector_drift",

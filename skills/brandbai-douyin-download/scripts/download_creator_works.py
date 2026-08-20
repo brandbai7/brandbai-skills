@@ -60,6 +60,17 @@ def as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def optional_int(*values: Any) -> int | None:
+    for value in values:
+        if value is None or value == "" or isinstance(value, bool):
+            continue
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def nested_get(value: Any, *path: str, default: Any = None) -> Any:
     current = value
     for key in path:
@@ -271,6 +282,21 @@ def normalize_work(item: dict[str, Any]) -> dict[str, Any]:
     recommend_value = statistics.get("recommend_count")
     if recommend_value is None:
         recommend_value = statistics.get("recommendCount")
+    account_id = str(
+        author.get("unique_id") or author.get("uniqueId") or author.get("short_id") or author.get("shortId") or ""
+    )
+    stable_creator_id = str(author.get("sec_uid") or author.get("secUid") or author.get("uid") or "")
+    creator_snapshot = {
+        "nickname": str(author.get("nickname") or author.get("name") or ""),
+        "platform_account": account_id,
+        "stable_creator_id": stable_creator_id,
+        "profile_url": f"https://www.douyin.com/user/{stable_creator_id}" if stable_creator_id else "",
+        "bio": str(author.get("signature") or author.get("desc") or ""),
+        "followers": optional_int(author.get("follower_count"), author.get("followerCount")),
+        "total_likes": optional_int(author.get("total_favorited"), author.get("totalFavorited")),
+        "snapshot_at": utc_now() if any((account_id, stable_creator_id, author.get("nickname"), author.get("name"))) else "",
+        "source": "current_work_detail",
+    }
     return {
         "aweme_id": aweme_id,
         "type": content_type,
@@ -289,6 +315,7 @@ def normalize_work(item: dict[str, Any]) -> dict[str, Any]:
         "music_title": str(music.get("title") or ""),
         "music_author": str(music.get("author") or ""),
         "music_unavailable_reason": str(music.get("offline_desc") or ""),
+        "creator_snapshot": creator_snapshot,
         "_video_urls": video_urls(item),
         "_cover_urls": cover_urls(item),
         "_music_urls": music_urls(item),
