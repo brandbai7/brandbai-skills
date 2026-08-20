@@ -14,6 +14,10 @@ class BuildDeliveryTests(unittest.TestCase):
             data.mkdir(parents=True)
             work = {"work_id": "7654321098765432101", "work_type": "photo", "author_handle": "demo",
                     "title": "synthetic", "caption": "synthetic #topic", "hashtags": ["topic"],
+                    "creator_snapshot": {"nickname": "Synthetic Creator", "platform_account": "demo",
+                                         "stable_creator_id": "creator-1", "profile_url": "https://www.tiktok.com/@demo",
+                                         "bio": "synthetic", "followers": None, "total_likes": 0,
+                                         "snapshot_at": "2026-01-01T00:00:00+00:00"},
                     "metrics": {"plays": 10, "likes": 2, "comments": 1},
                     "canonical_url": "https://www.tiktok.com/@demo/photo/7654321098765432101",
                     "collected_at": "2026-01-01T00:00:00+00:00", "completion_state": "complete_visible_work"}
@@ -58,6 +62,10 @@ class BuildDeliveryTests(unittest.TestCase):
             book = load_workbook(out / "01_作品清单.xlsx", read_only=True)
             self.assertIn("任务上下文", book.sheetnames)
             self.assertIn("输入选择", book.sheetnames)
+            self.assertIn("达人快照", book.sheetnames)
+            self.assertEqual(book["达人快照"]["B2"].value, "Synthetic Creator")
+            self.assertIsNone(book["达人快照"]["B7"].value)
+            self.assertEqual(book["达人快照"]["B8"].value, 0)
             book.close()
             self.assertIn("目标市场：US", (out / "05_采集说明.md").read_text(encoding="utf-8"))
             self.assertIn("公开页面未提供：1", (out / "05_采集说明.md").read_text(encoding="utf-8"))

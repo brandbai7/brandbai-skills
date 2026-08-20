@@ -1,16 +1,18 @@
 ---
 name: brandbai-xiaohongshu-download
-description: Download public Xiaohongshu notes through a visible signed-in Chrome session. Use for 单篇笔记完整资料包与可见评论、账号主页当前可见置顶加最近 N 条列表卡片、关键词搜索前 N 条列表卡片、封面与基础互动数据、普通版 Excel、ZIP，以及为后续账号研究和内容分析保留稳定笔记 ID 与完整性状态。账号主页和搜索批量模式只采当前列表页可见数据，不逐篇进入详情；默认只做下载与质量核验，不自动生成语义标签或商业结论。
+description: Download public Xiaohongshu notes through a visible signed-in Chrome session. Use for 单篇笔记完整资料包、当前笔记页达人快照与可见评论、账号主页当前可见置顶加最近 N 条列表卡片、关键词搜索前 N 条列表卡片、封面与基础互动数据、普通版 Excel、ZIP，以及为后续账号研究和内容分析保留稳定笔记 ID 与完整性状态。账号主页和搜索批量模式只采当前列表页可见数据，不逐篇进入详情；默认只做下载与质量核验，不自动进入作者主页、不下载头像、不生成语义标签或商业结论。
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.4.2"
+  version: "0.4.3"
   category: content-commerce
 ---
 
 # BrandBAI 小红书下载
 
 把公开小红书笔记、账号主页或关键词搜索结果整理为可去重、可回溯的下载包。本 Skill 明确区分“单篇完整下载”和“列表页批量下载”：单篇可以进入详情读取正文、素材和评论；账号主页与搜索批量只读取列表页已经展示的卡片数据和封面，避免逐篇跳转带来的低速与访问风险。
+
+单篇 `01_笔记清单.xlsx` 增加“达人快照”，只保留当前笔记详情已展示或加载的公开作者名称、稳定 ID 和主页链接等字段；未展示的账号号、简介、粉丝或获赞数据留空，不补 0，不为补字段进入作者主页，也不下载头像。
 
 ## 先确认授权范围
 
@@ -128,6 +130,8 @@ python scripts/run_foundation.py batch `
 - `04_笔记素材/`
 - `05_采集说明.md`
 - `data/`：原始记录、选择快照、完成状态和交付 manifest
+
+“达人快照”仅在明确单篇详情包生成；主页／搜索批量继续只保留列表卡片和选择上下文，不逐篇补达人信息。
 
 增加 `--zip` 后在交付目录同级生成 ZIP64 压缩包。ZIP 不得包含登录资料夹、Cookie、任务缓存或 QA 文件。
 

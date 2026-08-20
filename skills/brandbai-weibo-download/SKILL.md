@@ -1,10 +1,10 @@
 ---
 name: brandbai-weibo-download
-description: Collect public Weibo accounts, individual posts, profile posts, keyword or hashtag search results, supertopic posts, hot-search ranking snapshots, source-visible comments, comment replies, repost propagation records, images, video and interaction snapshots through a visible signed-in Chrome session. Use for 微博明星主页采集、品牌或明星账号全部当前可见置顶加最近 N 条微博、单条微博下载、明星代言与品牌事件关键词搜索、普通话题与明星超话留证、热搜主榜或文娱榜快照、评论与转发扩散采集、DataTool 类普通版 Excel 与 ZIP 交付，以及为后续明星营销、舆情传播或账号分析保留可回溯原始数据。默认只完成下载、结构化与完整性说明，不自动生成明星口碑、粉丝质量、代言效果、情感标签或商业归因。
+description: Collect public Weibo accounts, individual posts with current-page creator snapshots, profile posts, keyword or hashtag search results, supertopic posts, hot-search ranking snapshots, source-visible comments, comment replies, repost propagation records, images, video and interaction snapshots through a visible signed-in Chrome session. Use for 微博明星主页采集、品牌或明星账号全部当前可见置顶加最近 N 条微博、单条微博下载与当前页达人快照、明星代言与品牌事件关键词搜索、普通话题与明星超话留证、热搜主榜或文娱榜快照、评论与转发扩散采集、DataTool 类普通版 Excel 与 ZIP 交付，以及为后续明星营销、舆情传播或账号分析保留可回溯原始数据。默认只完成下载、结构化与完整性说明，不自动进入账号主页、不下载头像、不生成明星口碑、粉丝质量、代言效果、情感标签或商业归因。
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.1.3"
+  version: "0.1.4"
   category: content-commerce
 ---
 
@@ -141,6 +141,8 @@ python scripts/run_foundation.py posts `
 
 核对稳定 ID、选择范围、评论和转发上限、隐私模式、素材与输出位置后去掉 `--dry-run`。`--comment-limit 0` 和 `--repost-limit 0` 表示继续滚动，直到可见列表终止或达到页面声明数量。
 
+单微博详情包会在 `01_账号资料.xlsx` 增加“达人快照”，只记录当前详情页已经展示或加载的公开作者名称、微博 UID、稳定 ID 和主页链接等字段。未展示的简介、粉丝或累计获赞留空，不补 0；不自动进入账号主页，也不下载头像。
+
 ## 首版采集合同
 
 ### 账号与主页选择
@@ -182,7 +184,7 @@ python scripts/run_foundation.py posts `
 
 ## 当前实现阶段
 
-`0.1.3` 在既有单微博、账号主页、关键词、普通话题、超话与热搜能力上，增加多任务项目计划、同一可见 Chrome 会话顺序执行、断点恢复、合并交付、本地合成压力测试和低频真实页面耐久测试；同时缩短隐藏回复控件造成的等待，并支持登录恢复。完整转发链、平台不返回的评论与回复、超话成员关系、热搜历史峰值、长图 OCR、视频语音转写和商业效果分析不属于稳定承诺。
+`0.1.4` 在 `0.1.3` 的多任务、断点恢复、合并交付与耐久测试能力上，增加单微博“达人快照”。它只复用当前详情页已加载的作者事实，不改变主页、搜索、话题、超话和热搜的选择合同。完整转发链、平台不返回的评论与回复、超话成员关系、热搜历史峰值、长图 OCR、视频语音转写和商业效果分析不属于稳定承诺。
 
 ## 验证修改
 

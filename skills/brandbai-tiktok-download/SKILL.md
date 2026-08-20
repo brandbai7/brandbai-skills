@@ -1,16 +1,18 @@
 ---
 name: brandbai-tiktok-download
-description: Download public TikTok videos, photo posts, published captions, media, creator-profile selections, keyword-search snapshots, BrandBAI plugin work-list selections and visible first-level comments through a visible signed-in Chrome session. Use for TikTok 单作品完整资料包、账号主页全部当前可见置顶加最近 N 条非置顶作品、搜索结果前 N 条、插件作品清单续跑、视频或图集素材、封面、可用独立原声、发布文案、基础互动数据、一级评论、Excel 与 ZIP，以及品牌海外市场扫描、达人候选池、竞品内容、官宣接收和 TikTok Shop 联盟内容的原始证据准备；默认只做采集、双语整理和质量说明，不做语音转写、语义分析、经营指标推算或商业结论。
+description: Download public TikTok videos, photo posts, published captions, media, single-work creator snapshots, creator-profile selections, keyword-search snapshots, BrandBAI plugin work-list selections and visible first-level comments through a visible signed-in Chrome session. Use for TikTok 单作品完整资料包与当前页达人快照、账号主页全部当前可见置顶加最近 N 条非置顶作品、搜索结果前 N 条、插件作品清单续跑、视频或图集素材、封面、可用独立原声、发布文案、基础互动数据、一级评论、Excel 与 ZIP，以及品牌海外市场扫描、达人候选池、竞品内容、官宣接收和 TikTok Shop 联盟内容的原始证据准备；默认只做采集、双语整理和质量说明，不自动进入达人主页、不下载头像、不做语音转写、语义分析、经营指标推算或商业结论。
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.2"
+  version: "0.2.3"
   category: content-commerce
 ---
 
 # BrandBAI TikTok 下载
 
 把 TikTok 单条视频、图集、达人主页和关键词搜索结果整理为可去重、可回溯、可续跑的普通版交付。单作品可保存媒体、发布文案、基础数据和页面可返回的一级评论；主页和搜索批量先冻结选择范围，再逐项下载用户请求的素材。
+
+单作品的 `01_作品清单.xlsx` 会增加“达人快照”，只写当前作品页已展示或加载的公开作者字段。昵称、账号、稳定 ID、主页链接、简介、粉丝数和累计获赞未展示时留空，不补 0；不自动进入达人主页，也不下载头像。
 
 ## 先确认授权范围
 
@@ -165,6 +167,8 @@ python scripts/run_foundation.py batch `
 - `04_作品素材/`
 - `05_采集说明.md`
 - `data/`：原始规范记录、插件／文件选择快照、主页／搜索选择快照、完成状态和交付 manifest
+
+单作品时，`01_作品清单.xlsx` 额外包含“达人快照”；批量模式继续使用“账号信息／主页选择／输入选择”等原有范围，不将单条作者字段扩写为达人画像。
 
 增加 `--zip` 后生成 ZIP64 压缩包。ZIP 不得包含 Chrome 资料夹、Cookie、任务缓存、带时效签名的原始请求或 QA 文件。
 

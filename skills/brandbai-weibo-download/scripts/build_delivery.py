@@ -115,6 +115,27 @@ def build_delivery(out_value: str | Path) -> dict[str, Any]:
         row.get("rank"), row.get("is_pinned"), row.get("selection_reason"), row.get("published_at_text"),
         row.get("body_preview"), row.get("canonical_url"),
     ] for row in profile_selection.get("selected") or []])
+    creator_snapshot = posts[0].get("creator_snapshot") if (
+        len(posts) == 1 and run_manifest.get("target_kind") == "posts"
+        and not profile_selection and not searches and not hotlists
+    ) else None
+    if isinstance(creator_snapshot, dict) and any(
+        creator_snapshot.get(key) not in (None, "")
+        for key in ("nickname", "platform_account", "stable_creator_id")
+    ):
+        _write_sheet(account_book, "达人快照", ["字段", "值"], [
+            ["昵称", creator_snapshot.get("nickname")],
+            ["微博UID", creator_snapshot.get("platform_account")],
+            ["稳定达人ID", creator_snapshot.get("stable_creator_id")],
+            ["主页链接", creator_snapshot.get("profile_url")],
+            ["简介", creator_snapshot.get("bio")],
+            ["粉丝数", creator_snapshot.get("followers")],
+            ["累计获赞", creator_snapshot.get("total_likes")],
+            ["快照时间", creator_snapshot.get("snapshot_at")],
+            ["来源微博ID", posts[0].get("post_id")],
+            ["来源微博链接", posts[0].get("canonical_url")],
+            ["采集边界", "仅使用当前微博详情页已经展示或加载的公开作者信息；未自动进入账号主页；未下载头像。"],
+        ])
     _style(account_book)
     _save_verified(account_book, out / "01_账号资料.xlsx")
 

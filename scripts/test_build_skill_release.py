@@ -38,12 +38,12 @@ def workspace_temp():
 class BuildSkillReleaseTests(unittest.TestCase):
     def test_builds_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(SKILL_DIR, temp, "v0.4.0")
+            result = build_release(SKILL_DIR, temp, "brandbai-douyin-download-v0.4.1")
             archive_path = temp / ARCHIVE_NAME
             checksum_path = temp / CHECKSUM_NAME
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.4.0")
+            self.assertEqual(result["version"], "0.4.1")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -97,13 +97,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 XIAOHONGSHU_SKILL_DIR,
                 temp,
-                "brandbai-xiaohongshu-download-v0.4.2",
+                "brandbai-xiaohongshu-download-v0.4.3",
             )
             archive_path = temp / "brandbai-xiaohongshu-download.zip"
             checksum_path = temp / "brandbai-xiaohongshu-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.4.2")
+            self.assertEqual(result["version"], "0.4.3")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -119,13 +119,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 TIKTOK_SKILL_DIR,
                 temp,
-                "brandbai-tiktok-download-v0.2.2",
+                "brandbai-tiktok-download-v0.2.3",
             )
             archive_path = temp / "brandbai-tiktok-download.zip"
             checksum_path = temp / "brandbai-tiktok-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.2.2")
+            self.assertEqual(result["version"], "0.2.3")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -142,13 +142,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 WEIBO_SKILL_DIR,
                 temp,
-                "brandbai-weibo-download-v0.1.3",
+                "brandbai-weibo-download-v0.1.4",
             )
             archive_path = temp / "brandbai-weibo-download.zip"
             checksum_path = temp / "brandbai-weibo-download.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.1.3")
+            self.assertEqual(result["version"], "0.1.4")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)

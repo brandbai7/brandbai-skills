@@ -41,6 +41,12 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                 "aweme_id": "7551794579813502262",
                 "type": "视频",
                 "author": "测试达人",
+                "creator_snapshot": {
+                    "nickname": "测试达人", "platform_account": "test-douyin",
+                    "stable_creator_id": "MS4wLjABAAAA-synthetic", "profile_url": "https://www.douyin.com/user/MS4wLjABAAAA-synthetic",
+                    "bio": "仅用于合成测试", "followers": None, "total_likes": 0,
+                    "snapshot_at": "2026-08-01T12:00:00+08:00",
+                },
                 "title": "这是一条带标题的测试作品",
                 "publish_time": "2026-08-01T10:30:00+08:00",
                 "digg_count": 123,
@@ -131,7 +137,7 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             self.assertTrue((qa_dir / "workbook_qa.json").is_file())
 
             works_book = load_workbook(output_dir / "01_作品清单.xlsx")
-            self.assertEqual(works_book.sheetnames, ["使用说明", "作品清单", "素材明细"])
+            self.assertEqual(works_book.sheetnames, ["使用说明", "作品清单", "素材明细", "达人快照"])
             self.assertEqual(works_book["作品清单"]["A2"].value, "7551794579813502262")
             self.assertEqual(works_book["作品清单"]["A2"].number_format, "@")
             self.assertTrue(works_book["作品清单"]["A2"].quotePrefix)
@@ -146,6 +152,10 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             )
             self.assertIn("03_%E4%BD%9C%E5%93%81%E7%B4%A0%E6%9D%90", works_book["作品清单"]["N2"].hyperlink.target)
             self.assertIsNotNone(works_book["素材明细"]["I2"].hyperlink)
+            self.assertEqual(works_book["达人快照"]["B2"].value, "测试达人")
+            self.assertIsNone(works_book["达人快照"]["B7"].value)
+            self.assertEqual(works_book["达人快照"]["B8"].value, 0)
+            self.assertIn("未下载头像", works_book["达人快照"]["B12"].value)
             works_book.close()
 
             comments_book = load_workbook(output_dir / "02_评论明细.xlsx")

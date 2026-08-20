@@ -287,11 +287,19 @@ class DownloadCreatorWorksTests(unittest.TestCase):
         self.assertEqual(signature_kind(b"\x00\x00\x00\x1cftypM4A "), "mp4")
 
     def test_normalize_video(self):
-        work = normalize_work(fake_work("10000000001", 100))
+        item = fake_work("10000000001", 100)
+        item["author"].update({
+            "unique_id": "synthetic-account", "sec_uid": "synthetic-stable-id",
+            "signature": "synthetic bio", "follower_count": 0, "total_favorited": 12,
+        })
+        work = normalize_work(item)
         self.assertEqual(work["type"], "视频")
         self.assertEqual(work["source_url"], "https://www.douyin.com/video/10000000001")
         self.assertEqual(work["recommend_count"], 5)
         self.assertEqual(len(work["_video_urls"]), 1)
+        self.assertEqual(work["creator_snapshot"]["stable_creator_id"], "synthetic-stable-id")
+        self.assertEqual(work["creator_snapshot"]["followers"], 0)
+        self.assertEqual(work["creator_snapshot"]["total_likes"], 12)
 
     def test_normalize_note(self):
         work = normalize_work(fake_work("10000000002", 100, images=True))

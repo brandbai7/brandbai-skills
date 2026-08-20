@@ -42,6 +42,12 @@
 - 搜索快照：关键词、`general|video|photo` 标签页、筛选、原始位次、作品 ID、类型、作者和采集时间。
 - 插件／文件选择：选择顺序、来源页面类型、来源关键词、原始位次、作品 ID、规范链接和选择文件合同版本。
 
+## 单作品达人快照
+
+- `nickname`、`platform_account`、`stable_creator_id`、`profile_url`、`bio`、`followers`、`total_likes`、`snapshot_at`、来源作品 ID 和链接。
+- 字段只来自当前作品页可见 DOM 或该页正常加载的公开数据；不自动进入主页，也不保存头像。
+- 页面没有展示的字段保持空值；明确显示 0 才写数字 `0`。
+
 ## 商品关联
 
 作品页出现 TikTok Shop 商品锚点时，首版只保存页面可见商品名称、链接和观察时间，状态为 `visible_product_reference`；不在本 Skill 中下载完整商品详情，也不生成销售归因。
