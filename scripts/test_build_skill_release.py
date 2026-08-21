@@ -191,23 +191,26 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 VALUE_EXPRESSION_SKILL_DIR,
                 temp,
-                "brandbai-value-expression-v0.1.3",
+                "brandbai-value-expression-v0.1.11",
             )
             archive_path = temp / "brandbai-value-expression.zip"
             checksum_path = temp / "brandbai-value-expression.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.1.3")
+            self.assertEqual(result["version"], "0.1.11")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
                 self.assertIn("agents/openai.yaml", names)
                 self.assertIn("references/expression-method.md", names)
+                self.assertIn("references/ledger-writing-contract.md", names)
                 self.assertIn("references/release-notes.md", names)
                 self.assertIn("assets/01_卖点可视化呈现模板.md", names)
                 self.assertIn("scripts/init_value_expression_delivery.py", names)
                 self.assertIn("scripts/build_value_expression_report.py", names)
                 self.assertIn("scripts/validate_value_expression_delivery.py", names)
+                self.assertIn("scripts/prepare_value_expression_work_packets.py", names)
+                self.assertIn("scripts/merge_value_expression_ledger_parts.py", names)
                 self.assertFalse(any(name.startswith("brandbai-value-expression/") for name in names))
 
     def test_rejects_tag_version_mismatch(self):

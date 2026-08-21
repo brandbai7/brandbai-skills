@@ -7,7 +7,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from build_value_expression_report import build_delivery
+from build_value_expression_report import build_delivery, public_text
+from compile_value_expression_plan import compile_expression_plan
 from init_value_expression_delivery import build_plan, init_delivery
 from validate_value_expression_delivery import validate_delivery
 from value_expression_common import (
@@ -303,12 +304,100 @@ def populate_expression(delivery: Path) -> None:
     )
 
 
+def test_compact_expression_plan_compiler(temp_root: Path) -> None:
+    upstream = make_product_value_delivery(temp_root)
+    delivery = temp_root / "compiled-expression"
+    source_material = temp_root / "compiled-source.pdf"
+    source_material.write_bytes(b"synthetic source material")
+    init_delivery(delivery, upstream, source_material, "V1")
+    grouped_routes: dict[str, dict[str, object]] = {}
+    for row in route_rows():
+        selected = row["role"] in {"primary", "supporting"}
+        grouped_routes.setdefault(str(row["value_id"]), {})[str(row["route"])] = {
+            "role": row["role"], "translation": row["translation"], "reason": row["reason"],
+            "fact_ids": ["F-001"] if selected else [],
+            "expression_keys": ["page"] if selected else [],
+            "boundary": row["boundary"],
+        }
+    vis_specs = [
+        ("core", "V-001", "05", "欲望建立", "感官化", ["情境化", "差异化"], 1),
+        ("proof", "V-002", "09", "阻力解除", "数字化", ["情境化"], 2),
+        ("scene", "V-003", "12", "氛围连接", "证据化", ["数字化"], 3),
+    ]
+    planned_vis = []
+    for key, value_id, slot, group, primary, supporting, priority in vis_specs:
+        row = vis_row("unused", value_id, slot, group, primary, supporting, priority)
+        row.pop("vis_id")
+        row.pop("expression_ids")
+        row["key"] = key
+        row["fact_ids"] = ["F-001"]
+        row["expression_keys"] = ["page"]
+        planned_vis.append(row)
+    plan = {
+        "manifest": {"analysis_status": "partial", "delivery_status": "conditional", "limitations": ["仅用于合成测试。"]},
+        "expressions": [{
+            "key": "page", "source_form": "detail_page", "value_ids": ["V-001"], "fact_ids": ["F-001"],
+            "source_statement": "详情页展示商品。", "source_id": "SOURCE-MATERIAL-001", "locator": "详情页第1页",
+            "page_says": "每瓶300毫升。", "page_shows": "商品正面与透明杯同框。",
+            "current_perception": "能识别商品。", "reusable": "商品正面。", "gap": "未验证。",
+            "boundary": "页面已有不等于有效。",
+        }],
+        "route_plans": [{"value_id": value_id, "routes": grouped_routes[value_id]} for value_id in ("V-001", "V-002", "V-003")],
+        "vis": planned_vis,
+        "slots": [
+            {"slot_number": f"{number:02d}", "status": "applicable" if number in {5, 9, 12} else "not_applicable",
+             "reason": "当前资料判断。", "vis_keys": {5: ["core"], 9: ["proof"], 12: ["scene"]}.get(number, [])}
+            for number in range(1, 13)
+        ],
+        "tests": [],
+        "gaps": [{"category": "执行证据", "missing": "真实素材", "impact": "只能形成建议", "minimum_needed": "同条件素材",
+                  "priority": "high", "state": "open"}],
+    }
+    plan_path = temp_root / "compact-expression-plan.json"
+    write_json(plan_path, plan)
+    assert compile_expression_plan(delivery, upstream, plan_path, dry_run=True)["paths"] == 18
+
+    non_atomic = json.loads(json.dumps(plan, ensure_ascii=False))
+    non_atomic["expressions"][0]["source_statement"] = "商品标题：测试饮品；当前选择SKU ID：12345"
+    write_json(plan_path, non_atomic)
+    try:
+        compile_expression_plan(delivery, upstream, plan_path, dry_run=True)
+        raise AssertionError("合并多个高密度字段的页面表达应在编译前被拒绝")
+    except ValueError as exc:
+        assert "按主张单位拆分" in str(exc)
+
+    false_original = json.loads(json.dumps(plan, ensure_ascii=False))
+    false_original["vis"][0]["visual_track"] = "展示检测报告原件。"
+    write_json(plan_path, false_original)
+    try:
+        compile_expression_plan(delivery, upstream, plan_path, dry_run=True)
+        raise AssertionError("没有 original_document 依据时不得把页面截图称为原件")
+    except ValueError as exc:
+        assert "original_document" in str(exc)
+
+    leaked_internal_id = json.loads(json.dumps(plan, ensure_ascii=False))
+    leaked_internal_id["gaps"][0]["missing"] = "SF-008 商品视频不可读"
+    write_json(plan_path, leaked_internal_id)
+    try:
+        compile_expression_plan(delivery, upstream, plan_path, dry_run=True)
+        raise AssertionError("面向客户的方案字段不得泄露内部来源 ID")
+    except ValueError as exc:
+        assert "内部资产 ID" in str(exc) and "gap[1].missing" in str(exc)
+
+    write_json(plan_path, plan)
+    result = compile_expression_plan(delivery, upstream, plan_path)
+    assert result == {"status": "compiled", "expressions": 2, "paths": 18, "slots": 12, "vis": 3, "tests": 0, "gaps": 1}
+    assert len(read_jsonl(delivery / "data" / "six_path_ledger.jsonl")) == 18
+    assert read_jsonl(delivery / "data" / "vis_ledger.jsonl")[0]["vis_id"] == "VIS-001"
+
+
 def run_test() -> None:
     test_parent = Path.cwd() / "_skill_test_artifacts"
     test_parent.mkdir(parents=True, exist_ok=True)
     temp_root = test_parent / f"brandbai-value-expression-{uuid.uuid4().hex}"
     temp_root.mkdir()
     try:
+        test_compact_expression_plan_compiler(temp_root / "compiler-case")
         upstream = make_product_value_delivery(temp_root)
         delivery = temp_root / "value-expression"
         source_material = temp_root / "source-material.pdf"
@@ -333,9 +422,21 @@ def run_test() -> None:
         build_delivery(delivery, write=True)
         passed = validate_delivery(delivery)
         assert passed["status"] == "passed", json.dumps(passed, ensure_ascii=False, indent=2)
+        manifest_path = delivery / "data" / "expression_manifest.json"
+        original_manifest = read_json(manifest_path)
+        future_manifest = json.loads(json.dumps(original_manifest, ensure_ascii=False))
+        future_manifest["updated_at"] = "2999-01-01T00:00:00+08:00"
+        write_json(manifest_path, future_manifest)
+        failed = validate_delivery(delivery)
+        assert any("updated_at 不得晚于当前时间超过 5 分钟" in error for error in failed["errors"])
+        write_json(manifest_path, original_manifest)
         report = (delivery / "01_卖点可视化呈现.md").read_text(encoding="utf-8")
+        report_02 = (delivery / "02_资料说明与验证计划.md").read_text(encoding="utf-8")
         assert "## 3｜核心卖点感知化呈现卡" in report
         assert "VIS-001" not in report and "V-001" not in report
+        assert "页面已有／未验证" in report_02
+        assert "page_existing_unvalidated" not in report_02
+        assert public_text("上游GAP-001与VIS-001") == "上游对应缺口与对应呈现"
 
         manifest_path = delivery / "data" / "expression_manifest.json"
         current_manifest = read_json(manifest_path)
@@ -372,6 +473,26 @@ def run_test() -> None:
         build_delivery(delivery, write=True)
         assert validate_delivery(delivery)["status"] == "passed"
 
+        dense_existing = json.loads(json.dumps(existing, ensure_ascii=False))
+        dense_existing[-1]["source_statement"] = "产品名称：测试饮品 净含量：300毫升"
+        dense_existing[-1]["page_says"] = "产品名称：测试饮品 净含量：300毫升"
+        write_jsonl(existing_path, dense_existing)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("高密度字段" in error and "主张单位拆分" in error for error in failed["errors"])
+
+        orphan_footnote_existing = json.loads(json.dumps(existing, ensure_ascii=False))
+        orphan_footnote_existing[-1]["source_statement"] = "累计销量50亿份*1"
+        orphan_footnote_existing[-1]["page_says"] = "累计销量50亿份*1"
+        write_jsonl(existing_path, orphan_footnote_existing)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("未同时保留对应脚注原文" in error for error in failed["errors"])
+
+        write_jsonl(existing_path, existing)
+        build_delivery(delivery, write=True)
+        assert validate_delivery(delivery)["status"] == "passed"
+
         contradictory_existing = json.loads(json.dumps(existing, ensure_ascii=False))
         contradictory_existing[-1]["page_shows"] = "透明亚克力展架中的页面报告截图。"
         scans_path = delivery / "data" / "six_path_ledger.jsonl"
@@ -392,18 +513,68 @@ def run_test() -> None:
         vis = read_jsonl(vis_path)
         original_vis = json.loads(json.dumps(vis, ensure_ascii=False))
 
-        vis[2]["external_priority"] = None
+        vis[1]["external_priority"] = None
         write_jsonl(vis_path, vis)
         build_delivery(delivery, write=True)
         failed = validate_delivery(delivery)
-        assert any("核心呈现卡必须各覆盖一个主价值" in error for error in failed["errors"])
+        assert any("核心呈现卡必须优先覆盖全部可调用 P0/P1 主价值" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["human_language"] = "一瓶就能搞定小炒、凉拌、焖煮和点蘸。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("一瓶搞定/解决的充分性" in error and "缺少上游事实支持" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["human_language"] = "鲜香看得见也闻得到。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("真实嗅觉体验" in error and "缺少上游事实支持" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["must_keep"] = "不得写闻得到、能闻到或香气扑鼻等真实嗅觉体验。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert not any("真实嗅觉体验" in error and "缺少上游事实支持" in error for error in failed["errors"])
 
         vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
         vis[0]["human_language"] = "一箱可以喝整周。"
         write_jsonl(vis_path, vis)
         build_delivery(delivery, write=True)
         failed = validate_delivery(delivery)
-        assert any("使用周期缺少上游事实支持" in error for error in failed["errors"])
+        assert any("使用周期或频次" in error and "缺少上游事实支持" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["human_language"] = "大包装一次买够，减少反复补货。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("补货或一次买够" in error and "缺少上游事实支持" in error for error in failed["errors"])
+
+        vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis[0]["must_keep"] = "不得由包装数量推导使用周期、囤货或一次买够。"
+        write_jsonl(vis_path, vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert not any(
+            "使用周期或频次" in error or "补货或一次买够" in error
+            for error in failed["errors"]
+        )
+
+        upstream_path = delivery / "data" / "upstream_snapshot.json"
+        original_upstream = read_json(upstream_path)
+        conflicted_upstream = json.loads(json.dumps(original_upstream, ensure_ascii=False))
+        conflicted_upstream["facts"][0]["status"] = "active"
+        conflicted_upstream["facts"][0]["boundary"] = "主图到手6件正装与彩盒套组清单不一致，待确认。"
+        write_json(upstream_path, conflicted_upstream)
+        write_jsonl(vis_path, original_vis)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("套组/装箱清单冲突" in error for error in failed["errors"])
+        write_json(upstream_path, original_upstream)
 
         vis = json.loads(json.dumps(original_vis, ensure_ascii=False))
         vis[0]["fact_ids"] = ["F-002"]
@@ -472,6 +643,82 @@ def run_test() -> None:
         build_delivery(delivery, write=True)
         failed = validate_delivery(delivery)
         assert any("没有登记样本量或统计检验方法" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["decision_rule"] = "样本不足时只记录方向，不写显著性、阈值或样本结论。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert not any("没有登记样本量或统计检验方法" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["validation_task"] = "验证安全性检测缩略图是否降低视黄醇刺激性顾虑。"
+        validations[0]["single_variable"] = "是否展示安全性检测报告缩略图作为证据画面。"
+        validations[0]["control_version"] = "不展示缩略图，字幕为'孕哺女性请勿使用视黄醇类产品'。"
+        validations[0]["test_version"] = "展示缩略图，字幕为'孕哺女性请勿使用视黄醇类产品'。"
+        validations[0]["primary_metrics"] = ["用户对刺激性的顾虑评分"]
+        validations[0]["measurement_method"] = "比较两版刺激性顾虑评分。"
+        validations[0]["decision_rule"] = "只记录评分方向。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("证据、主张与指标必须语义同题" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["validation_task"] = "验证医用敷料与普通护肤面膜同框对照是否更容易建立医用身份认知。"
+        validations[0]["single_variable"] = "是否加入医用敷料与普通护肤面膜同框对照画面。"
+        validations[0]["control_version"] = "只展示当前商品与自身身份原文。"
+        validations[0]["test_version"] = "加入当前商品与普通护肤面膜同框对照。"
+        validations[0]["primary_metrics"] = ["评论中的医用身份复述"]
+        validations[0]["measurement_method"] = "在相同观察窗口内编码评论是否复述医用身份。"
+        validations[0]["decision_rule"] = "只记录观察方向。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("外部品类/竞品同框对照" in error and "没有直接比较证据" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["single_variable"] = "字幕字号与逐项出现节奏"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("single_variable 同时改变多个呈现维度" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["single_variable"] = "是否增加包装II类标识或页面注册证截图"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("single_variable 含二选一/备选项" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["single_variable"] = "是否保留症状标签与指导说明"
+        validations[0]["control_version"] = "只列频次数字，不区分症状、不含指导说明。"
+        validations[0]["test_version"] = "列出症状标签并保留以说明书或医务人员指导为准。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("必要边界作为可移除变量" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["validation_task"] = "字幕是否含实验条件下限定语对理解准确率的影响。"
+        validations[0]["single_variable"] = "是否含实验条件下限定语。"
+        validations[0]["control_version"] = "字幕写可洗除99%螨虫，无实验条件下限定语。"
+        validations[0]["test_version"] = "字幕写实验条件下可洗除99%螨虫。"
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("事实限定" in error and "可删除变量" in error for error in failed["errors"])
+
+        validations = json.loads(json.dumps(original_validations, ensure_ascii=False))
+        validations[0]["test_version"] = "在原除菌字幕不变的前提下加入螨虫微距画面。"
+        vis_with_cross_boundary = json.loads(json.dumps(original_vis, ensure_ascii=False))
+        vis_with_cross_boundary[0]["must_keep"] = "99.9%只对应两类细菌，不跨除螨使用。"
+        write_jsonl(vis_path, vis_with_cross_boundary)
+        write_jsonl(validation_path, validations)
+        build_delivery(delivery, write=True)
+        failed = validate_delivery(delivery)
+        assert any("明确禁止跨用的除螨对象" in error for error in failed["errors"])
 
         write_jsonl(validation_path, original_validations)
         write_jsonl(vis_path, original_vis)

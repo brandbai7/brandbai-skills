@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 
 SCHEMA_VERSION = "0.1.1"
-SKILL_VERSION = "0.1.3"
+SKILL_VERSION = "0.1.11"
 
 ANALYSIS_STATUSES = {"draft", "complete", "partial", "insufficient", "stale"}
 DELIVERY_STATUSES = {"ready", "conditional", "blocked", "stale"}
