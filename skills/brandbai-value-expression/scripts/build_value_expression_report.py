@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from value_expression_common import bullet_lines, delivery_paths, md, read_json, read_jsonl, write_text
+from value_expression_common import (
+    bullet_lines as _bullet_lines,
+    delivery_paths,
+    md as _md,
+    read_json,
+    read_jsonl,
+    write_text,
+)
 
 
 ANALYSIS_LABELS = {
@@ -37,6 +45,40 @@ TEST_STATUS_LABELS = {
     "completed": "已完成", "blocked": "待补输入", "stale": "已失效",
 }
 SLOT_STATUS_LABELS = {"applicable": "适用", "not_applicable": "不适用"}
+EXPRESSION_STATUS_LABELS = {
+    "inventory_pending": "待盘点",
+    "page_existing_unvalidated": "页面已有／未验证",
+    "stale": "已失效",
+}
+
+PUBLIC_ID_REPLACEMENTS = (
+    (re.compile(r"(?<![A-Za-z0-9])(?:PV|VE)-\d+(?!\d)"), "对应版本"),
+    (re.compile(r"(?<![A-Za-z0-9])(?:SRC|F|H|EX|U|DYN|STRAT)-\d+(?!\d)"), "对应事实"),
+    (re.compile(r"(?<![A-Za-z0-9])(?:ANCHOR)-\d+(?!\d)"), "对应识别信息"),
+    (re.compile(r"(?<![A-Za-z0-9])(?:FABE|V)-\d+(?!\d)"), "对应价值"),
+    (re.compile(r"(?<![A-Za-z0-9])VIS-\d+(?!\d)"), "对应呈现"),
+    (re.compile(r"(?<![A-Za-z0-9])PATH-\d+(?!\d)"), "对应路径"),
+    (re.compile(r"(?<![A-Za-z0-9])SLOT-\d+(?!\d)"), "对应槽位"),
+    (re.compile(r"(?<![A-Za-z0-9])TEST-\d+(?!\d)"), "对应验证任务"),
+    (re.compile(r"(?<![A-Za-z0-9])GAP-\d+(?!\d)"), "对应缺口"),
+)
+
+
+def public_text(value: Any) -> str:
+    """Translate trace-only IDs into client-readable business language."""
+
+    text = str(value or "")
+    for pattern, replacement in PUBLIC_ID_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def md(value: Any, empty: str = "未提供") -> str:
+    return public_text(_md(value, empty))
+
+
+def bullet_lines(values: Any, empty: str = "暂无") -> str:
+    return _bullet_lines((public_text(value) for value in values), empty)
 
 
 def load_delivery(delivery: Path) -> dict[str, Any]:
@@ -298,7 +340,7 @@ def build_report_02(data: dict[str, Any]) -> str:
     ]
     for item in data["existing"]:
         lines.append(
-            f"| {md(item.get('page_says'))} | {md(item.get('page_shows'))} | {md(item.get('current_perception'))} | {md(item.get('reusable'))} | {md(item.get('gap'))} | {md(item.get('status'))} |"
+            f"| {md(item.get('page_says'))} | {md(item.get('page_shows'))} | {md(item.get('current_perception'))} | {md(item.get('reusable'))} | {md(item.get('gap'))} | {EXPRESSION_STATUS_LABELS.get(item.get('status'), md(item.get('status')))} |"
         )
     if not data["existing"]:
         lines.append("| 当前上游未登记页面原话 | 未盘点 | 未判断 | 无 | 需要补充可读页面或商品素材 | 待补输入 |")

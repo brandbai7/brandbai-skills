@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -107,12 +108,130 @@ PREARRANGED_RE = re.compile(r"预先?摆盘|预摆|提前摆盘")
 SIGNIFICANCE_RE = re.compile(r"显著性?|p\s*值|p-value", re.IGNORECASE)
 STATISTICAL_DESIGN_RE = re.compile(r"样本量|统计检验|显著性检验|置信区间|p\s*值|p-value", re.IGNORECASE)
 NONEXISTENT_VISUAL_RE = re.compile(r"不得虚构([^。；\n]+?)(?:等)?实际不存在")
-USAGE_PERIOD_RE = re.compile(r"(?:\d+\s*(?:天|周|个月|月)|一整天|整天|一周|整周|一个月|整月)")
+USAGE_SUPPORT_GROUPS = (
+    (
+        "使用周期或频次",
+        re.compile(
+            r"(?:使用)?周期|(?:使用)?频次|每日|每天|每周|每月|每隔\s*\d+\s*天|"
+            r"连续\s*\d+\s*(?:天|周|个月|月)|\d+\s*(?:天|周|个月|月)(?:装|量|用量)?|"
+            r"一周|整周|一个月|整月"
+        ),
+    ),
+    (
+        "补货或一次买够",
+        re.compile(r"补货|囤货|一次买够|够(?:吃|喝|用)[^。；，,]{0,8}(?:一阵|一段时间|几天|一周|一个月)"),
+    ),
+)
+SKU_BUNDLE_CONFLICT_RE = re.compile(
+    r"(?:套组|装箱|清单|到手|内容|正装|件数).{0,48}(?:不一致|冲突|不完全一致|无法确认|待核对|待确认)|"
+    r"(?:不一致|冲突|不完全一致|无法确认|待核对|待确认).{0,48}(?:套组|装箱|清单|到手|内容|正装|件数)"
+)
+HIGH_RISK_CONCEPT_PATTERNS = {
+    "禁忌/孕哺": re.compile(r"孕妇|孕哺|哺乳期|禁忌|请勿使用|禁止使用|不适用人群"),
+    "刺激/耐受": re.compile(r"刺激性?|不耐受|耐受性|过敏|致敏"),
+    "稳定性/失活": re.compile(r"失活|稳定(?:性|度)?|活性保持|锁鲜"),
+}
+ACTUAL_SMELL_RE = re.compile(r"闻得到|闻得见|能闻到|闻起来|嗅得到|香气扑鼻")
+SMELL_SUPPORT_RE = re.compile(r"闻|嗅|气味|香气|香味|飘香|扑鼻")
+SMELL_DENIAL_PREFIX_RE = re.compile(
+    r"(?:不|未|禁止|不得|不能|不可|避免|不要|不写|不使用|不声称|不扩写|不得写|不能写)"
+    r"[^，。；;]{0,16}$"
+)
+GENERAL_DENIAL_PREFIX_RE = re.compile(
+    r"(?:不|未|无|没有|禁止|不得|不能|不可|避免|不要|不写|不使用|不声称|不扩写|"
+    r"不得写|不能写|不据此|不自行|不得自行)"
+    r"[^，。；;\n]{0,24}$"
+)
+SIGNIFICANCE_DENIAL_PREFIX_RE = re.compile(
+    r"(?:不写|不得写|不能写|不使用|不得使用|不声称|不宣称|不判断|不作|不做)"
+    r"[^，。；;\n]{0,12}$"
+)
+SUFFICIENCY_SHORTCUT_RE = re.compile(
+    r"(?:一瓶|这瓶|本品).{0,16}(?:就能|可以|能)?(?:全|都)?(?:搞定|解决)|"
+    r"(?:一瓶|这瓶|本品)(?:全|都)?搞定"
+)
+SUFFICIENCY_SUPPORT_RE = re.compile(r"搞定|解决|满足|覆盖|全能|一瓶多用|多用途")
+EXTERNAL_COMPARISON_RE = re.compile(
+    r"(?:与|和|同).{0,28}(?:竞品|同类|普通|传统|其他品牌?|别家|市面(?:上的)?|行业(?:常见)?).{0,28}"
+    r"(?:同框|对照|对比|相比|区别)|"
+    r"(?:竞品|同类|普通|传统|其他品牌?|别家|市面(?:上的)?|行业(?:常见)?).{0,28}"
+    r"(?:同框|对照|对比|相比|区别|而非|不是)"
+)
+EXTERNAL_COMPARISON_SUPPORT_RE = re.compile(
+    r"竞品|同类|普通|传统|其他品牌?|别家|市面(?:上的)?|行业(?:常见)?|"
+    r"对照|对比|相比|优于|区别于|不同于|而非|不是普通"
+)
+DISJUNCTIVE_VARIABLE_RE = re.compile(r"或|二选一|任选|任一|(?:A|B)之一", re.IGNORECASE)
+VARIABLE_DIMENSION_PATTERNS = {
+    "文字样式": re.compile(r"字号|字体|字重|文字大小|字幕大小|颜色|描边"),
+    "出现节奏": re.compile(r"节奏|逐项出现|出现顺序|停留时长|切换时长|快慢"),
+    "画面证据": re.compile(r"截图|标识|证据画面|报告画面|证明画面|包装画面|画面是否"),
+    "动作": re.compile(r"动作|倒出|展开|按压|冲泡|搅拌|连续展示|一镜到底"),
+    "声音": re.compile(r"声音|音效|旁白|口播|BGM|音乐", re.IGNORECASE),
+    "场景": re.compile(r"场景|背景|地点|人物"),
+    "信息结构": re.compile(r"分题|分屏|分段|时间轴|信息卡|排版结构"),
+}
+MANDATORY_GUARDRAIL_REMOVAL_RE = re.compile(
+    r"不区分症状|不含(?:指导)?说明|"
+    r"(?:不含|不保留|删除|删去|去掉|移除|不出现|省略).{0,18}"
+    r"(?:说明书|医务人员指导|禁忌|注意事项|警示|不适宜人群|症状标签|适用边界)|"
+    r"(?:说明书|医务人员指导|禁忌|注意事项|警示|不适宜人群|症状标签|适用边界).{0,18}"
+    r"(?:不含|不保留|删除|删去|去掉|移除|不出现|省略)"
+)
+MANDATORY_CLAIM_QUALIFIER_REMOVAL_RE = re.compile(
+    r"(?:无|不含|省略|删除|删去|去掉|移除|不出现|是否含).{0,18}"
+    r"(?:实验条件下|仅限|限定语|适用条件|脚注)|"
+    r"(?:实验条件下|仅限|限定语|适用条件|脚注).{0,18}"
+    r"(?:无|不含|省略|删除|删去|去掉|移除|不出现|作为变量)"
+)
+ATOMIC_EXPRESSION_LABEL_RE = re.compile(
+    r"(商品标题|产品名称|商品名称|品牌|品名|系列|厂名|生产企业|产地|"
+    r"当前选择SKU\s*ID|当前选中规格|规格组|型号|净含量|单件净含量|包装规格|"
+    r"配料表|配料|成分|营养成分表|能量|蛋白质|脂肪|碳水化合物|钠|钙|"
+    r"保质期|贮存条件|储存条件|储存方法|生产许可证编号|生产许可证|"
+    r"执行标准|标准编号|注册证号|备案编号|适用人群|不适宜人群|禁忌|"
+    r"注意事项|警示语|使用方法|食用方法|饮用方法)\s*[:：]",
+    re.IGNORECASE,
+)
+FOOTNOTE_DEFINITION_RE = re.compile(
+    r"(?:^|[；;。\n])\s*(?P<marker>\*\d*|※\d*|注\s*\d*)\s*(?:数据来源|来源|注|说明|"
+    r"检测|实验|测试|统计|依据|截至|结果|本页|页面)",
+    re.IGNORECASE,
+)
+NUMBERED_FOOTNOTE_REFERENCE_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:\*\d+|※\d+|注\s*\d+)(?=$|[；;。,.，\s])",
+    re.IGNORECASE,
+)
+PLAIN_FOOTNOTE_REFERENCE_RE = re.compile(r"(?<=[\u4e00-\u9fff\d%])\*(?=$|[；;。,.，\s])")
+FOOTNOTE_BOUNDARY_RE = re.compile(r"脚注|限定语|限定条件|数据来源|页面原文")
 
 
 def normalized(value: Any) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).casefold()
     return re.sub(r"[\s:：,，;；()（）]+", "", text)
+
+
+def normalized_footnote_marker(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or ""))
+
+
+def expression_footnote_references(value: Any) -> set[str]:
+    text = str(value or "")
+    definition_spans = [match.span() for match in FOOTNOTE_DEFINITION_RE.finditer(text)]
+    markers = set()
+    for match in NUMBERED_FOOTNOTE_REFERENCE_RE.finditer(text):
+        if not any(start <= match.start() < end for start, end in definition_spans):
+            markers.add(normalized_footnote_marker(match.group(0)))
+    if PLAIN_FOOTNOTE_REFERENCE_RE.search(text):
+        markers.add("*")
+    return markers
+
+
+def expression_footnote_definitions(value: Any) -> set[str]:
+    return {
+        normalized_footnote_marker(match.group("marker"))
+        for match in FOOTNOTE_DEFINITION_RE.finditer(str(value or ""))
+    }
 
 
 def joined_text(record: dict[str, Any], fields: tuple[str, ...]) -> str:
@@ -167,6 +286,71 @@ def nonempty_text(record: dict[str, Any], field: str) -> bool:
 def list_value(record: dict[str, Any], field: str) -> list[Any]:
     value = record.get(field)
     return value if isinstance(value, list) else []
+
+
+def unsupported_usage_groups(positive_text: Any, direct_support_text: Any) -> list[str]:
+    positive = str(positive_text or "")
+    support = str(direct_support_text or "")
+    return [
+        name
+        for name, pattern in USAGE_SUPPORT_GROUPS
+        if has_affirmative_match(positive, pattern) and not has_affirmative_match(support, pattern)
+    ]
+
+
+def has_affirmative_match(
+    text: Any,
+    pattern: re.Pattern[str],
+    denial_prefix: re.Pattern[str] = GENERAL_DENIAL_PREFIX_RE,
+) -> bool:
+    value = str(text or "")
+    return any(
+        not denial_prefix.search(value[max(0, match.start() - 40):match.start()])
+        for match in pattern.finditer(value)
+    )
+
+
+def high_risk_concepts(text: Any) -> set[str]:
+    value = str(text or "")
+    return {name for name, pattern in HIGH_RISK_CONCEPT_PATTERNS.items() if pattern.search(value)}
+
+
+def unsupported_semantic_shortcuts(positive_text: Any, direct_support_text: Any) -> list[str]:
+    positive = str(positive_text or "")
+    support = str(direct_support_text or "")
+    issues: list[str] = []
+    has_positive_smell_claim = any(
+        not SMELL_DENIAL_PREFIX_RE.search(positive[max(0, match.start() - 24):match.start()])
+        for match in ACTUAL_SMELL_RE.finditer(positive)
+    )
+    if has_positive_smell_claim and not SMELL_SUPPORT_RE.search(support):
+        issues.append("真实嗅觉体验")
+    if SUFFICIENCY_SHORTCUT_RE.search(positive) and not SUFFICIENCY_SUPPORT_RE.search(support):
+        issues.append("一瓶搞定/解决的充分性")
+    if EXTERNAL_COMPARISON_RE.search(positive) and not EXTERNAL_COMPARISON_SUPPORT_RE.search(support):
+        issues.append("外部品类/竞品同框对照")
+    return issues
+
+
+def parse_aware_iso_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def variable_dimensions(text: Any) -> set[str]:
+    value = str(text or "")
+    return {name for name, pattern in VARIABLE_DIMENSION_PATTERNS.items() if pattern.search(value)}
+
+
+def has_disjunctive_variable(text: Any) -> bool:
+    value = re.sub(r"说明书或医务人员(?:的)?指导", "必要指导说明", str(text or ""))
+    return bool(DISJUNCTIVE_VARIABLE_RE.search(value))
 
 
 def validate_delivery(delivery: Path) -> dict[str, Any]:
@@ -225,6 +409,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         errors.append("analysis_status=draft，不得作为正式交付")
     if not isinstance(manifest.get("limitations"), list):
         errors.append("limitations 必须是数组")
+    created_at = parse_aware_iso_datetime(manifest.get("created_at"))
+    updated_at = parse_aware_iso_datetime(manifest.get("updated_at"))
+    if created_at is None:
+        errors.append("created_at 必须是带时区的完整 ISO 时间")
+    if updated_at is None:
+        errors.append("updated_at 必须是带时区的完整 ISO 时间")
+    if created_at is not None and updated_at is not None:
+        if created_at > updated_at:
+            errors.append("created_at 不得晚于 updated_at")
+        if updated_at > datetime.now().astimezone() + timedelta(minutes=5):
+            errors.append("updated_at 不得晚于当前时间超过 5 分钟")
 
     upstream_missing = missing_fields(upstream, UPSTREAM_FIELDS)
     if upstream_missing:
@@ -283,9 +478,28 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         for item in upstream.get("facts", [])
         if isinstance(item, dict) and item.get("fact_id")
     }
+    blocked_upstream_fact_ids = {
+        fact_id
+        for fact_id, item in fact_lookup.items()
+        if SKU_BUNDLE_CONFLICT_RE.search(str(item.get("boundary", "")))
+    }
+    for fact_id in sorted(blocked_upstream_fact_ids):
+        if str(fact_lookup[fact_id].get("status", "")).lower() in {"confirmed", "active", "current", "ready"}:
+            errors.append(
+                f"上游 {fact_id} 已声明套组/装箱清单冲突却仍标记为可用；"
+                "必须先返回商品价值 Skill 降级并重建上游"
+            )
+    blocked_upstream_value_ids = {
+        value_id
+        for value_id, item in upstream_values.items()
+        if blocked_upstream_fact_ids.intersection(map(str, list_value(item, "supporting_fact_ids")))
+    }
+    for value_id in sorted(active_values.intersection(blocked_upstream_value_ids)):
+        errors.append(f"上游价值 {value_id} 仍引用冲突套组/装箱事实，不得进入卖点呈现")
     upstream_expression_ids = {str(item) for item in upstream.get("expression_ids", [])}
     existing_ids = {str(item.get("expression_id", "")) for item in existing}
     source_expression_count = 0
+    footnote_expression_ids: set[str] = set()
     for record in existing:
         expression_id = str(record.get("expression_id", ""))
         origin = str(record.get("expression_origin", ""))
@@ -325,6 +539,25 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 errors.append(f"{expression_id} 必须填写 reusable 或 gap")
             if record.get("status") == "inventory_pending":
                 errors.append(f"{expression_id} 仍为 inventory_pending，不得正式交付")
+        expression_text = joined_text(record, ("source_statement", "page_says"))
+        field_labels = [match.group(1) for match in ATOMIC_EXPRESSION_LABEL_RE.finditer(expression_text)]
+        if len(field_labels) > 1:
+            errors.append(
+                f"{expression_id} 合并了多个应独立承接的高密度字段（{'、'.join(field_labels)}）；"
+                "页面表达必须按主张单位拆分"
+            )
+        footnote_references = expression_footnote_references(expression_text)
+        footnote_definitions = expression_footnote_definitions(expression_text)
+        missing_footnotes = footnote_references - footnote_definitions
+        if missing_footnotes:
+            errors.append(
+                f"{expression_id} 含脚注标记但未同时保留对应脚注原文："
+                f"{', '.join(sorted(missing_footnotes))}"
+            )
+        if footnote_references or footnote_definitions:
+            footnote_expression_ids.add(expression_id)
+            if not FOOTNOTE_BOUNDARY_RE.search(str(record.get("boundary", ""))):
+                errors.append(f"{expression_id} 使用页面脚注时必须在 boundary 明确保留脚注或限定语边界")
 
     source_materials = str(manifest.get("source_materials", "")).strip()
     if (
@@ -371,12 +604,31 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         unknown_facts = set(map(str, list_value(record, "fact_ids"))) - fact_ids
         if unknown_facts:
             errors.append(f"{record.get('scan_id')} 引用了未知事实: {', '.join(sorted(unknown_facts))}")
+        blocked_facts = set(map(str, list_value(record, "fact_ids"))).intersection(blocked_upstream_fact_ids)
+        if blocked_facts:
+            errors.append(f"{record.get('scan_id')} 使用了冲突套组/装箱事实: {', '.join(sorted(blocked_facts))}")
         unknown_ex = set(map(str, list_value(record, "expression_ids"))) - existing_ids
         if unknown_ex:
             errors.append(f"{record.get('scan_id')} 引用了未知页面表达: {', '.join(sorted(unknown_ex))}")
         unsupported = unsupported_exact_tokens(record, ("translation",), fact_lookup)
         if unsupported:
             errors.append(f"{record.get('scan_id')} 使用了上游未核验的精确字段: {', '.join(unsupported)}")
+        if role in {"primary", "supporting"}:
+            linked_fact_text = "\n".join(
+                joined_text(fact_lookup[fact_id], ("statement", "source_quotes"))
+                for fact_id in map(str, list_value(record, "fact_ids"))
+                if fact_id in fact_lookup
+            )
+            usage_issues = unsupported_usage_groups(record.get("translation", ""), linked_fact_text)
+            if usage_issues:
+                errors.append(
+                    f"{record.get('scan_id')} 由包装量或规格推导了{'、'.join(usage_issues)}，但关联上游事实没有直接支持"
+                )
+            semantic_issues = unsupported_semantic_shortcuts(record.get("translation", ""), linked_fact_text)
+            if semantic_issues:
+                errors.append(
+                    f"{record.get('scan_id')} 使用了{'、'.join(semantic_issues)}，但关联上游事实没有直接支持"
+                )
 
     if manifest.get("analysis_status") in {"complete", "partial"}:
         if not active_values:
@@ -451,11 +703,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         unknown_facts = set(map(str, list_value(record, "fact_ids"))) - fact_ids
         if unknown_facts:
             errors.append(f"{vis_id} 引用了未知事实: {', '.join(sorted(unknown_facts))}")
+        blocked_facts = set(map(str, list_value(record, "fact_ids"))).intersection(blocked_upstream_fact_ids)
+        if blocked_facts:
+            errors.append(f"{vis_id} 使用了冲突套组/装箱事实: {', '.join(sorted(blocked_facts))}")
         unknown_ex = set(map(str, list_value(record, "expression_ids"))) - existing_ids
         if unknown_ex:
             errors.append(f"{vis_id} 引用了未知页面表达: {', '.join(sorted(unknown_ex))}")
         if not list_value(record, "fact_ids"):
             errors.append(f"{vis_id} 至少引用一个上游商品事实")
+        if set(map(str, list_value(record, "expression_ids"))).intersection(footnote_expression_ids):
+            footnote_guard = joined_text(record, ("must_keep", "misuse", "boundary"))
+            if not FOOTNOTE_BOUNDARY_RE.search(footnote_guard):
+                errors.append(f"{vis_id} 调用带脚注页面表达时必须在 must_keep、misuse 或 boundary 保留脚注边界")
         for field in ("user_question", "target_perception", "human_language", "must_keep", "variable_parts", "misuse", "boundary", *TRACK_FIELDS):
             if not nonempty_text(record, field):
                 errors.append(f"{vis_id} 缺少必填内容 {field}")
@@ -478,13 +737,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for fact_id in map(str, list_value(record, "fact_ids"))
             if fact_id in fact_lookup
         ))
-        unsupported_periods = sorted({
-            match.group(0)
-            for match in USAGE_PERIOD_RE.finditer(positive_text)
-            if normalized(match.group(0)) not in linked_fact_text
-        })
-        if unsupported_periods:
-            errors.append(f"{vis_id} 使用周期缺少上游事实支持: {', '.join(unsupported_periods)}")
+        usage_issues = unsupported_usage_groups(positive_text, linked_fact_text)
+        if usage_issues:
+            errors.append(f"{vis_id} 的{'、'.join(usage_issues)}缺少上游事实支持")
+        semantic_issues = unsupported_semantic_shortcuts(positive_text, linked_fact_text)
+        if semantic_issues:
+            errors.append(f"{vis_id} 的{'、'.join(semantic_issues)}缺少上游事实支持")
         if ORIGINAL_ASSET_RE.search(positive_text):
             has_original = any(
                 existing_map.get(expression_id, {}).get("source_form") == "original_document"
@@ -522,12 +780,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         recommended = str(upstream.get("recommended_value_id", ""))
         if not any(item.get("external_priority") for item in vis_by_value.get(recommended, [])):
             errors.append("普通版核心呈现资产必须至少包含上游推荐 P0 的一个 VIS")
-        if len(active_values) <= 5:
+        required_core_values = {
+            value_id
+            for value_id, value in upstream_values.items()
+            if value_id in active_values and value.get("layer") in {"P0", "P1"}
+        }
+        if len(required_core_values) <= 5:
             core_primary_values = {str(item.get("value_id", "")) for item in core_vis}
-            missing_core_values = active_values - core_primary_values
+            missing_core_values = required_core_values - core_primary_values
             if missing_core_values:
                 errors.append(
-                    "可沟通价值不超过 5 个时，普通版核心呈现卡必须各覆盖一个主价值；缺少: "
+                    "普通版核心呈现卡必须优先覆盖全部可调用 P0/P1 主价值；缺少: "
                     + ", ".join(sorted(missing_core_values))
                 )
 
@@ -566,10 +829,49 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{test_id} 对照版与测试版不得相同")
         task_text = str(record.get("validation_task", ""))
         variable_text = str(record.get("single_variable", ""))
+        dimensions = variable_dimensions(variable_text)
+        if len(dimensions) > 1:
+            errors.append(
+                f"{test_id} single_variable 同时改变多个呈现维度: {'、'.join(sorted(dimensions))}"
+            )
+        if has_disjunctive_variable(variable_text):
+            errors.append(f"{test_id} single_variable 含二选一/备选项，必须锁定一个具体变量")
         if ("上下" in task_text and "左右" in variable_text) or ("左右" in task_text and "上下" in variable_text):
             errors.append(f"{test_id} 验证任务与 single_variable 的方向描述不一致")
         control_text = str(record.get("control_version", ""))
         test_text = str(record.get("test_version", ""))
+        if MANDATORY_GUARDRAIL_REMOVAL_RE.search(control_text) or MANDATORY_GUARDRAIL_REMOVAL_RE.search(test_text):
+            errors.append(
+                f"{test_id} 把症状分层、说明书/医务人员指导、禁忌或警示等必要边界作为可移除变量；"
+                "所有版本都必须保留安全与适用边界"
+            )
+        qualifier_test_text = joined_text(
+            record,
+            ("validation_task", "single_variable", "control_version", "test_version"),
+        )
+        if MANDATORY_CLAIM_QUALIFIER_REMOVAL_RE.search(qualifier_test_text):
+            errors.append(
+                f"{test_id} 把实验条件、适用条件、脚注或限定语作为可删除变量；"
+                "所有版本都必须保留主张成立所需的事实限定"
+            )
+        shared_risk_concepts = high_risk_concepts(control_text).intersection(high_risk_concepts(test_text))
+        objective_risk_concepts = high_risk_concepts(
+            " ".join(
+                [
+                    task_text,
+                    " ".join(map(str, list_value(record, "primary_metrics"))),
+                    str(record.get("measurement_method", "")),
+                    str(record.get("decision_rule", "")),
+                    str(record.get("writeback", "")),
+                ]
+            )
+        )
+        if shared_risk_concepts and objective_risk_concepts and shared_risk_concepts.isdisjoint(objective_risk_concepts):
+            errors.append(
+                f"{test_id} 的固定高风险字幕/说明是{'、'.join(sorted(shared_risk_concepts))}，"
+                f"但验证任务与指标衡量的是{'、'.join(sorted(objective_risk_concepts))}；"
+                "证据、主张与指标必须语义同题，安全证据不得抵消禁忌"
+            )
         if VISUAL_EVIDENCE_VARIABLE_RE.search(variable_text):
             control_subtitle = SUBTITLE_QUOTE_RE.search(control_text)
             test_subtitle = SUBTITLE_QUOTE_RE.search(test_text)
@@ -586,14 +888,32 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if SINGLE_PACK_CLAIM_RE.search(pack_test_text) and PREARRANGED_RE.search(control_text):
             errors.append(f"{test_id} 衡量单包构成时，对照版也必须来自当前 SKU 的真实单包，不得使用预摆盘")
         significance_text = joined_text(record, ("decision_rule", "measurement_method", "requirements"))
-        if SIGNIFICANCE_RE.search(significance_text):
+        if has_affirmative_match(
+            significance_text,
+            SIGNIFICANCE_RE,
+            SIGNIFICANCE_DENIAL_PREFIX_RE,
+        ):
             design_text = joined_text(record, ("measurement_method", "requirements"))
             if not STATISTICAL_DESIGN_RE.search(design_text):
                 errors.append(f"{test_id} 使用显著性判断但没有登记样本量或统计检验方法")
         for metric in map(str, list_value(record, "primary_metrics")):
             if re.search(r"(?:留存|完播|点击).{0,16}(?:评论|复述)|(?:评论|复述).{0,16}(?:留存|完播|点击)", metric):
                 errors.append(f"{test_id} 把平台行为指标与评论语义混成不可直接观测的单一指标: {metric}")
+        validation_positive_text = joined_text(
+            record,
+            ("validation_task", "must_keep", "single_variable", "control_version", "test_version"),
+        )
         linked_vis = [vis_map[item] for item in map(str, list_value(record, "vis_ids")) if item in vis_map]
+        linked_vis_boundaries = "\n".join(
+            joined_text(item, ("must_keep", "misuse", "boundary")) for item in linked_vis
+        )
+        if re.search(r"不(?:得)?跨.{0,6}(?:除螨|螨虫)", linked_vis_boundaries) and re.search(
+            r"除螨|螨虫", validation_positive_text
+        ):
+            errors.append(
+                f"{test_id} 混入了关联呈现明确禁止跨用的除螨对象；"
+                "验证画面、字幕和指标必须与当前除菌主张同题"
+            )
         proxy = dict(record)
         proxy["fact_ids"] = sorted({
             str(fact_id)
@@ -607,10 +927,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         )
         if unsupported:
             errors.append(f"{test_id} 使用了上游未核验的精确字段: {', '.join(unsupported)}")
-        validation_positive_text = joined_text(
-            record,
-            ("validation_task", "must_keep", "single_variable", "control_version", "test_version"),
+        linked_fact_text = "\n".join(
+            joined_text(fact_lookup[fact_id], ("statement", "source_quotes"))
+            for fact_id in map(str, list_value(proxy, "fact_ids"))
+            if fact_id in fact_lookup
         )
+        comparison_issues = unsupported_semantic_shortcuts(validation_positive_text, linked_fact_text)
+        if "外部品类/竞品同框对照" in comparison_issues:
+            errors.append(
+                f"{test_id} 引入外部品类/竞品同框对照，但关联上游事实没有直接比较证据；"
+                "不得用自身身份事实替代外部比较证据"
+            )
         if ORIGINAL_ASSET_RE.search(validation_positive_text):
             linked_expression_ids = {
                 str(expression_id)
@@ -628,7 +955,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{paths[report_key].name} 为空")
         if re.search(r"\{\{[^}]+\}\}|\[TODO|TODO:|待填写", text):
             errors.append(f"{paths[report_key].name} 仍有模板占位符")
-        if re.search(r"(?:PV|VE|SRC|ANCHOR|FABE|VIS|PATH|SLOT|TEST|V|F|H|EX|U|DYN|STRAT)-\d", text):
+        if re.search(r"(?:PV|VE|SRC|ANCHOR|FABE|VIS|PATH|SLOT|TEST|GAP|V|F|H|EX|U|DYN|STRAT)-\d", text):
             errors.append(f"{paths[report_key].name} 暴露内部资产 ID")
         if re.search(r"[A-Za-z]:\\(?:Users|Documents|Desktop|Downloads|会稽山|喜纯)", text):
             errors.append(f"{paths[report_key].name} 暴露本地绝对路径")
