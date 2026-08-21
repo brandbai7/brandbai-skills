@@ -119,9 +119,9 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 [在 WorkBuddy 安装 brandbai-weibo-download v0.1.4](https://www.codebuddy.cn/work/launch?skillname=brandbai-weibo-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-weibo-download-v0.1.4%2Fbrandbai-weibo-download.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-product-value v0.1.23](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.23%2Fbrandbai-product-value.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-product-value v0.1.36](https://www.codebuddy.cn/work/launch?skillname=brandbai-product-value&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-product-value-v0.1.36%2Fbrandbai-product-value.zip&channelType=github)
 
-[在 WorkBuddy 安装 brandbai-value-expression v0.1.3](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.3%2Fbrandbai-value-expression.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-value-expression v0.1.11](https://www.codebuddy.cn/work/launch?skillname=brandbai-value-expression&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-value-expression-v0.1.11%2Fbrandbai-value-expression.zip&channelType=github)
 
 同一仓库会分别发布多个 Skill，因此安装链接固定到各自版本，不使用仓库级 `latest`。如果宿主不支持网页唤起，可从对应版本的 GitHub Release 手动下载 ZIP：
 
@@ -130,8 +130,8 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 - [Tmall Download v0.3.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.3.2)
 - [TikTok Download v0.2.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tiktok-download-v0.2.3)
 - [Weibo Download v0.1.4](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-weibo-download-v0.1.4)
-- [Product Value v0.1.23](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.23)
-- [Value Expression v0.1.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.3)
+- [Product Value v0.1.36](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-product-value-v0.1.36)
+- [Value Expression v0.1.11](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-value-expression-v0.1.11)
 
 每个压缩包根目录都直接包含 `SKILL.md`；下载后可使用同名 `.sha256` 文件核验完整性。
 
