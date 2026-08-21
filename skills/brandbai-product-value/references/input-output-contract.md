@@ -51,6 +51,7 @@
     ├── source_audit_cards/
     │   └── SF-xxx.svg
     ├── source_observation.jsonl
+    ├── tool_audit_events.jsonl（宿主提供受信打开工具时生成）
     ├── source_claim_ledger.jsonl
     ├── source_ledger.jsonl
     ├── fact_ledger.jsonl
@@ -114,7 +115,17 @@ second_pass_sequence, second_pass_heading, second_pass_excerpt,
 second_pass_status, second_pass_at
 ```
 
-`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。两遍标题、摘录必须一致，第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔、短周期重复循环、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text` 记录原始文档身份与可定位文本，PDF 派生页图继续使用 `visual_stamped_card` 承担逐页视觉核对；官方验证页可用 `official_url`。非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。ZIP、RAR、7z、tar 等归档文件使用 `unsupported_archive`，`inspection_status=unreadable`、`text_density=none`、`content_flags=[]`，只记录文件身份与实际检查时间；归档本身不得进入原文主张、来源、事实或普通版。需要使用其内容时，先解压并在全新交付中重新索引解压后的文件。
+`relative_path` 必须与清单完全一致；一个 `source_file_id` 只能有一条当前核对记录。图片使用 `visual_stamped_card`，`audit_card_sha256` 必须与对应审计卡一致：第一遍按 `source_file_id` 正序逐张视觉打开，填写 `first_pass_sequence`、可见标题、摘录和 `inspected_at`；全部完成后按反向顺序重新打开，填写 `second_pass_sequence`、第二遍标题、摘录、状态与时间。宿主必须对关键事实、数字与单位、主张单位、限定语和脚注做严格双遍比较；只有引号、空白、版式顺序或受控的小幅描述差异可以确定性归一，其他差异必须进入仲裁。最终第二遍状态必须是 `match`，所有序号连续且第二遍严格反向，每张图片的两遍时间均须由宿主在实际打开当下独立取得并带时区，第二遍整体晚于第一遍整体。所有事件必须晚于 `product_manifest.created_at`，时区偏移必须对应真实本地时钟，不能把 UTC 时钟直接标成 `+08:00`。固定间隔、短周期重复循环、未来时间或晚于 `source_observation.jsonl` 实际写入时间的核验记录无效。文档/PDF可用 `document_text` 记录原始文档身份与可定位文本，XLSX/XLSM 使用 `structured_spreadsheet` 逐工作表读取真实单元格，PDF 派生页图继续使用 `visual_stamped_card` 承担逐页视觉核对；官方验证页可用 `official_url`。非图片的卡片哈希为空、两遍序号为 0、第二遍状态为 `not_applicable`。ZIP、RAR、7z、tar 等归档文件使用 `unsupported_archive`，`inspection_status=unreadable`、`text_density=none`、`content_flags=[]`，只记录文件身份与实际检查时间；归档本身不得进入原文主张、来源、事实或普通版。需要使用其内容时，先解压并在全新交付中重新索引解压后的文件。表格不可读、非空表格未摘录任何主张，或固定工具返回的业务字段未被覆盖时，必须降为 `partial/conditional` 或 `insufficient/blocked` 并登记缺口，不得交付 `complete`。
+
+### tool_audit_events.jsonl（可选受信账本）
+
+```yaml
+event_id, source_file_id, relative_path,
+phase, sequence, recorded_at,
+source_sha256, audit_card_sha256
+```
+
+该文件只能由宿主固定打开工具生成。`phase` 为 `visual_first / visual_second / claim_extract / claim_recheck`；图片正序与逆序必须覆盖完整图片清单，原文复核必须覆盖本轮摘录来源。XLSX/XLSM 事件还可携带 `tabular_read_status`、`tabular_sheet_names`、`tabular_nonempty_cells`、`tabular_business_labels` 与 `tabular_truncated`，用于固定表格读取器与原文主张覆盖度复核。存在该文件时，`source_observation.jsonl` 与 `source_claim_ledger.jsonl` 的时间必须逐项等于受信事件，模型不得自行创建或修改时间。
 
 每条观察另填 `text_density` 和 `content_flags`。`text_density` 使用 `none/low/medium/high`；`content_flags` 从 `identity/sku/ingredient/nutrition_table/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other` 中选择。中高文字密度来源不得遗漏内容类型。
 
@@ -130,9 +141,11 @@ label, verbatim_text, normalized_value, unit, visual_locator,
 critical, claim_status, claimed_at, rechecked_at
 ```
 
-`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；“页面公开展示”“平台通用文本”“非本商品专属”等分析说明不能放入 `verbatim_text`，不能确认原句时登记缺口。`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。必须先完成全部第三遍摘录，再开始第四遍重新打开来源复核；两个阶段不得交叉，只有一致时写 `claim_status=match`。每条 `claimed_at` 和 `rechecked_at` 均由宿主在实际操作当下独立取时，带时区并晚于前两遍观察。重复时间、固定间隔、短周期重复循环、未来时间、晚于 `source_claim_ledger.jsonl` 实际写入时间，以及摘录与复核两组间隔序列完全相同后仅整体平移固定秒数的记录无效。
+`claim_type` 使用 `identity/sku/ingredient/nutrition/storage/warning/faq/usage/comparison/process/sensory/packaging/origin/evidence/transaction/audience/other`。`verbatim_text` 必须逐字复制可见原文，不得写摘要；“页面公开展示”“平台通用文本”“非本商品专属”等分析说明不能放入 `verbatim_text`，不能确认原句时登记缺口。`normalized_value` 只做原文中的值规范化且必须仍能原样回到 `verbatim_text`。必须先完成全部第三遍摘录，再开始第四遍重新打开来源复核；两个阶段不得交叉，只有一致时写 `claim_status=match`。受信模式下，同一来源的多条主张共享该来源 `claim_extract` 事件的 `claimed_at`，并共享 `claim_recheck` 事件的 `rechecked_at`；未使用受信工具时才要求每条主张由宿主独立取时并继续执行重复/机械节奏拦截。
 
 营养表逐行登记，FAQ 每个问答分别登记，对比页分别登记双方原文。SKU、配料、营养、储存和警示主张必须写 `critical=true`，并进入至少一条事实；看不清时不得猜测或补全，改为资料缺口。页面图片中的报告编号、日期、批次、证书编号和检测方法等精确小字仍不得进入原文主张账本。
+
+高密度标签中的每个字段标签和值必须独立成条，不得把产品名称、净含量、配料、营养、储存、许可证、标准和警示压进同一条 `verbatim_text`。正文出现 `*1/※1/注1` 等标记时，同一来源必须存在对应脚注原文；脚注使用 `claim_type=evidence`，正文与脚注共同进入后续事实边界。
 
 ### source_ledger.jsonl
 
@@ -156,6 +169,8 @@ sku_scope, time_scope, status, boundary
 ```
 
 除 `H` 分析推导外，每条事实必须引用至少一个 `claim_id`，并在 `source_quotes` 逐条原样保留所引主张的 `verbatim_text`。事实中的阿拉伯数字必须在所引原文中出现；“好吸收、道地、无添加、适合某人群、禁止食用、不宜食用、遵医嘱、建议冷藏、无需熬煮”等高风险词只有在原文逐字出现时才能写成直接事实。复合事实不能只引用其中一部分：其中出现的生产日期、保质期、贮存条件、配料、每个营养指标，以及胀袋、过敏者、孕妇、婴幼儿等警示对象和对应动作，都必须分别出现在所引原文主张中；否则拆成独立事实或补齐对应 `claim_id/source_quotes`。
+
+事实 `boundary` 一旦声明当前套组清单、到手件数或装箱内容冲突，`status` 不得继续使用 `active/confirmed/current/ready`；冲突事实只保留为待确认并开 P0/P1 缺口。
 
 `fact_type` 允许：`F-PAGE`、`F-EVIDENCE`、`STRAT`、`DYN`、`U`、`EX`、`H`。
 
@@ -187,6 +202,8 @@ derivation_status, boundary
 没有竞品或行业资料，只禁止市场领先、同类优越和虚构产品替代结论，不禁止依据当前页面事实形成带边界的内生任务优势。页面事实能够说明商品已处理形态减少当次准备、明确使用方式增加当前商品内选择等任务差异时，Advantage 应使用 `reasoned` 并写清边界；可调用价值不得全部用“A层暂不成立”代替分析。
 
 把“用户旧习惯、消费者原有习惯”等行为写成 `reference_frame` 时，必须在 `reference_fact_ids` 引用至少一条 `U` 用户原声或研究事实。没有 `U` 证据时，改写为页面内具体对比或明确的当前操作任务。不得用“相对当前商品内”“页面内对比当前商品自身”等自我比较伪装参照系；内生任务应直接写“每次取用前是否需要额外分装或密封”等操作条件。Benefit、用户语言和价值陈述不得使用“不用担心、无需担心、不必担心”等绝对化保证，应改为“减少顾虑”并保留条件。
+
+包装量、片数、盒数、容量和重量不能自动推出周期、频次、减少补货、一次买够或够用一阵；这些利益必须由本条所引原文或 `U` 用户资料直接支持。安全性、刺激性或过敏相关检测不能支撑稳定性、活性、失活结论，也不能抵消孕哺禁忌或其他适用边界。
 
 ### anchor_ledger.jsonl
 
