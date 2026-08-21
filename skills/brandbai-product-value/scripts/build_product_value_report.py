@@ -5,10 +5,19 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from product_value_common import delivery_paths, md, read_json, read_jsonl, write_text
+from product_value_common import (
+    delivery_paths,
+    md,
+    read_json,
+    read_jsonl,
+    write_json,
+    write_jsonl,
+    write_text,
+)
 
 
 STATUS_ZH = {
@@ -104,6 +113,48 @@ STATUS_ZH = {
     "PKG-L3": "可形成有条件底座",
     "PKG-L4": "可正式调用",
 }
+
+DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
+TEMPORAL_DYN_STATUSES = {
+    "active", "active_at_snapshot", "confirmed", "current",
+    "upcoming", "expired", "stale", "inactive",
+}
+SNAPSHOT_SCOPE_RE = re.compile(r"快照|采集时点|抓取时点|截图时点|下载时点|访问时点|页面保存时点")
+
+
+def finalize_dynamic_statuses(facts: list[dict[str, Any]], reference: date) -> int:
+    """Reclassify dated DYN states against the final report timestamp."""
+
+    updated = 0
+    for fact in facts:
+        if fact.get("fact_type") != "DYN":
+            continue
+        current_status = str(fact.get("status", "")).strip().lower()
+        if current_status not in TEMPORAL_DYN_STATUSES:
+            continue
+        dates: list[date] = []
+        for year, month, day in DATE_RE.findall(str(fact.get("time_scope", ""))):
+            try:
+                dates.append(date(int(year), int(month), int(day)))
+            except ValueError:
+                dates = []
+                break
+        if not dates:
+            continue
+        start, end = dates[0], dates[-1]
+        if reference < start:
+            expected = "upcoming"
+        elif reference > end:
+            scope_text = " ".join(
+                str(fact.get(key, "")) for key in ("time_scope", "statement", "boundary")
+            )
+            expected = "stale" if len(dates) == 1 and SNAPSHOT_SCOPE_RE.search(scope_text) else "expired"
+        else:
+            expected = "active"
+        if current_status != expected:
+            fact["status"] = expected
+            updated += 1
+    return updated
 
 INTERNAL_ID = r"(?:PV-[0-9a-f]{12}|(?:SF|SRC|ID|ANCHOR|FABE|CLM|STRAT|DYN|EX|GAP|P0D|F|U|H|V)-\d{3,})"
 INTERNAL_ID_RE = re.compile(rf"(?<![A-Za-z0-9]){INTERNAL_ID}(?![A-Za-z0-9])")
@@ -656,6 +707,19 @@ def build_report_02(data: dict[str, Any]) -> str:
 
 
 def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
+    dynamic_status_updates = 0
+    if write:
+        paths = delivery_paths(delivery)
+        manifest = read_json(paths["manifest"])
+        manifest["updated_at"] = datetime.now().astimezone().replace(microsecond=0).isoformat()
+        write_json(paths["manifest"], manifest)
+        facts = read_jsonl(paths["facts"])
+        dynamic_status_updates = finalize_dynamic_statuses(
+            facts,
+            datetime.fromisoformat(manifest["updated_at"]).date(),
+        )
+        if dynamic_status_updates:
+            write_jsonl(paths["facts"], facts)
     data = load_delivery(delivery)
     report_01 = build_report_01(data)
     report_02 = build_report_02(data)
@@ -675,6 +739,7 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
             "gaps": len(data["gaps"]),
         },
         "reports": [str(data["paths"]["report_01"]), str(data["paths"]["report_02"])],
+        "dynamic_status_updates": dynamic_status_updates,
     }
     if write:
         write_text(data["paths"]["report_01"], report_01)

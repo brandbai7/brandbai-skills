@@ -3,23 +3,40 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from build_product_value_report import build_delivery, public_text
+from build_product_value_report import build_delivery, finalize_dynamic_statuses, public_text
+from build_fact_ledger_from_claims import build_fact_parts
 from build_source_audit_cards import build_cards
+from build_source_ledger_from_observations import build_source_parts
+from compile_product_value_analysis_plan import compile_analysis_plan
 from index_product_sources import build_inventory, index_sources
 from init_product_value_delivery import build_plan, init_delivery
 from product_value_common import now_iso, read_json, read_jsonl, write_json, write_jsonl
+from prepare_product_value_analysis_packet import prepare_analysis_packet
 from validate_product_value_delivery import (
+    FLAG_CLAIM_REQUIREMENTS,
+    TRUSTED_AUDIT_PHASES,
+    TZ_DATETIME_RE,
+    UNSUPPORTED_PRODUCT_TARGET_RE,
+    error_stage,
+    exact_evidence_values,
+    flag_requires_claim,
+    normalized_literal_text,
+    package_count_ranges_from_text,
+    required_claim_types_for_tabular_labels,
+    result_for_stage,
     suspicious_bounded_audit_cadence,
     suspicious_bounded_micro_cadence,
     suspicious_dense_cadence,
     suspicious_fixed_cadence,
     suspicious_parallel_audit_timing,
     suspicious_repeating_cadence,
+    unsupported_usage_groups,
     validate_delivery,
 )
 
@@ -1182,6 +1199,21 @@ def test_literal_claim_grounding(root: Path) -> None:
     claim_path = delivery / "data" / "source_claim_ledger.jsonl"
     claims = read_jsonl(claim_path)
 
+    original_claims = json.loads(json.dumps(claims, ensure_ascii=False))
+    claims[0]["verbatim_text"] = "产品名称：示例商品 净含量：300克 配料表：黄精"
+    write_jsonl(claim_path, claims)
+    high_density_broken = validate_delivery(delivery)
+    assert any("多个应独立建账的字段" in error for error in high_density_broken["errors"])
+
+    claims = json.loads(json.dumps(original_claims, ensure_ascii=False))
+    claims[0]["verbatim_text"] = "累计销量突破50亿份*1"
+    write_jsonl(claim_path, claims)
+    orphan_footnote_broken = validate_delivery(delivery)
+    assert any("同一来源缺少对应脚注原文" in error for error in orphan_footnote_broken["errors"])
+
+    claims = json.loads(json.dumps(original_claims, ensure_ascii=False))
+    write_jsonl(claim_path, claims)
+
     facts[0]["statement"] = "包装标示采用独立小袋分装；如有胀袋，请勿食用。"
     write_jsonl(fact_path, facts)
     build_delivery(delivery, write=True)
@@ -1261,12 +1293,15 @@ def test_literal_claim_grounding(root: Path) -> None:
     observation_path = delivery / "data" / "source_observation.jsonl"
     observations = read_jsonl(observation_path)
     observations[3]["content_flags"].append("warning")
+    original_warning_excerpt = observations[3]["visible_text_excerpt"]
+    observations[3]["visible_text_excerpt"] = f"{original_warning_excerpt} 过敏者禁用"
     write_jsonl(observation_path, observations)
     missing_warning = validate_delivery(delivery)
     assert missing_warning["status"] == "failed"
     assert any("至少需要 1 条 warning 原文主张" in error for error in missing_warning["errors"])
 
     observations[3]["content_flags"].remove("warning")
+    observations[3]["visible_text_excerpt"] = original_warning_excerpt
     write_jsonl(observation_path, observations)
     facts[0]["boundary"] = "页面截图为medium置信度；证据细节可信度=medium；sku_status=unverified；参见CLM-046，仅证明包装结构。"
     write_jsonl(fact_path, facts)
@@ -2471,6 +2506,50 @@ def test_v023_conflict_and_task_grounding_regressions(root: Path) -> None:
     write_jsonl(facts_path, original_facts)
 
 
+def test_v024_bundle_period_and_evidence_relevance_regressions(root: Path) -> None:
+    delivery = root / "v024-bundle-period-evidence"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+
+    assert unsupported_usage_groups("每月补货一次", "页面写明每月补货一次") == []
+    assert unsupported_usage_groups("一次买够吃一阵", "包装规格为2.2kg") == ["补货或一次买够"]
+
+    data = delivery / "data"
+    fabe_path = data / "fabe_ledger.jsonl"
+    original_fabe = read_jsonl(fabe_path)
+    chains = [dict(item) for item in original_fabe]
+    chains[0]["benefit"] = "一次买够吃一阵，减少反复补货。"
+    write_jsonl(fabe_path, chains)
+    refill_broken = validate_delivery(delivery)
+    assert refill_broken["status"] == "failed"
+    assert any("补货或一次买够" in error and "包装量只能表达" in error for error in refill_broken["errors"])
+    write_jsonl(fabe_path, original_fabe)
+
+    facts_path = data / "fact_ledger.jsonl"
+    original_facts = read_jsonl(facts_path)
+    facts = [dict(item) for item in original_facts]
+    facts[0]["boundary"] = "主图到手6件正装与彩盒套组清单不一致，待确认。"
+    facts[0]["status"] = "active"
+    write_jsonl(facts_path, facts)
+    bundle_broken = validate_delivery(delivery)
+    assert bundle_broken["status"] == "failed"
+    assert any("套组/装箱清单冲突" in error for error in bundle_broken["errors"])
+    write_jsonl(facts_path, original_facts)
+
+    values_path = data / "value_ledger.jsonl"
+    original_values = read_jsonl(values_path)
+    values = [dict(item) for item in original_values]
+    values[0]["user_perception_goal"] = "通过页面安全性检测降低对成分失活的顾虑。"
+    write_jsonl(values_path, values)
+    stability_broken = validate_delivery(delivery)
+    assert stability_broken["status"] == "failed"
+    assert any("安全性检测不能替代稳定性证据" in error for error in stability_broken["errors"])
+    write_jsonl(values_path, original_values)
+
+
 def test_insufficient_delivery(root: Path) -> None:
     delivery = root / "insufficient"
     init_delivery(delivery, "示例品牌", "待确认商品", "示例品类", "待确认", "document")
@@ -2506,7 +2585,516 @@ def test_insufficient_delivery(root: Path) -> None:
     assert result["status"] == "passed", result
 
 
+def test_trusted_audit_event_binding(root: Path) -> None:
+    delivery = root / "trusted-audit-events"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    data = delivery / "data"
+    inventory = read_jsonl(data / "source_inventory.jsonl")
+    cards = {item["source_file_id"]: item for item in read_jsonl(data / "source_audit_card_ledger.jsonl")}
+    observations = read_jsonl(data / "source_observation.jsonl")
+    observations_by_file = {item["source_file_id"]: item for item in observations}
+    claims = read_jsonl(data / "source_claim_ledger.jsonl")
+    image_ids = [item["source_file_id"] for item in inventory if str(item["media_type"]).startswith("image/")]
+    inventory_by_id = {item["source_file_id"]: item for item in inventory}
+    events: list[dict[str, object]] = []
+
+    def append_event(source_file_id: str, phase: str, sequence: int, recorded_at: str) -> None:
+        source = inventory_by_id[source_file_id]
+        card = cards.get(source_file_id, {})
+        events.append(
+            {
+                "event_id": f"AUD-{len(events) + 1:04d}",
+                "source_file_id": source_file_id,
+                "relative_path": source["relative_path"],
+                "phase": phase,
+                "sequence": sequence,
+                "recorded_at": recorded_at,
+                "source_sha256": source["sha256"],
+                "audit_card_sha256": card.get("audit_card_sha256", ""),
+            }
+        )
+
+    for sequence, source_file_id in enumerate(image_ids, start=1):
+        append_event(source_file_id, "visual_first", sequence, observations_by_file[source_file_id]["inspected_at"])
+    for sequence, source_file_id in enumerate(reversed(image_ids), start=1):
+        append_event(source_file_id, "visual_second", sequence, observations_by_file[source_file_id]["second_pass_at"])
+
+    claim_source_ids = list(dict.fromkeys(item["source_file_id"] for item in claims))
+    last_visual = max(
+        datetime.fromisoformat(observations_by_file[source_file_id]["second_pass_at"])
+        for source_file_id in image_ids
+    )
+    extract_times = {
+        source_file_id: (last_visual + timedelta(minutes=2, seconds=index * 11)).isoformat()
+        for index, source_file_id in enumerate(claim_source_ids)
+    }
+    recheck_base = last_visual + timedelta(minutes=5)
+    recheck_times = {
+        source_file_id: (recheck_base + timedelta(seconds=index * 13)).isoformat()
+        for index, source_file_id in enumerate(reversed(claim_source_ids))
+    }
+    for sequence, source_file_id in enumerate(claim_source_ids, start=1):
+        append_event(source_file_id, "claim_extract", sequence, extract_times[source_file_id])
+    for sequence, source_file_id in enumerate(reversed(claim_source_ids), start=1):
+        append_event(source_file_id, "claim_recheck", sequence, recheck_times[source_file_id])
+    for claim in claims:
+        claim["claimed_at"] = extract_times[claim["source_file_id"]]
+        claim["rechecked_at"] = recheck_times[claim["source_file_id"]]
+    write_jsonl(data / "source_claim_ledger.jsonl", claims)
+    write_jsonl(data / "tool_audit_events.jsonl", events)
+    build_delivery(delivery, write=True)
+    baseline = validate_delivery(delivery)
+    assert baseline["status"] == "passed", baseline
+    assert baseline["counts"]["trusted_audit_events"] == len(events)
+
+    non_image_claim_source = next(source_file_id for source_file_id in claim_source_ids if source_file_id not in image_ids)
+    observations_by_file[non_image_claim_source]["inspected_at"] = extract_times[non_image_claim_source]
+    write_jsonl(data / "source_observation.jsonl", observations)
+    shared_non_image_open = validate_delivery(delivery)
+    assert shared_non_image_open["status"] == "passed", shared_non_image_open
+
+    original_time = observations_by_file[image_ids[0]]["inspected_at"]
+    observations_by_file[image_ids[0]]["inspected_at"] = observations_by_file[image_ids[1]]["inspected_at"]
+    write_jsonl(data / "source_observation.jsonl", observations)
+    tampered = validate_delivery(delivery)
+    assert tampered["status"] == "failed"
+    assert any("不等于受信工具事件时间" in error for error in tampered["errors"])
+    observations_by_file[image_ids[0]]["inspected_at"] = original_time
+    write_jsonl(data / "source_observation.jsonl", observations)
+
+
+def test_progressive_stage_filter() -> None:
+    result = {
+        "status": "failed",
+        "errors": [
+            "OBS-001 的 inspection_status 不在允许范围",
+            "CLM-001 的 normalized_value 必须能在 verbatim_text 中原样找到",
+            "F-001 的数字未在所引原文主张中出现: 5",
+            "FABE-001 标记 page_supported，但 benefit 未直接出现",
+            "01_商品价值底座.md 与当前结构化账本不一致",
+        ],
+        "warnings": [],
+        "counts": {},
+    }
+    assert error_stage(result["errors"][0]) == 0
+    assert error_stage(result["errors"][1]) == 1
+    assert error_stage(result["errors"][2]) == 2
+    assert error_stage(result["errors"][3]) == 3
+    assert error_stage(result["errors"][4]) == 4
+    assert len(result_for_stage(result, "observations")["errors"]) == 1
+    assert len(result_for_stage(result, "claims")["errors"]) == 2
+    assert len(result_for_stage(result, "facts")["errors"]) == 3
+    assert len(result_for_stage(result, "analysis")["errors"]) == 4
+    assert len(result_for_stage(result, "final")["errors"]) == 5
+    assert error_stage("受信原文摘录未打开全部 XLSX/XLSM：SF-001") == 1
+    assert error_stage("受信原文复核未重新打开全部 XLSX/XLSM：SF-001") == 1
+    assert error_stage("SF-001 的受信表格事件缺少 tabular_read_status") == 1
+    assert error_stage("SF-001 的受信表格事件缺少 tabular_sheet_names") == 1
+    assert error_stage("OBS-001 是页面图片，不得在逐图观察中抄录报告编号") == 0
+    assert error_stage("CLM-001 是页面图片，不得把报告编号标记为精确字段") == 1
+    assert error_stage("F-001 是页面图片，不得把报告编号升级为稳定事实") == 2
+
+
+def test_observation_stage_defers_only_non_image_missing_records(root: Path) -> None:
+    delivery = root / "staged-observation-kinds"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    inventory = read_jsonl(delivery / "data" / "source_inventory.jsonl")
+    image_source = next(item for item in inventory if str(item["media_type"]).startswith("image/"))
+    document_source = next(item for item in inventory if not str(item["media_type"]).startswith("image/"))
+    result = {
+        "status": "failed",
+        "errors": [
+            f"{image_source['source_file_id']} 尚无逐文件核对记录；清单中的每个文件都必须先检查或明确标记不可读",
+            f"{document_source['source_file_id']} 尚无逐文件核对记录；清单中的每个文件都必须先检查或明确标记不可读",
+        ],
+        "warnings": [],
+        "counts": {},
+    }
+    staged = result_for_stage(result, "observations", delivery)
+    assert staged["status"] == "failed"
+    assert staged["errors"] == [result["errors"][0]]
+    claims_stage = result_for_stage(result, "claims", delivery)
+    assert claims_stage["errors"] == result["errors"]
+
+
+def test_report_builder_auto_finalizes_manifest(root: Path) -> None:
+    delivery = root / "auto-finalize-manifest"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    manifest_path = delivery / "data" / "product_manifest.json"
+    manifest = read_json(manifest_path)
+    manual_time = (datetime.now().astimezone() - timedelta(hours=1)).replace(microsecond=0).isoformat()
+    manifest["updated_at"] = manual_time
+    write_json(manifest_path, manifest)
+
+    build_delivery(delivery, write=False)
+    assert read_json(manifest_path)["updated_at"] == manual_time
+
+    started_at = datetime.now().astimezone() - timedelta(seconds=2)
+    build_delivery(delivery, write=True)
+    finalized = read_json(manifest_path)
+    finalized_at = datetime.fromisoformat(finalized["updated_at"])
+    assert finalized_at >= started_at
+    assert finalized_at.timestamp() <= manifest_path.stat().st_mtime + 5
+    assert finalized["updated_at"] in (delivery / "02_资料说明与缺口.md").read_text(encoding="utf-8")
+    assert validate_delivery(delivery)["status"] == "passed"
+
+    reference = datetime.now().astimezone().date()
+    snapshot_facts = [
+        {
+            "fact_type": "DYN",
+            "time_scope": f"采集时点快照 {reference - timedelta(days=1)}",
+            "statement": "页面采集时点价格快照。",
+            "boundary": "仅为采集时点快照。",
+            "status": "active",
+        },
+        {
+            "fact_type": "DYN",
+            "time_scope": f"{reference - timedelta(days=1)}/{reference + timedelta(days=1)}",
+            "statement": "页面活动区间。",
+            "boundary": "仅在活动区间内有效。",
+            "status": "stale",
+        },
+        {
+            "fact_type": "DYN",
+            "time_scope": f"采集时点快照 {reference - timedelta(days=1)}",
+            "statement": "对应SKU尚未确认。",
+            "boundary": "规格冲突，暂不可调用。",
+            "status": "blocked",
+        },
+    ]
+    assert finalize_dynamic_statuses(snapshot_facts, reference) == 2
+    assert [item["status"] for item in snapshot_facts] == ["stale", "active", "blocked"]
+
+
+def test_spreadsheet_completeness_guardrails(root: Path) -> None:
+    assert required_claim_types_for_tabular_labels(
+        [
+            "商品标题", "规格", "当前选择", "价格", "销量", "品牌", "生产企业", "产地",
+            "保质期", "生产许可证", "适用人群", "过敏史者禁用", "使用方法",
+        ]
+    ) == {
+        "sku", "transaction", "identity", "origin", "storage", "evidence",
+        "audience", "warning", "usage",
+    }
+
+    delivery = root / "spreadsheet-completeness"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    data = delivery / "data"
+    inventory = read_jsonl(data / "source_inventory.jsonl")
+    cards = read_jsonl(data / "source_audit_card_ledger.jsonl")
+    observations = read_jsonl(data / "source_observation.jsonl")
+    inventory.append(
+        {
+            "source_file_id": "SF-007",
+            "filename": "商品资料.xlsx",
+            "relative_path": "商品资料.xlsx",
+            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "size_bytes": 128,
+            "sha256": "b" * 64,
+            "status": "indexed",
+        }
+    )
+    cards.append(
+        {
+            "source_file_id": "SF-007",
+            "relative_path": "商品资料.xlsx",
+            "source_sha256": "b" * 64,
+            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "audit_card_path": "",
+            "audit_card_sha256": "",
+            "status": "not_applicable",
+        }
+    )
+    observations.append(
+        {
+            "observation_id": "OBS-007",
+            "source_file_id": "SF-007",
+            "relative_path": "商品资料.xlsx",
+            "content_type": "spreadsheet",
+            "title": "商品资料表",
+            "visible_heading": "",
+            "visible_text_excerpt": "",
+            "inspection_method": "structured_spreadsheet",
+            "inspection_status": "unreadable",
+            "inspected_at": now_iso(),
+            "audit_card_sha256": "",
+            "first_pass_sequence": 0,
+            "second_pass_sequence": 0,
+            "second_pass_heading": "",
+            "second_pass_excerpt": "",
+            "second_pass_status": "not_applicable",
+            "second_pass_at": "",
+            "text_density": "none",
+            "content_flags": [],
+        }
+    )
+    write_jsonl(data / "source_inventory.jsonl", inventory)
+    write_jsonl(data / "source_audit_card_ledger.jsonl", cards)
+    write_jsonl(data / "source_observation.jsonl", observations)
+    manifest = read_json(data / "product_manifest.json")
+    manifest["analysis_status"] = "complete"
+    manifest["delivery_status"] = "conditional"
+    write_json(data / "product_manifest.json", manifest)
+    build_delivery(delivery, write=True)
+    failed = validate_delivery(delivery)
+    assert failed["status"] == "failed"
+    assert any("表格不可读时 analysis_status 不得为 complete" in error for error in failed["errors"])
+
+
+def test_deterministic_source_ledger_parts(root: Path) -> None:
+    delivery = root / "deterministic-source-ledger"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    data = delivery / "data"
+    observations = read_jsonl(data / "source_observation.jsonl")
+    observations[1]["inspection_status"] = "unreadable"
+    write_jsonl(data / "source_observation.jsonl", observations)
+    (data / "source_ledger.jsonl").unlink()
+    parts_dir = root / "deterministic-source-parts"
+
+    dry_run = build_source_parts(delivery, parts_dir, dry_run=True)
+    assert dry_run["source_count"] == 5
+    assert not parts_dir.exists()
+    built = build_source_parts(delivery, parts_dir)
+    assert built["part_count"] == 5
+    rows = [read_jsonl(path)[0] for path in sorted(parts_dir.glob("*.jsonl"))]
+    assert [row["source_id"] for row in rows] == [f"SRC-{index:03d}" for index in range(1, 6)]
+    unreadable_row = next(row for row in rows if row["source_file_id"] == observations[1]["source_file_id"])
+    assert unreadable_row["status"] == "unavailable"
+    assert "不代表来源没有内容" in unreadable_row["notes"]
+    assert all(not row["locator"].startswith(("C:\\", "D:\\")) for row in rows)
+    observation_titles = {item["observation_id"]: item["title"] for item in observations}
+    assert all(row["title"] == observation_titles[row["observation_id"]] for row in rows)
+    write_jsonl(data / "source_ledger.jsonl", rows)
+    source_validation = validate_delivery(delivery)
+    assert not any("绑定的" in error and "尚未完成逐文件核对" in error for error in source_validation["errors"])
+
+
+def test_deterministic_fact_ledger_parts(root: Path) -> None:
+    delivery = root / "deterministic-fact-ledger"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    parts_dir = root / "deterministic-fact-parts"
+
+    dry_run = build_fact_parts(delivery, parts_dir, dry_run=True)
+    assert dry_run["fact_count"] > 0
+    assert not parts_dir.exists()
+    built = build_fact_parts(delivery, parts_dir)
+    rows = [row for path in sorted(parts_dir.glob("*.jsonl")) for row in read_jsonl(path)]
+    claims = read_jsonl(delivery / "data" / "source_claim_ledger.jsonl")
+    claims_by_id = {item["claim_id"]: item for item in claims}
+    covered = {claim_id for row in rows for claim_id in row["claim_ids"]}
+    assert built["fact_count"] == len(rows)
+    assert all(item["claim_id"] in covered for item in claims if item.get("critical") is True)
+    assert all(row["statement"] == claims_by_id[row["claim_ids"][0]]["verbatim_text"] for row in rows)
+    assert all(row["source_quotes"] == [row["statement"]] for row in rows)
+    assert all(row["fact_type"] in {"F-PAGE", "DYN"} for row in rows)
+    assert all("页面快照" in row["boundary"] for row in rows if row["fact_type"] == "DYN")
+    assert all("年份依据采集时间推定" in row["boundary"] for row in rows if row["fact_type"] == "DYN")
+
+
+def test_compact_analysis_plan_compiler(root: Path) -> None:
+    delivery = root / "compact-analysis-plan"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    plan_path = root / "compact-analysis-plan.json"
+    common_value = {
+        "feature": "当前页面可见独立小袋包装。",
+        "feature_claim_ids": ["CLM-001"],
+        "advantage": "包装把商品分成可直接拿取的使用单元。",
+        "benefit": "外出前可以少做一步分装准备。",
+        "evidence": "包装页面可直接核对独立小袋结构。",
+        "evidence_claim_ids": ["CLM-001"],
+        "reference_frame": "当前操作任务：取用前是否需要临时分装。",
+        "reference_claim_ids": ["CLM-001"],
+        "user_language": "出门时直接拿一袋。",
+        "derivation_status": "reasoned",
+        "boundary": "便利性仍需用户验证。",
+        "strategic_potential": "medium",
+        "execution_maturity": "medium",
+        "user_perception_goal": "用户理解独立拿取方式",
+        "sku_scope": "示例规格A",
+        "scope": "当前包装版本",
+        "cannot_prove": ["不能证明所有用户都更方便"],
+        "downstream_readiness": "conditional",
+    }
+    plan = {
+        "manifest": {
+            "sku": "示例规格A",
+            "sku_status": "confirmed",
+            "sku_basis": "包装背面规格栏",
+            "fc": "FC2",
+            "sc": "SC1",
+            "pkg_level": "PKG-L2",
+            "analysis_status": "partial",
+            "delivery_status": "conditional",
+            "limitations": ["缺少用户反馈。"],
+        },
+        "values": [
+            {
+                **common_value,
+                "value_id": "V-001",
+                "layer": "P0",
+                "p0_candidate": True,
+                "p0_status": "P0-HYPOTHESIS",
+                "user_task": "外出时减少分装",
+                "value_statement": "让外出拿取少一步准备。",
+            },
+            {
+                **common_value,
+                "value_id": "V-002",
+                "layer": "P1",
+                "p0_candidate": True,
+                "p0_status": "P0-CANDIDATE",
+                "user_task": "按袋拿取",
+                "value_statement": "按袋拿取时使用单元更清楚。",
+            },
+        ],
+        "anchors": [
+            {
+                "anchor_type": "main",
+                "statement": "独立小袋包装",
+                "claim_ids": ["CLM-001"],
+                "status": "active",
+                "boundary": "识别锚不自动等于购买理由。",
+            }
+        ],
+        "gaps": [
+            {
+                "category": "用户资料",
+                "missing": "真实用户外出拿取反馈",
+                "impact": "P0只能保持为假设",
+                "minimum_needed": "目标用户访谈或评论样本",
+                "priority": "P1",
+                "state": "open",
+            }
+        ],
+        "p0_decision": {
+            "candidate_value_ids": ["V-001", "V-002"],
+            "recommended_value_id": "V-001",
+            "status": "P0-HYPOTHESIS",
+            "rationale": "V-001更直接对应外出准备任务。",
+            "public_rationale": "外出时少一步分装，但仍需用户验证。",
+            "current_execution_value_ids": ["V-001"],
+            "cannot_prove": ["不能证明消费者已经形成共识"],
+            "validation_questions": ["用户是否存在临时分装负担？"],
+            "valid_until": "补充用户资料前",
+            "supersedes": "",
+        },
+    }
+    write_json(plan_path, plan)
+    dry_run = compile_analysis_plan(delivery, plan_path, dry_run=True)
+    assert dry_run["status"] == "dry_run"
+    compiled = compile_analysis_plan(delivery, plan_path)
+    assert compiled["fabe"] == 2
+    assert len(read_jsonl(delivery / "data" / "value_ledger.jsonl")) == 2
+    decision = read_json(delivery / "data" / "p0_decision.json")
+    assert decision["current_execution_axis"] == "当前执行主轴调用：让外出拿取少一步准备。"
+    assert read_json(delivery / "data" / "product_manifest.json")["skill_version"] == "0.1.36"
+
+
+def test_compact_analysis_packet(root: Path) -> None:
+    delivery = root / "compact-analysis-packet"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+
+    index = prepare_analysis_packet(delivery, index_only=True)
+    assert index["status"] == "prepared"
+    assert index["packet_mode"] == "index_only"
+    assert index["returned_stable_fact_count"] == 0
+    assert index["returned_dynamic_fact_count"] == 0
+    assert index["omitted_fact_count"] == index["fact_count"]
+    assert "stable_facts" not in index and "dynamic_facts" not in index
+    assert index["claim_index"], "索引包必须返回已进入事实账本的真实 claim_id"
+    assert index["returned_claim_index_count"] == len(index["claim_index"])
+    assert index["returned_claim_index_count"] <= 120
+    assert index["indexed_claim_count_total"] == (
+        index["returned_claim_index_count"] + index["omitted_claim_index_count"]
+    )
+
+    paged = prepare_analysis_packet(delivery, index_only=True, index_offset=0, index_limit=1)
+    assert paged["returned_claim_index_count"] == 1
+    assert paged["claim_index"][0]["claim_id"] == index["claim_index"][0]["claim_id"]
+
+    claim_id = index["claim_index"][0]["claim_id"]
+    focused = prepare_analysis_packet(delivery, claim_ids=[claim_id])
+    assert focused["packet_mode"] == "claim_focused"
+    assert focused["requested_claim_ids"] == [claim_id]
+    assert focused["returned_stable_fact_count"] >= 1
+    assert focused["returned_dynamic_fact_count"] == 0
+    assert focused["omitted_fact_count"] < focused["fact_count"]
+    assert all(claim_id in row["claim_ids"] for row in focused["stable_facts"])
+    assert focused["returned_claim_index_count"] == 1
+    assert focused["claim_index"][0]["claim_id"] == claim_id
+
+    full = prepare_analysis_packet(delivery, include_dynamic=True)
+    assert full["packet_mode"] == "full"
+    assert full["returned_stable_fact_count"] == full["stable_fact_count"]
+    assert full["returned_dynamic_fact_count"] == full["dynamic_fact_count"]
+    assert full["omitted_fact_count"] == 0
+
+    try:
+        prepare_analysis_packet(delivery, claim_ids=["CLM-999"])
+        raise AssertionError("未知或未进入事实账本的 claim_id 应被拒绝")
+    except ValueError as exc:
+        assert "未进入事实账本" in str(exc)
+
+
+def test_reconciled_visual_observation_uses_arbitrated_text(root: Path) -> None:
+    delivery = root / "reconciled-visual-observation"
+    init_delivery(delivery, "示例品牌", "示例商品", "示例品类", "示例规格A", "mixed")
+    populate_valid_partial(delivery)
+    observation_path = delivery / "data" / "source_observation.jsonl"
+    observations = read_jsonl(observation_path)
+    image = next(item for item in observations if item.get("inspection_method") == "visual_stamped_card")
+    image.update(
+        {
+            "visible_heading": "客服热线",
+            "visible_text_excerpt": "400-821-5288",
+            "second_pass_heading": "客服热线: 400-821-5288",
+            "second_pass_excerpt": "服务时间见页面",
+            "second_pass_status": "match",
+            "second_pass_initial_status": "mismatch",
+            "reconciliation_status": "match_after_correction",
+            "reconciliation_resolution": "corrected_other",
+            "reconciliation_heading": "客服热线",
+            "reconciliation_excerpt": "400-821-5288",
+            "reconciliation_rationale": "第三次独立观察确认最终可见文字。",
+            "reconciliation_sequence": 1,
+            "reconciled_at": image["second_pass_at"],
+        }
+    )
+    write_jsonl(observation_path, observations)
+    passed = validate_delivery(delivery)
+    assert not any("最终标题与仲裁标题核对不一致" in error for error in passed["errors"])
+    assert not any("最终摘录与仲裁摘录核对不一致" in error for error in passed["errors"])
+
+    image["reconciliation_heading"] = "错误标题"
+    write_jsonl(observation_path, observations)
+    failed = validate_delivery(delivery)
+    assert any("最终标题与仲裁标题核对不一致" in error for error in failed["errors"])
+
+
 def main() -> int:
+    assert "visual_reconcile" in TRUSTED_AUDIT_PHASES
+    assert exact_evidence_values("执行标准：GB/T 20808 优等品") == set()
+    assert "GB/T 20808" in exact_evidence_values("检测方法：GB/T 20808")
+    assert TZ_DATETIME_RE.search("2026-08-14T04:08:33.706Z")
+    assert error_stage("DYN-001 的活动原文包含具体时刻，time_scope 必须保留完整日期、时刻和时区") == 2
+    assert not UNSUPPORTED_PRODUCT_TARGET_RE.search("紧实的结团不易破碎成粉末，控制扬尘")
+    assert UNSUPPORTED_PRODUCT_TARGET_RE.search("粉末形态产品")
+    assert normalized_literal_text('标题："纤维超韧"') == normalized_literal_text("标题：“纤维超韧”")
+    assert package_count_ranges_from_text("24包 M码 1包/120抽") == [(24, 24, "24包")]
+    assert FLAG_CLAIM_REQUIREMENTS["comparison"] == ("comparison", 1)
+    assert flag_requires_claim("comparison", "2倍抗张力，高于行业标准")
+    assert flag_requires_claim("comparison", "S码 VS M码")
+    assert not flag_requires_claim("comparison", "升级撕拉开口，轻松抽取")
+    assert flag_requires_claim("warning", "蛋白过敏者禁用")
+    assert not flag_requires_claim("warning", "检测项目不得检出荧光性物质")
     root = Path.cwd() / f".brandbai-product-value-test-{uuid.uuid4().hex}"
     root.mkdir()
     try:
@@ -2529,6 +3117,16 @@ def main() -> int:
         test_v021_method_consistency_regressions(root)
         test_v022_real_delivery_regressions(root)
         test_v023_conflict_and_task_grounding_regressions(root)
+        test_v024_bundle_period_and_evidence_relevance_regressions(root)
+        test_trusted_audit_event_binding(root)
+        test_report_builder_auto_finalizes_manifest(root)
+        test_spreadsheet_completeness_guardrails(root)
+        test_deterministic_source_ledger_parts(root)
+        test_deterministic_fact_ledger_parts(root)
+        test_compact_analysis_plan_compiler(root)
+        test_compact_analysis_packet(root)
+        test_reconciled_visual_observation_uses_arbitrated_text(root)
+        test_progressive_stage_filter()
         test_insufficient_delivery(root)
     finally:
         shutil.rmtree(root)

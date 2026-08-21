@@ -52,6 +52,7 @@ cd ../../brandbai-weibo-download/scripts
 python -B -m unittest test_collector_core.py test_project_plan.py test_project_runner.py test_project_delivery.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py test_stress_test_local.py test_live_resilience_test.py
 cd ../../brandbai-product-value/scripts
 python -B test_product_value_delivery.py
+python -B test_build_product_observation_ledger_from_notes.py test_product_claim_pipeline.py test_merge_product_value_ledger_parts.py
 cd ../../brandbai-value-expression/scripts
 python -X utf8 -B test_value_expression_delivery.py
 ```
