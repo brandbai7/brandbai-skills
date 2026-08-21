@@ -19,7 +19,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.3 | TikTok 单作品当前页达人快照、视频、图集、主页、搜索、插件作品清单续跑与可见一级评论；支持独立原声缺口、海外市场预设和本机中英双语证据 | Prototype · Noncommercial |
 | [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.4 | 微博单作品当前页达人快照、账号、搜索、话题、超话和热搜证据，支持多任务项目计划、断点恢复、合并交付与耐久测试 | Prototype · Noncommercial |
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
-| [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.23 | 从商品页、手卡、包装、参数、证据和用户资料建立可回溯事实；拦截未入账规格冲突、证据属性降级绕行、无来源任务扩写及产地追溯过度结论 | Prototype · Noncommercial |
+| [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.36 | 从商品页、表格、手卡、包装、参数、证据和用户资料建立可回溯事实；高密度字段与脚注确定性建账，大样本可按真实主张 ID 生成紧凑分析包，并在所属阶段拦截证据越界 | Prototype · Noncommercial |
 | [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.3 | 继承有效商品价值，以EX/PEX盘点页面表达，逐项扫描六路与十二槽位，形成核心价值覆盖完整、证据边界清晰的多轨呈现及真实单变量验证计划 | Prototype · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
@@ -190,6 +190,7 @@ cd ../../brandbai-weibo-download/scripts
 python -B -m unittest test_collector_core.py test_project_plan.py test_project_runner.py test_project_delivery.py test_browser_collect_weibo.py test_build_delivery.py test_package_delivery.py test_run_foundation.py test_stress_test_local.py test_live_resilience_test.py
 cd ../../brandbai-product-value/scripts
 python -B test_product_value_delivery.py
+python -B test_build_product_observation_ledger_from_notes.py test_product_claim_pipeline.py test_merge_product_value_ledger_parts.py
 cd ../../brandbai-value-expression/scripts
 python -X utf8 -B test_value_expression_delivery.py
 ```

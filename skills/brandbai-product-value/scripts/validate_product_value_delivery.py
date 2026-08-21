@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
-from collections import Counter
+from collections import Counter, defaultdict
 import hashlib
 import html
 import json
@@ -113,6 +113,36 @@ SOURCE_CLAIM_FIELDS = {
     "claimed_at",
     "rechecked_at",
 }
+ATOMIC_FIELD_LABEL_RE = re.compile(
+    r"(商品标题|产品名称|商品名称|品牌|品名|系列|厂名|生产企业|产地|"
+    r"当前选择SKU\s*ID|当前选中规格|规格组|型号|净含量|单件净含量|包装规格|"
+    r"配料表|配料|成分|营养成分表|能量|蛋白质|脂肪|碳水化合物|钠|钙|"
+    r"保质期|贮存条件|储存条件|储存方法|生产许可证编号|生产许可证|"
+    r"执行标准|标准编号|注册证号|备案编号|适用人群|不适宜人群|禁忌|"
+    r"注意事项|警示语|使用方法|食用方法|饮用方法)\s*[:：]",
+    re.IGNORECASE,
+)
+FOOTNOTE_DEFINITION_RE = re.compile(
+    r"^\s*(?P<marker>\*\d*|※\d*|注\s*\d*)\s*(?:数据来源|来源|注|说明|"
+    r"检测|实验|测试|统计|依据|截至|结果|本页|页面)",
+    re.IGNORECASE,
+)
+NUMBERED_FOOTNOTE_REFERENCE_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:\*\d+|※\d+|注\s*\d+)(?=$|[；;。,.，\s])",
+    re.IGNORECASE,
+)
+PLAIN_FOOTNOTE_REFERENCE_RE = re.compile(r"(?<=[\u4e00-\u9fff\d%])\*(?=$|[；;。,.，\s])")
+TRUSTED_AUDIT_EVENT_FIELDS = {
+    "event_id",
+    "source_file_id",
+    "relative_path",
+    "phase",
+    "sequence",
+    "recorded_at",
+    "source_sha256",
+    "audit_card_sha256",
+}
+TRUSTED_AUDIT_PHASES = {"visual_first", "visual_second", "visual_reconcile", "claim_extract", "claim_recheck"}
 SOURCE_FIELDS = {
     "source_id",
     "source_file_id",
@@ -238,6 +268,12 @@ METHOD_CODE_RE = re.compile(
     r"\s*[A-Z]?\s*\d[\d.:-]*(?:[-:]\d{2,4})?)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+EXECUTION_STANDARD_VALUE_RE = re.compile(
+    r"(?:执行标准|产品标准|标准号)\s*[:：]?\s*"
+    r"((?:GB(?:/T)?|GBZ(?:/T)?|SN/T|NY/T|DB\d+(?:/T)?|ISO|IEC|EN|ASTM)"
+    r"\s*[A-Z]?\s*\d[\d.:-]*(?:[-:]\d{2,4})?)",
+    re.IGNORECASE,
+)
 NO_ADDITIVE_RE = re.compile(r"无(?:其他|额外)?添加(?:成分|物)?|无防腐剂|不含防腐剂")
 ABSOLUTE_COMPETITION_RE = re.compile(r"差异化最强|竞品多停留|行业唯一|同类唯一|独有|领先")
 PUBLIC_JARGON_RE = re.compile(
@@ -252,7 +288,13 @@ PUBLIC_JARGON_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:F-EVIDENCE|STRAT|DYN|U|H|ZIP|updated_at|partial)(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
-OBSERVATION_METHODS = {"visual_stamped_card", "document_text", "official_url", "unsupported_archive"}
+OBSERVATION_METHODS = {
+    "visual_stamped_card",
+    "document_text",
+    "structured_spreadsheet",
+    "official_url",
+    "unsupported_archive",
+}
 OBSERVATION_STATUSES = {"inspected", "unreadable", "not_applicable"}
 TEXT_DENSITIES = {"none", "low", "medium", "high"}
 CONTENT_FLAGS = {
@@ -302,8 +344,36 @@ FLAG_CLAIM_REQUIREMENTS = {
     "warning": ("warning", 1),
     "faq": ("faq", 1),
     "usage": ("usage", 1),
-    "comparison": ("comparison", 2),
+    "comparison": ("comparison", 1),
 }
+TABULAR_LABEL_CLAIM_RULES = (
+    (re.compile(r"SKU|规格|型号|当前选中|当前选择|颜色分类|商品标题|商品\s*ID", re.IGNORECASE), "sku"),
+    (re.compile(r"价格|原价|售价|销量|评价|回头客|加购|权益|补贴|优惠", re.IGNORECASE), "transaction"),
+    (re.compile(r"品牌|商品名称|产品名称|医疗器械管理类别|生产企业|生产厂家|制造商|注册人", re.IGNORECASE), "identity"),
+    (re.compile(r"产地|原产地|生产地址|所在城市", re.IGNORECASE), "origin"),
+    (re.compile(r"保质期|贮存|储存|保存", re.IGNORECASE), "storage"),
+    (re.compile(r"许可证|注册证|备案凭证", re.IGNORECASE), "evidence"),
+    (re.compile(r"配料|成分", re.IGNORECASE), "ingredient"),
+    (re.compile(r"营养", re.IGNORECASE), "nutrition"),
+    (re.compile(r"禁忌|禁用|不适宜|不宜使用|警示|注意事项|请勿|过敏史", re.IGNORECASE), "warning"),
+    (re.compile(r"适用人群|适用范围|预期用途|症状", re.IGNORECASE), "audience"),
+    (re.compile(r"使用方法|用法|操作方法", re.IGNORECASE), "usage"),
+)
+
+
+def is_spreadsheet_source(source: dict[str, Any]) -> bool:
+    filename = str(source.get("filename", ""))
+    media_type = str(source.get("media_type", "")).lower()
+    return Path(filename).suffix.lower() in {".xlsx", ".xlsm"} or "spreadsheetml" in media_type
+
+
+def required_claim_types_for_tabular_labels(labels: Any) -> set[str]:
+    if not isinstance(labels, list):
+        return set()
+    text = "\n".join(str(item) for item in labels)
+    return {claim_type for pattern, claim_type in TABULAR_LABEL_CLAIM_RULES if pattern.search(text)}
+
+
 COMPETITOR_SOURCE_TYPES = {"competitor_page", "industry_report", "competitor_dataset"}
 AGGREGATE_USER_RE = re.compile(
     r"(?:很多|大多数|多数|普遍).{0,8}(?:人|用户|消费者)|"
@@ -365,7 +435,8 @@ UNSUPPORTED_PRODUCT_TARGET_RE = re.compile(
     r"未公开(?:同类)?检测(?:与|和)?(?:体系)?认证(?:的)?茶饮|"
     r"(?:不需要|无需|不用|不必).{0,20}(?:为不同场景)?(?:准备|购买|配备).{0,12}不同形态(?:的)?(?:茶饮|产品|商品)|"
     r"(?:本品|本商品|当前商品).{0,10}与未公开(?:认证|营养表|营养成分表).{0,10}(?:差异|区别)"
-    r"|(?:需要额外(?:分装|称量|处理)的)?(?:碎料|碎片|粉末|散料)(?:形态|产品|原料)?"
+    r"|需要额外(?:分装|称量|处理)的(?:碎料|碎片|粉末|散料)(?:形态|产品|原料)?"
+    r"|(?:碎料|碎片|粉末|散料)(?:形态|产品|原料)"
 )
 COMPARISON_LANGUAGE_RE = re.compile(rf"{COMPARISON_PREFIX}|{UNSUPPORTED_PRODUCT_TARGET_RE.pattern}")
 COMPARISON_DENIAL_SPAN_RE = re.compile(
@@ -403,6 +474,26 @@ TITLE_EVIDENCE_RE = re.compile(r"(?:商品|页面|下载文件|文件)?标题|�
 FILENAME_METADATA_RE = re.compile(r"(?:本地|来源|原始|下载)?(?:文件名|档名|filename|relative_path|文件路径)", re.IGNORECASE)
 HIGHER_PRIORITY_SKU_RE = re.compile(r"SKU\s*选择|包装|规格(?:栏|表|选择)|商品信息|成交单元|订单", re.IGNORECASE)
 SKU_CONFLICT_RE = re.compile(r"不一致|冲突|无法确认|待核对|待确认")
+SKU_BUNDLE_CONFLICT_RE = re.compile(
+    r"(?:套组|装箱|清单|到手|内容|正装|件数).{0,48}(?:不一致|冲突|不完全一致|无法确认|待核对|待确认)|"
+    r"(?:不一致|冲突|不完全一致|无法确认|待核对|待确认).{0,48}(?:套组|装箱|清单|到手|内容|正装|件数)"
+)
+USAGE_SUPPORT_GROUPS = (
+    (
+        "使用周期或频次",
+        re.compile(
+            r"(?:使用)?周期|(?:使用)?频次|每日|每天|每周|每月|每隔\s*\d+\s*天|"
+            r"连续\s*\d+\s*(?:天|周|个月|月)|\d+\s*(?:天|周|个月|月)(?:装|量|用量)?|"
+            r"一周|整周|一个月|整月"
+        ),
+    ),
+    (
+        "补货或一次买够",
+        re.compile(r"补货|囤货|一次买够|够(?:吃|喝|用)[^。；，,]{0,8}(?:一阵|一段时间|几天|一周|一个月)"),
+    ),
+)
+STABILITY_OR_ACTIVITY_RE = re.compile(r"失活|稳定(?:性|度)?|活性保持|锁鲜|包裹稳定")
+CONTRAINDICATION_RE = re.compile(r"孕妇|孕哺|哺乳期|禁忌|请勿使用|禁止使用|不适用人群")
 SULFUR_SAFETY_BENEFIT_RE = re.compile(
     r"(?:担心|顾虑|影响|减少|避免).{0,20}(?:硫熏|二氧化硫).{0,20}(?:安全|健康|危害|风险)|"
     r"(?:硫熏|二氧化硫).{0,20}(?:安全|健康|危害|风险).{0,20}(?:担心|顾虑|影响|减少|避免)"
@@ -575,7 +666,7 @@ INFERRED_DYNAMIC_YEAR_RE = re.compile(
     r"年份.{0,12}(?:根据|依据|按).{0,20}(?:抓取|采集|截图|下载|访问|页面保存).{0,12}(?:推定|推断|补全|确定)"
 )
 TIME_OF_DAY_RE = re.compile(r"(?<!\d)\d{1,2}:\d{2}(?!\d)")
-TZ_DATETIME_RE = re.compile(r"T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})")
+TZ_DATETIME_RE = re.compile(r"T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})")
 DISALLOWED_TOP_LEVEL_SCRIPT_SUFFIXES = {".py", ".pyw", ".ps1", ".bat", ".cmd", ".exe", ".js", ".vbs"}
 
 
@@ -584,7 +675,12 @@ def exact_evidence_values(value: Any) -> set[str]:
     matches = set(REPORT_VALUE_RE.findall(text))
     matches.update(DATE_VALUE_RE.findall(text))
     matches.update(item.strip() for item in METHOD_VALUE_RE.findall(text))
-    matches.update(item.strip() for item in METHOD_CODE_RE.findall(text))
+    execution_standards = {item.strip().lower() for item in EXECUTION_STANDARD_VALUE_RE.findall(text)}
+    matches.update(
+        item.strip()
+        for item in METHOD_CODE_RE.findall(text)
+        if item.strip().lower() not in execution_standards
+    )
     return {item for item in matches if item}
 
 
@@ -596,6 +692,14 @@ def record_text(record: dict[str, Any]) -> str:
         elif isinstance(value, (str, int, float)):
             values.append(str(value))
     return " ".join(values)
+
+
+def unsupported_usage_groups(positive_text: Any, direct_support_text: Any) -> list[str]:
+    """Return usage/refill benefit groups absent from directly cited source text."""
+
+    positive = str(positive_text or "")
+    support = str(direct_support_text or "")
+    return [name for name, pattern in USAGE_SUPPORT_GROUPS if pattern.search(positive) and not pattern.search(support)]
 
 
 def is_archive_source(record: dict[str, Any]) -> bool:
@@ -612,6 +716,11 @@ def package_count_ranges_from_text(value: Any) -> list[tuple[int, int, str]]:
     text = INTERNAL_ID_RE.sub("", str(value or ""))
     values: list[tuple[int, int, str]] = []
     for match in PACKAGE_COUNT_RE.finditer(text):
+        # `1包/120抽` describes the per-pack unit, not an alternative bundle
+        # count. The explicit bundle count earlier in the same text (for
+        # example `24包 M码 1包/120抽`) remains available for conflict checks.
+        if re.match(r"\s*/\s*\d", text[match.end() :]):
+            continue
         start = int(match.group("start"))
         end = int(match.group("end") or start)
         values.append((min(start, end), max(start, end), match.group(0)))
@@ -649,6 +758,40 @@ def normalized_literal_text(value: Any) -> str:
     """Normalize presentation-only separators for direct-copy comparisons."""
 
     return re.sub(r"[\s,，。；;、:：!?！？（）()\[\]【】\"'“”‘’]+", "", str(value or ""))
+
+
+def normalized_footnote_marker(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or ""))
+
+
+def claim_footnote_references(value: Any) -> set[str]:
+    text = str(value or "")
+    if FOOTNOTE_DEFINITION_RE.match(text):
+        return set()
+    markers = {
+        normalized_footnote_marker(match.group(0))
+        for match in NUMBERED_FOOTNOTE_REFERENCE_RE.finditer(text)
+    }
+    if PLAIN_FOOTNOTE_REFERENCE_RE.search(text):
+        markers.add("*")
+    return markers
+
+
+def flag_requires_claim(flag: Any, observation_text: Any) -> bool:
+    """Return whether a heuristic content flag needs a typed literal claim.
+
+    Comparison and warning flags are often conservative visual classifications.
+    They only become hard claim-coverage requirements when the inspected text
+    itself contains explicit comparison or warning language.
+    """
+
+    flag_text = str(flag or "")
+    text = str(observation_text or "")
+    if flag_text == "comparison":
+        return bool(COMPARISON_LANGUAGE_RE.search(text) or re.search(r"vs\.?", text, re.IGNORECASE))
+    if flag_text == "warning":
+        return bool(WARNING_TEXT_RE.search(text))
+    return True
 
 
 def semantic_reference_units(value: Any) -> set[str]:
@@ -1161,6 +1304,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         audit_card_ledger = read_jsonl(paths["audit_card_ledger"])
         source_observations = read_jsonl(paths["source_observations"])
         source_claims = read_jsonl(paths["source_claims"])
+        trusted_audit_path = delivery / "data" / "tool_audit_events.jsonl"
+        trusted_audit_events = read_jsonl(trusted_audit_path) if trusted_audit_path.exists() else []
         sources = read_jsonl(paths["sources"])
         facts = read_jsonl(paths["facts"])
         fabe = read_jsonl(paths["fabe"])
@@ -1183,6 +1328,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         "audit_cards": sum(1 for item in audit_card_ledger if item.get("status") == "ready"),
         "source_observations": len(source_observations),
         "source_claims": len(source_claims),
+        "trusted_audit_events": len(trusted_audit_events),
         "sources": len(sources),
         "facts": len(facts),
         "fabe": len(fabe),
@@ -1324,6 +1470,97 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{ledger_name} 存在重复 ID: {', '.join(duplicates)}")
 
     source_files_by_id = {item.get("source_file_id"): item for item in source_inventory}
+    trusted_events_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    if trusted_audit_events:
+        event_times: list[datetime] = []
+        for index, event in enumerate(trusted_audit_events, start=1):
+            event_missing = missing_fields(event, TRUSTED_AUDIT_EVENT_FIELDS)
+            if event_missing:
+                errors.append(f"tool_audit_events.jsonl 第 {index} 条缺少字段: {', '.join(event_missing)}")
+            expected_event_id = f"AUD-{index:04d}"
+            if event.get("event_id") != expected_event_id:
+                errors.append(f"受信审计事件必须按写入顺序连续编号；第 {index} 条应为 {expected_event_id}")
+            phase = str(event.get("phase", ""))
+            source_file_id = str(event.get("source_file_id", ""))
+            if phase not in TRUSTED_AUDIT_PHASES:
+                errors.append(f"{event.get('event_id')} 的 phase 不在允许范围")
+            key = (source_file_id, phase)
+            if key in trusted_events_by_key:
+                errors.append(f"{source_file_id} 的 {phase} 受信事件重复")
+            trusted_events_by_key[key] = event
+            indexed = source_files_by_id.get(source_file_id)
+            if indexed is None:
+                errors.append(f"{event.get('event_id')} 引用了不存在的 source_file_id: {source_file_id}")
+            else:
+                if event.get("relative_path") != indexed.get("relative_path"):
+                    errors.append(f"{event.get('event_id')} 的 relative_path 与来源清单不一致")
+                if event.get("source_sha256") != indexed.get("sha256"):
+                    errors.append(f"{event.get('event_id')} 的来源哈希与清单不一致")
+            recorded_at = parse_datetime(event.get("recorded_at"))
+            if recorded_at is None:
+                errors.append(f"{event.get('event_id')} 的 recorded_at 必须是完整 ISO 时间")
+            else:
+                event_times.append(recorded_at)
+        if len(event_times) != len(set(event_times)):
+            errors.append("受信审计事件时间必须由工具逐次独立记录")
+        if event_times != sorted(event_times):
+            errors.append("受信审计事件必须按实际打开时间递进，不得重排或回填")
+        phase_events = {
+            phase: [item for item in trusted_audit_events if item.get("phase") == phase]
+            for phase in TRUSTED_AUDIT_PHASES
+        }
+        for phase, records in phase_events.items():
+            expected = list(range(1, len(records) + 1))
+            actual = [item.get("sequence") for item in records]
+            if actual != expected:
+                errors.append(f"受信审计阶段 {phase} 的 sequence 必须从 1 连续递进")
+        image_ids = [
+            str(item.get("source_file_id"))
+            for item in source_inventory
+            if str(item.get("media_type", "")).startswith("image/")
+        ]
+        if [item.get("source_file_id") for item in phase_events["visual_first"]] != image_ids:
+            errors.append("受信审计事件未按 source_file_id 正序完整打开全部图片")
+        if [item.get("source_file_id") for item in phase_events["visual_second"]] != list(reversed(image_ids)):
+            errors.append("受信审计事件未按 source_file_id 逆序完整复核全部图片")
+        extracted_ids = [item.get("source_file_id") for item in phase_events["claim_extract"]]
+        rechecked_ids = [item.get("source_file_id") for item in phase_events["claim_recheck"]]
+        if rechecked_ids != list(reversed(extracted_ids)):
+            errors.append("受信原文复核事件必须覆盖全部摘录来源并按逆序重新打开")
+        spreadsheet_ids = [
+            str(item.get("source_file_id"))
+            for item in source_inventory
+            if is_spreadsheet_source(item)
+        ]
+        missing_spreadsheet_extract = sorted(set(spreadsheet_ids).difference(map(str, extracted_ids)))
+        missing_spreadsheet_recheck = sorted(set(spreadsheet_ids).difference(map(str, rechecked_ids)))
+        if missing_spreadsheet_extract:
+            errors.append(
+                "受信原文摘录未打开全部 XLSX/XLSM：" + ", ".join(missing_spreadsheet_extract)
+            )
+        if missing_spreadsheet_recheck:
+            errors.append(
+                "受信原文复核未重新打开全部 XLSX/XLSM：" + ", ".join(missing_spreadsheet_recheck)
+            )
+        for source_file_id in spreadsheet_ids:
+            event = trusted_events_by_key.get((source_file_id, "claim_extract"), {})
+            if event.get("tabular_read_status") not in {"readable", "unreadable"}:
+                errors.append(f"{source_file_id} 的受信表格事件缺少 tabular_read_status")
+            if event.get("tabular_read_status") == "readable":
+                if not isinstance(event.get("tabular_sheet_names"), list):
+                    errors.append(f"{source_file_id} 的受信表格事件缺少 tabular_sheet_names")
+                if not isinstance(event.get("tabular_nonempty_cells"), int):
+                    errors.append(f"{source_file_id} 的受信表格事件缺少 tabular_nonempty_cells")
+                if not isinstance(event.get("tabular_business_labels"), list):
+                    errors.append(f"{source_file_id} 的受信表格事件缺少 tabular_business_labels")
+        phase_positions = {
+            phase: [index for index, item in enumerate(trusted_audit_events) if item.get("phase") == phase]
+            for phase in TRUSTED_AUDIT_PHASES
+        }
+        ordered_phases = ["visual_first", "visual_second", "claim_extract", "claim_recheck"]
+        for previous, current in zip(ordered_phases, ordered_phases[1:]):
+            if phase_positions[previous] and phase_positions[current] and max(phase_positions[previous]) >= min(phase_positions[current]):
+                errors.append(f"受信审计阶段顺序错误：必须先完成 {previous} 再开始 {current}")
     derived_page_images = []
     original_document_sources = []
     for item in source_inventory:
@@ -1492,6 +1729,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             and observation.get("inspection_method") != "document_text"
         ):
             errors.append(f"{observation_id} 对应原始 PDF，inspection_method 必须是 document_text")
+        if indexed and is_spreadsheet_source(indexed) and observation.get("inspection_method") != "structured_spreadsheet":
+            errors.append(f"{observation_id} 对应 XLSX/XLSM，inspection_method 必须是 structured_spreadsheet")
         text_density = observation.get("text_density")
         if text_density not in TEXT_DENSITIES:
             errors.append(f"{observation_id} 的 text_density 必须是 none/low/medium/high")
@@ -1542,16 +1781,46 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for key in ("second_pass_heading", "second_pass_excerpt", "second_pass_at"):
                 if not str(observation.get(key, "")).strip():
                     errors.append(f"{observation_id} 已完成图片初检，但 {key} 为空")
-            if str(observation.get("second_pass_heading", "")).strip() != str(observation.get("visible_heading", "")).strip():
-                errors.append(f"{observation_id} 的正序与逆序标题核对不一致")
-            if str(observation.get("second_pass_excerpt", "")).strip() != str(observation.get("visible_text_excerpt", "")).strip():
-                errors.append(f"{observation_id} 的正序与逆序摘录核对不一致")
+            reconciled = observation.get("reconciliation_status") == "match_after_correction"
+            comparison_heading = (
+                observation.get("reconciliation_heading", "")
+                if reconciled
+                else observation.get("second_pass_heading", "")
+            )
+            comparison_excerpt = (
+                observation.get("reconciliation_excerpt", "")
+                if reconciled
+                else observation.get("second_pass_excerpt", "")
+            )
+            comparison_label = "仲裁" if reconciled else "逆序复核"
+            if normalized_literal_text(comparison_heading) != normalized_literal_text(observation.get("visible_heading", "")):
+                errors.append(f"{observation_id} 的最终标题与{comparison_label}标题核对不一致")
+            if normalized_literal_text(comparison_excerpt) != normalized_literal_text(observation.get("visible_text_excerpt", "")):
+                errors.append(f"{observation_id} 的最终摘录与{comparison_label}摘录核对不一致")
             first_at = parse_datetime(observation.get("inspected_at"))
             second_at = parse_datetime(observation.get("second_pass_at"))
             if first_at is None or second_at is None:
                 errors.append(f"{observation_id} 的两次核对时间必须是完整 ISO 时间")
             elif second_at <= first_at:
                 errors.append(f"{observation_id} 的逆序复核时间必须晚于正序初检")
+            if trusted_audit_events:
+                first_event = trusted_events_by_key.get((source_file_id, "visual_first"))
+                second_event = trusted_events_by_key.get((source_file_id, "visual_second"))
+                if first_event is None or second_event is None:
+                    errors.append(f"{observation_id} 缺少固定工具记录的图片双遍打开事件")
+                else:
+                    if first_at != parse_datetime(first_event.get("recorded_at")):
+                        errors.append(f"{observation_id} 的 inspected_at 不等于受信工具事件时间，不得由模型改写")
+                    if second_at != parse_datetime(second_event.get("recorded_at")):
+                        errors.append(f"{observation_id} 的 second_pass_at 不等于受信工具事件时间，不得由模型改写")
+                    if first_sequence != first_event.get("sequence"):
+                        errors.append(f"{observation_id} 的 first_pass_sequence 与受信工具事件不一致")
+                    if second_sequence != second_event.get("sequence"):
+                        errors.append(f"{observation_id} 的 second_pass_sequence 与受信工具事件不一致")
+                    if first_event.get("audit_card_sha256") != card.get("audit_card_sha256"):
+                        errors.append(f"{observation_id} 的正序受信事件未绑定当前审计卡哈希")
+                    if second_event.get("audit_card_sha256") != card.get("audit_card_sha256"):
+                        errors.append(f"{observation_id} 的逆序受信事件未绑定当前审计卡哈希")
             if exact_evidence_values(
                 f"{observation.get('visible_heading', '')} {observation.get('visible_text_excerpt', '')} "
                 f"{observation.get('second_pass_heading', '')} {observation.get('second_pass_excerpt', '')}"
@@ -1654,6 +1923,13 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     claims_by_id = {item.get("claim_id"): item for item in source_claims}
     claims_by_observation_id: dict[str, list[dict[str, Any]]] = {}
+    footnote_definitions_by_source: dict[str, set[str]] = defaultdict(set)
+    for claim in source_claims:
+        definition = FOOTNOTE_DEFINITION_RE.match(str(claim.get("verbatim_text", "")))
+        if definition:
+            footnote_definitions_by_source[str(claim.get("source_file_id", ""))].add(
+                normalized_footnote_marker(definition.group("marker"))
+            )
     for claim in source_claims:
         claim_id = str(claim.get("claim_id", ""))
         source_file_id = str(claim.get("source_file_id", ""))
@@ -1688,6 +1964,23 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 f"{claim_id} 的 verbatim_text 使用了“公开展示/通用文本”等摘要占位；"
                 "原文主张必须逐字抄录可见文字，不能由分析者概括"
             )
+        field_labels = [match.group(1) for match in ATOMIC_FIELD_LABEL_RE.finditer(verbatim_text)]
+        if len(field_labels) > 1:
+            errors.append(
+                f"{claim_id} 合并了多个应独立建账的字段（{'、'.join(field_labels)}）；"
+                "高密度标签页必须按主张单位拆分"
+            )
+        definition = FOOTNOTE_DEFINITION_RE.match(verbatim_text)
+        if definition and claim_type != "evidence":
+            errors.append(f"{claim_id} 是页面脚注或限定来源，claim_type 必须是 evidence")
+        missing_footnotes = claim_footnote_references(verbatim_text) - footnote_definitions_by_source.get(
+            source_file_id, set()
+        )
+        if missing_footnotes:
+            errors.append(
+                f"{claim_id} 含脚注标记但同一来源缺少对应脚注原文："
+                f"{', '.join(sorted(missing_footnotes))}"
+            )
         if WARNING_TEXT_RE.search(verbatim_text):
             if claim_type != "warning":
                 errors.append(f"{claim_id} 含禁止食用、请勿食用或遵医嘱等警示语义，claim_type 必须是 warning")
@@ -1712,13 +2005,33 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             errors.append(f"{claim_id} 的原文摘录与复核时间必须是带时区的完整 ISO 时间")
         elif rechecked_at <= claimed_at:
             errors.append(f"{claim_id} 的 rechecked_at 必须晚于 claimed_at")
+        if trusted_audit_events:
+            extract_event = trusted_events_by_key.get((source_file_id, "claim_extract"))
+            recheck_event = trusted_events_by_key.get((source_file_id, "claim_recheck"))
+            if extract_event is None or recheck_event is None:
+                errors.append(f"{claim_id} 缺少固定工具记录的原文摘录或复核事件")
+            else:
+                if claimed_at != parse_datetime(extract_event.get("recorded_at")):
+                    errors.append(f"{claim_id} 的 claimed_at 不等于受信工具事件时间，不得由模型改写")
+                if rechecked_at != parse_datetime(recheck_event.get("recorded_at")):
+                    errors.append(f"{claim_id} 的 rechecked_at 不等于受信工具事件时间，不得由模型改写")
         if observation and claimed_at is not None:
             prior_at = parse_datetime(
                 observation.get("second_pass_at")
                 if indexed and str(indexed.get("media_type", "")).startswith("image/")
                 else observation.get("inspected_at")
             )
-            if prior_at is not None and claimed_at <= prior_at:
+            same_trusted_non_image_open = bool(
+                trusted_audit_events
+                and indexed
+                and not str(indexed.get("media_type", "")).startswith("image/")
+                and claimed_at == prior_at
+                and claimed_at
+                == parse_datetime(
+                    trusted_events_by_key.get((source_file_id, "claim_extract"), {}).get("recorded_at")
+                )
+            )
+            if prior_at is not None and claimed_at <= prior_at and not same_trusted_non_image_open:
                 errors.append(f"{claim_id} 必须在逐文件观察完成后重新打开来源并摘录原文")
         if indexed and str(indexed.get("media_type", "")).startswith("image/"):
             if exact_evidence_values(record_text(claim)):
@@ -1899,6 +2212,9 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             requirement = FLAG_CLAIM_REQUIREMENTS.get(str(flag))
             if requirement is None:
                 continue
+            observation_text = f"{observation.get('visible_heading', '')} {observation.get('visible_text_excerpt', '')}"
+            if not flag_requires_claim(flag, observation_text):
+                continue
             claim_type, minimum = requirement
             if claim_type_counts.get(claim_type, 0) < minimum:
                 errors.append(
@@ -1909,31 +2225,31 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     claim_recheck_times = [parse_datetime(item.get("rechecked_at")) for item in source_claims]
     valid_claim_check_times = [item for item in claim_check_times if item is not None]
     valid_claim_recheck_times = [item for item in claim_recheck_times if item is not None]
-    if len(set(valid_claim_check_times)) != len(valid_claim_check_times):
+    if not trusted_audit_events and len(set(valid_claim_check_times)) != len(valid_claim_check_times):
         errors.append("每条原文主张的第三遍摘录时间必须独立记录，不得复用同一时间")
-    if len(set(valid_claim_recheck_times)) != len(valid_claim_recheck_times):
+    if not trusted_audit_events and len(set(valid_claim_recheck_times)) != len(valid_claim_recheck_times):
         errors.append("每条原文主张的第四遍复核时间必须独立记录，不得复用同一时间")
-    if suspicious_fixed_cadence(sorted(valid_claim_check_times)):
+    if not trusted_audit_events and suspicious_fixed_cadence(sorted(valid_claim_check_times)):
         errors.append("原文主张摘录时间呈固定间隔批量生成，不能作为真实逐条摘录记录")
-    if suspicious_fixed_cadence(sorted(valid_claim_recheck_times)):
+    if not trusted_audit_events and suspicious_fixed_cadence(sorted(valid_claim_recheck_times)):
         errors.append("原文主张复核时间呈固定间隔批量生成，不能作为真实逐条复核记录")
-    if suspicious_dense_cadence(valid_claim_check_times):
+    if not trusted_audit_events and suspicious_dense_cadence(valid_claim_check_times):
         errors.append("原文主张摘录时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和摘录的真实操作")
-    if suspicious_dense_cadence(valid_claim_recheck_times):
+    if not trusted_audit_events and suspicious_dense_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间在长序列中持续仅相隔 1–5 秒，密度不符合逐条重新打开、阅读和复核的真实操作")
-    if suspicious_bounded_micro_cadence(valid_claim_check_times):
+    if not trusted_audit_events and suspicious_bounded_micro_cadence(valid_claim_check_times):
         errors.append("原文主张摘录时间在长序列中全部落入 1–7 秒的少量整数间隔，属于机械生成节奏，不能作为真实逐条阅读记录")
-    if suspicious_bounded_micro_cadence(valid_claim_recheck_times):
+    if not trusted_audit_events and suspicious_bounded_micro_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间在长序列中全部落入 1–7 秒的少量整数间隔，属于机械生成节奏，不能作为真实逐条复核记录")
-    if suspicious_repeating_cadence(valid_claim_check_times):
+    if not trusted_audit_events and suspicious_repeating_cadence(valid_claim_check_times):
         errors.append("原文主张摘录时间呈重复循环节奏，不能作为真实逐条摘录记录")
-    if suspicious_repeating_cadence(valid_claim_recheck_times):
+    if not trusted_audit_events and suspicious_repeating_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间呈重复循环节奏，不能作为真实逐条复核记录")
-    if suspicious_bounded_audit_cadence(valid_claim_check_times):
+    if not trusted_audit_events and suspicious_bounded_audit_cadence(valid_claim_check_times):
         errors.append("原文主张摘录时间呈受限整数区间内持续交替的机械节奏，不能作为真实逐条摘录记录")
-    if suspicious_bounded_audit_cadence(valid_claim_recheck_times):
+    if not trusted_audit_events and suspicious_bounded_audit_cadence(valid_claim_recheck_times):
         errors.append("原文主张复核时间呈受限整数区间内持续交替的机械节奏，不能作为真实逐条复核记录")
-    if suspicious_parallel_audit_timing(valid_claim_check_times, valid_claim_recheck_times):
+    if not trusted_audit_events and suspicious_parallel_audit_timing(valid_claim_check_times, valid_claim_recheck_times):
         errors.append(
             "原文主张摘录与复核的时间间隔序列完全同构，且每条记录仅整体平移同一秒数；"
             "这不能作为两次独立重新打开与逐条核对的真实记录"
@@ -1999,7 +2315,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 if observation.get("source_file_id") != source_file_id:
                     errors.append(f"{source_id} 的 observation_id 与 source_file_id 不一致")
                 if observation.get("inspection_status") != "inspected":
-                    errors.append(f"{source_id} 绑定的 {observation_id} 尚未完成逐文件核对")
+                    if str(source.get("status", "")) != "unavailable":
+                        errors.append(f"{source_id} 绑定的 {observation_id} 尚未完成逐文件核对")
+                    elif "不代表来源没有内容" not in str(source.get("notes", "")):
+                        errors.append(f"{source_id} 是不可读来源，notes 必须明确不代表来源没有内容")
                 if str(source.get("title", "")).strip() != str(observation.get("title", "")).strip():
                     errors.append(f"{source_id} 的 title 必须与 {observation_id} 的逐文件核对标题完全一致")
             if indexed and str(indexed.get("media_type", "")).startswith("image/"):
@@ -2024,10 +2343,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     allowed_exact_values: set[str] = set()
     referenced_claim_ids: set[str] = set()
     blocked_spec_fact_ids: set[str] = set()
+    blocked_value_ids: set[str] = set()
 
     for fact in facts:
         fact_id = str(fact.get("fact_id", ""))
         fact_type = fact.get("fact_type")
+        if SKU_BUNDLE_CONFLICT_RE.search(str(fact.get("boundary", ""))):
+            blocked_spec_fact_ids.add(fact_id)
+            if str(fact.get("status", "")).lower() in {"confirmed", "active", "current", "ready"}:
+                errors.append(
+                    f"{fact_id} 的 boundary 已声明套组/装箱清单冲突，不得继续标记为已确认；"
+                    "冲突事实只能保留为待确认并进入高优先级缺口"
+                )
         if fact_type not in FACT_TYPES:
             errors.append(f"{fact_id} 的 fact_type 不在允许范围")
         expected_prefix = "F" if fact_type in {"F-PAGE", "F-EVIDENCE"} else fact_type
@@ -2219,6 +2546,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                     f"{anchor_id} 使用了冲突或不可清晰读取的 SKU/包装事实 "
                     f"{', '.join(sorted(blocked))}；识别锚只能保留已确认规格"
                 )
+        if SKU_BUNDLE_CONFLICT_RE.search(str(anchor.get("boundary", ""))) and re.search(
+            r"到手|正装|套组(?:含|清单)|\d+\s*件", str(anchor.get("statement", ""))
+        ):
+            errors.append(f"{anchor_id} 已声明套组清单冲突，却仍把冲突到手量写入识别锚")
 
     allowed_derivation_statuses = {"page_supported", "reasoned", "to_validate"}
     fabe_content_ids: dict[str, str] = {}
@@ -2341,6 +2672,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in referenced_facts
         }
+        usage_issues = unsupported_usage_groups(
+            " ".join(
+                str(item.get(key, ""))
+                for key in ("advantage", "benefit", "reference_frame", "user_language")
+            ),
+            f"{referenced_claim_text} {referenced_user_text}",
+        )
+        if usage_issues:
+            errors.append(
+                f"{fabe_id} 由包装量或规格推导了{'、'.join(usage_issues)}，但本条所引原文/用户资料没有直接出现同类语义；"
+                "包装量只能表达当前到手规格"
+            )
         if item.get("derivation_status") == "page_supported":
             direct_claim_text = normalized_literal_text(referenced_claim_text)
             for key in ("advantage", "benefit"):
@@ -2435,6 +2778,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                     errors.append(f"{value_id} 引用了不存在的 fact_id: {fact_id}")
             blocked = set(str(item) for item in references).intersection(blocked_spec_fact_ids)
             if blocked:
+                blocked_value_ids.add(value_id)
                 errors.append(
                     f"{value_id} 使用了冲突或不可清晰读取的 SKU/包装事实 "
                     f"{', '.join(sorted(blocked))}；不得进入价值分层或 P0 候选"
@@ -2540,6 +2884,21 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             str(sources_by_id.get(fact.get("source_id"), {}).get("source_type", ""))
             for fact in value_facts
         }
+        usage_issues = unsupported_usage_groups(value_positive_text, f"{value_claim_text} {value_user_text}")
+        if usage_issues:
+            errors.append(
+                f"{value_id} 由包装量或规格推导了{'、'.join(usage_issues)}，但 supporting_fact_ids 所引原文/用户资料没有直接支持；"
+                "不得把片数、盒数、容量或重量自动改写成周期、频次或减少补货"
+            )
+        if STABILITY_OR_ACTIVITY_RE.search(value_positive_text) and not STABILITY_OR_ACTIVITY_RE.search(value_claim_text):
+            errors.append(
+                f"{value_id} 把所引证据扩写为稳定性、活性或失活结论，但 supporting_fact_ids 的原文没有对应语义；"
+                "安全性检测不能替代稳定性证据"
+            )
+        if CONTRAINDICATION_RE.search(value_positive_text) and not CONTRAINDICATION_RE.search(value_claim_text):
+            errors.append(
+                f"{value_id} 使用了孕哺、禁忌或不适用人群结论，但 supporting_fact_ids 的原文没有直接支持"
+            )
         value_has_comparison_support = any(
             claim.get("claim_type") == "comparison" for claim in value_claims
         ) or bool(value_source_types.intersection(COMPETITOR_SOURCE_TYPES))
@@ -2812,6 +3171,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         value = values_by_id[value_id]
         if value.get("layer") == "deferred" or value.get("downstream_readiness") == "blocked":
             errors.append(f"当前执行主轴不得引用暂缓或禁止调用的价值: {value_id}")
+        if value_id in blocked_value_ids:
+            errors.append(f"当前执行主轴引用了使用冲突 SKU/装箱事实的价值: {value_id}")
     if decision.get("recommended_value_id") and execution_value_ids and decision.get("recommended_value_id") not in execution_value_ids:
         errors.append("current_execution_value_ids 必须包含当前推荐 P0")
     expected_axis = expected_execution_axis(execution_value_ids, values_by_id)
@@ -2902,6 +3263,52 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     analysis_status = manifest.get("analysis_status")
     delivery_status = manifest.get("delivery_status")
+    spreadsheet_gap_open = any(
+        gap.get("state") == "open"
+        and re.search(
+            r"表格|Excel|XLSX|参数|规格|SKU|价格|交易|许可证|生产企业|保质期|配料|营养|警示",
+            f"{gap.get('category', '')} {gap.get('missing', '')} {gap.get('impact', '')}",
+            re.IGNORECASE,
+        )
+        for gap in gaps
+    )
+    for spreadsheet in [item for item in source_inventory if is_spreadsheet_source(item)]:
+        source_file_id = str(spreadsheet.get("source_file_id", ""))
+        observations_for_file = observations_by_file_id.get(source_file_id, [])
+        observation = observations_for_file[0] if len(observations_for_file) == 1 else {}
+        source_claim_records = [item for item in source_claims if item.get("source_file_id") == source_file_id]
+        event = trusted_events_by_key.get((source_file_id, "claim_extract"), {})
+        tabular_status = str(event.get("tabular_read_status", ""))
+        unreadable = observation.get("inspection_status") != "inspected" or tabular_status == "unreadable"
+        if analysis_status == "complete" and unreadable:
+            errors.append(
+                f"{source_file_id} 是未成功读取的 XLSX/XLSM；表格不可读时 analysis_status 不得为 complete"
+            )
+        if analysis_status == "partial" and unreadable and not spreadsheet_gap_open:
+            errors.append(f"{source_file_id} 表格不可读时必须登记开放的表格/参数资料缺口")
+        nonempty_cells = event.get("tabular_nonempty_cells")
+        if (
+            observation.get("inspection_status") == "inspected"
+            and isinstance(nonempty_cells, int)
+            and nonempty_cells > 0
+            and not source_claim_records
+        ):
+            if analysis_status == "complete":
+                errors.append(f"{source_file_id} 是非空表格但没有任何原文主张；不得标为 complete")
+            elif analysis_status == "partial" and not spreadsheet_gap_open:
+                errors.append(f"{source_file_id} 是非空表格但没有原文主张，必须登记开放缺口")
+        required_tabular_claims = required_claim_types_for_tabular_labels(event.get("tabular_business_labels"))
+        actual_tabular_claims = {str(item.get("claim_type", "")) for item in source_claim_records}
+        missing_tabular_claims = sorted(required_tabular_claims.difference(actual_tabular_claims))
+        if missing_tabular_claims:
+            if analysis_status == "complete":
+                errors.append(
+                    f"{source_file_id} 的表格业务字段尚未覆盖原文主张类型：{', '.join(missing_tabular_claims)}"
+                )
+            elif analysis_status == "partial" and not spreadsheet_gap_open:
+                errors.append(
+                    f"{source_file_id} 的表格业务字段未完整摘录且未登记缺口：{', '.join(missing_tabular_claims)}"
+                )
     if analysis_status in {"complete", "partial"}:
         for key in ("brand", "product", "sku"):
             if not str(manifest.get(key, "")).strip():
@@ -3011,15 +3418,115 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     }
 
 
+STAGE_ORDER = {
+    "observations": 0,
+    "claims": 1,
+    "facts": 2,
+    "analysis": 3,
+    "final": 4,
+}
+
+
+def error_stage(error: str) -> int:
+    """Classify a full-validator error for progressive authoring feedback.
+
+    The final validator remains authoritative. Stages only hide errors that
+    depend on ledgers the author has not created yet.
+    """
+
+    text = str(error)
+    if re.search(r"01_商品价值底座|02_资料说明与缺口|普通版|updated_at|最终账本", text):
+        return STAGE_ORDER["final"]
+    if re.search(
+        r"FABE-|ANCHOR-|(?<![A-Za-z])V-\d|P0|candidate_value_ids|current_execution|"
+        r"cannot_prove|value_ledger|anchor_ledger|fabe_ledger|p0_decision|"
+        r"价值|候选池|决策状态|layer=|analysis_status|delivery_status|资料缺口|GAP-",
+        text,
+        re.IGNORECASE,
+    ):
+        return STAGE_ORDER["analysis"]
+    if re.search(
+        r"(?<!S)(?<![A-Za-z])F-\d|DYN-\d|fact_ledger|事实|F-EVIDENCE|关键原文字段.*没有进入|"
+        r"time_scope|活动原文包含具体时刻|动态事实",
+        text,
+        re.IGNORECASE,
+    ):
+        return STAGE_ORDER["facts"]
+    if re.search(
+        r"CLM-|SRC-|source_claim|source_ledger|claim_|原文主张|摘录|主张类型|"
+        r"受信原文摘录未打开|受信原文复核未重新打开|"
+        r"受信表格事件|tabular_read_status|tabular_sheet_names|tabular_nonempty_cells|"
+        r"tabular_business_labels|tabular_truncated|表格业务字段|中高文字密度来源.*主张|复核事件",
+        text,
+        re.IGNORECASE,
+    ):
+        return STAGE_ORDER["claims"]
+    if re.search(
+        r"SF-|OBS-|source_inventory|source_observation|tool_audit|inspection_|"
+        r"审计卡|受信|图片|逐文件核对|来源清单|XLSX|XLSM|归档文件|relative_path|"
+        r"first_pass|second_pass|content_flags|text_density",
+        text,
+        re.IGNORECASE,
+    ):
+        return STAGE_ORDER["observations"]
+    return STAGE_ORDER["analysis"]
+
+
+def deferred_non_image_observation_errors(delivery: Path) -> set[str]:
+    """Return observation errors that are expected before document claim extraction.
+
+    The visual checkpoint happens immediately after the two image passes. At that
+    point non-image sources have not yet been opened by ``claim_extract``, which is
+    also the trusted observation event for spreadsheets and documents. Those
+    missing records are deferred only for the observations checkpoint; the claims
+    checkpoint and the final validator still require them.
+    """
+
+    inventory_path = delivery / "data" / "source_inventory.jsonl"
+    if not inventory_path.exists():
+        return set()
+    deferred: set[str] = set()
+    for source in read_jsonl(inventory_path):
+        source_file_id = str(source.get("source_file_id", "")).strip()
+        media_type = str(source.get("media_type", "")).strip().lower()
+        if source_file_id and not media_type.startswith("image/"):
+            deferred.add(f"{source_file_id} 尚无逐文件核对记录；清单中的每个文件都必须先检查或明确标记不可读")
+    return deferred
+
+
+def result_for_stage(result: dict[str, Any], stage: str, delivery: Path | None = None) -> dict[str, Any]:
+    if stage == "final":
+        return result
+    cutoff = STAGE_ORDER[stage]
+    full_errors = list(result.get("errors") or [])
+    visible_errors = [item for item in full_errors if error_stage(item) <= cutoff]
+    if stage == "observations" and delivery is not None:
+        deferred = deferred_non_image_observation_errors(delivery)
+        visible_errors = [item for item in visible_errors if item not in deferred]
+    staged = dict(result)
+    staged["stage"] = stage
+    staged["status"] = "passed" if not visible_errors else "failed"
+    staged["errors"] = visible_errors
+    staged["full_error_count"] = len(full_errors)
+    staged["deferred_error_count"] = len(full_errors) - len(visible_errors)
+    return staged
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--delivery", required=True, type=Path)
+    parser.add_argument(
+        "--stage",
+        choices=tuple(STAGE_ORDER),
+        default="final",
+        help="Progressive authoring gate. Final remains the formal handoff validator.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    result = validate_delivery(args.delivery)
+    result = result_for_stage(validate_delivery(args.delivery), args.stage, args.delivery)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["status"] == "passed" else 1
 
