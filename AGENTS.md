@@ -55,6 +55,8 @@ python -B test_product_value_delivery.py
 python -B test_build_product_observation_ledger_from_notes.py test_product_claim_pipeline.py test_merge_product_value_ledger_parts.py
 cd ../../brandbai-value-expression/scripts
 python -X utf8 -B test_value_expression_delivery.py
+cd ../../brandbai-product-page/scripts
+python -X utf8 -B test_product_page_delivery.py
 ```
 
 Update the commands when a new skill adds its own tests.

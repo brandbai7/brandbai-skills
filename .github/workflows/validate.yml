@@ -47,3 +47,12 @@ jobs:
       - name: Run Tmall collector unit tests
         working-directory: skills/brandbai-tmall-download/scripts
         run: python -m unittest test_collector_core.py test_build_delivery.py test_run_foundation.py
+      - name: Run Product Value synthetic tests
+        working-directory: skills/brandbai-product-value/scripts
+        run: python -B test_product_value_delivery.py
+      - name: Run Value Expression synthetic tests
+        working-directory: skills/brandbai-value-expression/scripts
+        run: python -B test_value_expression_delivery.py
+      - name: Run Product Page synthetic tests
+        working-directory: skills/brandbai-product-page/scripts
+        run: python -B test_product_page_delivery.py

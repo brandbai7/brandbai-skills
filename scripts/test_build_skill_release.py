@@ -17,6 +17,7 @@ TIKTOK_SKILL_DIR = ROOT / "skills" / "brandbai-tiktok-download"
 WEIBO_SKILL_DIR = ROOT / "skills" / "brandbai-weibo-download"
 PRODUCT_VALUE_SKILL_DIR = ROOT / "skills" / "brandbai-product-value"
 VALUE_EXPRESSION_SKILL_DIR = ROOT / "skills" / "brandbai-value-expression"
+PRODUCT_PAGE_SKILL_DIR = ROOT / "skills" / "brandbai-product-page"
 
 
 @contextmanager
@@ -214,6 +215,34 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/prepare_value_expression_work_packets.py", names)
                 self.assertIn("scripts/merge_value_expression_ledger_parts.py", names)
                 self.assertFalse(any(name.startswith("brandbai-value-expression/") for name in names))
+
+    def test_builds_product_page_skill_with_contracts_and_validator(self):
+        with workspace_temp() as temp:
+            result = build_release(
+                PRODUCT_PAGE_SKILL_DIR,
+                temp,
+                "brandbai-product-page-v0.3.1",
+            )
+            archive_path = temp / "brandbai-product-page.zip"
+            checksum_path = temp / "brandbai-product-page.zip.sha256"
+            self.assertTrue(archive_path.is_file())
+            self.assertTrue(checksum_path.is_file())
+            self.assertEqual(result["version"], "0.3.1")
+            with zipfile.ZipFile(archive_path) as archive:
+                names = archive.namelist()
+                self.assertIn("SKILL.md", names)
+                self.assertIn("agents/openai.yaml", names)
+                self.assertIn("references/input-output-contract.md", names)
+                self.assertIn("references/page-decision-framework.md", names)
+                self.assertIn("references/fmcg-page-patterns.md", names)
+                self.assertIn("references/release-notes.md", names)
+                self.assertIn("assets/01_商品页与主图优先优化行动单模板.md", names)
+                self.assertIn("scripts/index_page_sources.py", names)
+                self.assertIn("scripts/init_product_page_delivery.py", names)
+                self.assertIn("scripts/build_product_page_report.py", names)
+                self.assertIn("scripts/validate_product_page_delivery.py", names)
+                self.assertIn("scripts/test_product_page_delivery.py", names)
+                self.assertFalse(any(name.startswith("brandbai-product-page/") for name in names))
 
     def test_rejects_tag_version_mismatch(self):
         with workspace_temp() as temp:

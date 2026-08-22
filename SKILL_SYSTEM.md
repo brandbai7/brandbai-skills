@@ -25,13 +25,14 @@ BrandBAI Skills 面向内容电商，把既有专家方法、确定性脚本、�
 | `brandbai-douyin-account-analysis` | 分析抖音影响力账号的内容表达与用户接收 | 作品基线、视频表达、评论语义、语义对齐、候选机制、证据包 |
 | `brandbai-product-value` | 建立可回溯的商品事实与商品价值底座 | 资料路由、FC/SC、商品身份、识别锚、FABE、P0/P1/P2、证据边界、资料缺口、版本交接 |
 | `brandbai-value-expression` | 把已确认商品价值转成可感知的卖点呈现 | 六条翻译路径、十二类感知槽位、画面/动作/声音/字幕/道具五轨、场景与商品承接、单变量验证 |
+| `brandbai-product-page` | 检查一个当前成交SKU的静态购买决策承接 | 货架外显、首图、主图序列、交易区、详情模块、交易角色、变体边界、适用对象、证据范围、实际到手、共用/分版路由、页面版本验证 |
 | `brandbai-influence-product-fit` | 判断影响力对象与商品价值是否匹配 | 双上游读取、用户与场景交集、内容承载、风险边界、候选比较 |
 | `brandbai-user-semantics` | 从用户原声形成可回溯选择逻辑 | 单品、多品牌迁移、品类问题、价值命题、SEM/UE/REL/MIG |
 | `brandbai-influence-intelligence` | 分析影响力对象的长期资产 | KOC/KOL/达人/明星艺人等对象深析、身份结构、内容机制与用户关系 |
 | `brandbai-content-diagnosis` | 诊断内容并沉淀可复用资产 | 单条、对象专项、对照、向量簇、素材池、母版家族、测试队列 |
 | `brandbai-qianchuan-analysis` | 接入和分析千川素材经营数据 | Preflight、字段与覆盖、素材池扫描、生命周期、归因边界、实验设计 |
 | `brandbai-live-commerce` | 分析直播内容、流量与承接 | 录屏转写、循环、引流、承接、对标、多主播、执行话术卡 |
-| `brandbai-commerce-conversion` | 诊断购买前后决策接口 | 商品页、SKU、标准成交单元、咨询、评价、售后退款复购 |
+| `brandbai-commerce-conversion` | 诊断页面以外的购买前后交易接口 | 咨询、客服、评价、问大家、售后、退款与复购 |
 | `brandbai-brand-geo` | 治理品牌长期事实与 AI 回答面 | 品牌源代码、内容宪法、事实总账、冲突治理、GEO 审计 |
 | `brandbai-growth-planning` | 把判断编译为可执行增长循环 | 新品启动、阶段策略、Brief、拍摄任务、责任、回写与停止条件 |
 
@@ -104,6 +105,10 @@ brandbai-product-value
         +--> product facts, anchors, P0/P1/P2 and evidence boundaries
                     |
                     +--> brandbai-value-expression
+                    |           |
+                    |           +--> brandbai-product-page
+                    |
+                    +-----------> brandbai-product-page
                     |
                     +--> brandbai-influence-product-fit
 
@@ -112,4 +117,4 @@ brandbai-douyin-account-analysis
         +--------------------------------> brandbai-influence-product-fit
 ```
 
-`brandbai-product-value` 只决定“商品价值是什么、依据是什么、能说到哪里”；`brandbai-value-expression` 才决定“怎样让用户看见、听懂和感受到”；匹配 Skill 必须同时读取商品价值与影响力对象分析，任何一侧为 `blocked` 或 `stale` 时停止正式匹配。
+`brandbai-product-value` 只决定“商品价值是什么、依据是什么、能说到哪里”；`brandbai-value-expression` 决定“怎样让用户看见、听懂和感受到”；`brandbai-product-page` 再决定这些价值和呈现怎样沿货架外显、首图、主图序列、交易区与详情页完成当前成交SKU的购买决策承接，不重新生成价值或 VIS，也不把下载、投放或交易运营并入页面分析。匹配 Skill 必须同时读取商品价值与影响力对象分析，任何一侧为 `blocked` 或 `stale` 时停止正式匹配。

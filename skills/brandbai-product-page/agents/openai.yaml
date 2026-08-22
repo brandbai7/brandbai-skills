@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI 商品页优化"
+  short_description: "沿购买决策链检查主图、交易区与详情页，给出可执行优先动作"
+  default_prompt: "使用 $brandbai-product-page 检查这个SKU的主图和详情页，先锁定当前交易角色、规格变体、适用对象和页面范围，再基于商品价值输出最优先的页面优化动作。"
