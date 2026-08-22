@@ -285,8 +285,15 @@ def inspect_input(input_dir: Path, max_recent: int = MAX_RECENT_NON_PINNED) -> d
         }
 
     warnings = list(selection_warnings)
+    works_manifest: dict[str, Any] = {}
     if works_manifest_path is None:
         warnings.append("Works completeness manifest is missing")
+    else:
+        try:
+            payload = read_json(works_manifest_path)
+            works_manifest = payload if isinstance(payload, dict) else {}
+        except AnalysisInputError:
+            warnings.append("Works completeness manifest cannot be read")
     if comments_path is None:
         warnings.append("Comments CSV is missing; only the works baseline can be prepared")
     if comments_manifest_path is None:
@@ -300,6 +307,26 @@ def inspect_input(input_dir: Path, max_recent: int = MAX_RECENT_NON_PINNED) -> d
 
     selected_ids = {row["video_id"] for row in selected}
     inventory = build_comment_inventory(comments, selected_ids)
+    requested_recent = as_int(works_manifest.get("requested_recent_non_pinned"))
+    visible_works_observed = as_int(works_manifest.get("visible_works_observed"))
+    recent_selected = sum(1 for row in selected if row["sample_role"] == "recent_non_pinned")
+    if (
+        requested_recent
+        and requested_recent < max_recent
+        and visible_works_observed > len(selected)
+    ):
+        warnings.append(
+            "Collection package requested only "
+            f"{requested_recent} recent non-pinned work(s), while the default analysis window is "
+            f"up to {max_recent} and {visible_works_observed} visible work(s) were observed"
+        )
+        analysis_window_status = "partial"
+    elif requested_recent >= max_recent or (
+        visible_works_observed and visible_works_observed <= len(selected)
+    ):
+        analysis_window_status = "complete_observed_scope"
+    else:
+        analysis_window_status = "unknown"
     status = "ready" if not warnings else "partial"
     return {
         "status": status,
@@ -323,6 +350,13 @@ def inspect_input(input_dir: Path, max_recent: int = MAX_RECENT_NON_PINNED) -> d
             "selected_total": len(selected),
             "comments_loaded": len(comments),
             "missing_media": len(missing_media_ids),
+        },
+        "analysis_window": {
+            "status": analysis_window_status,
+            "requested_recent_non_pinned": requested_recent,
+            "selected_recent_non_pinned": recent_selected,
+            "visible_works_observed": visible_works_observed,
+            "default_recent_non_pinned": max_recent,
         },
         "selected_works": selected,
         "comment_inventory": inventory,

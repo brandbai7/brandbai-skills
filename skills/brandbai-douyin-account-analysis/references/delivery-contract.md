@@ -4,10 +4,11 @@
 
 1. 先用 `build_analysis_dataset.py` 生成样本数据。
 2. 用 `init_analysis_delivery.py` 放入三份普通版模板和内部空白文件。
-3. 深看作品并编码评论，填写下列 JSONL。
-4. 依据同一份 JSONL 填写两份 Markdown。
-5. 运行 `build_d1_workbook.py`，由同一份 JSONL 自动生成 D1 工作簿。
-6. 运行 `validate_analysis_delivery.py`，修复所有错误后交付。
+3. 分类全部近期非置顶作品，运行 `build_account_baseline.py` 生成中位数基线。
+4. 深看作品、编码评论并填写下列 JSONL。
+5. 依据同一份 JSONL 填写两份 Markdown。
+6. 运行 `build_d1_workbook.py`，由同一份 JSONL 自动生成 D1 工作簿。
+7. 运行 `validate_analysis_delivery.py`，修复所有错误后交付。
 
 最终结论与 D1 表必须来自同一套中间数据，不分别凭印象编写。
 
@@ -17,7 +18,7 @@
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "analysis_status": "complete",
   "analysis_mode": "lightweight_no_asr",
   "account_name": "合成测试账号",
@@ -28,6 +29,23 @@
 ```
 
 `analysis_status` 只能是 `complete`、`partial` 或 `insufficient`。初始化时为 `draft`，不可直接交付。
+
+## 作品分类与中位数基线
+
+`data/work_classification.jsonl` 必须覆盖每条近期非置顶作品：
+
+```text
+video_id
+content_task
+content_type
+commercial_status           natural | commercial | activity | live_preview | unknown
+account_window
+comparison_group
+classification_status       included | excluded
+excluded_reason
+```
+
+自然、商业、活动和直播预告必须分组。排除作品必须写明原因。运行 `build_account_baseline.py` 后生成 `data/baseline_ledger.jsonl`，其中的互动中位数必须能由 `works_sample.json` 复算；置顶不进入近期基线，单作品组只能标 `conditional`。
 
 ## 视频分析卡
 
@@ -82,6 +100,26 @@ reception_depth              S0 | S1 | S2 | S3 | S4 | S5 | S6
 
 评论原文不得改写。每条只有一个主语义。单条作品进入分布计算的一级评论最多 200 条；固定抽样不等于概率样本。
 
+## 评论采集与停止账本
+
+`data/comment_collection_ledger.jsonl` 每条深看作品一行：
+
+```text
+video_id
+platform_comment_count
+encoded_top_level_count
+encoded_reply_count
+collected_at
+sort_order
+completeness                 complete | partial | unknown
+activity_pollution
+anomalies                    string[]
+stopping_status              sufficient | continue | blocked
+stopping_reason
+```
+
+编码数量必须与评论证据账本一致。`sufficient` 只表示足以支持本轮账号判断，不表示平台绝对全量；仍需补采或关键楼中楼不可见时使用 `continue` 或 `blocked`，并在资料限制中继承。
+
 ## 结论证据卡
 
 `data/claim_cards.jsonl` 每行一条重要判断，必填：
@@ -103,6 +141,33 @@ validation_next
 ```
 
 标为 P 的模式至少需要两个支持作品，并且必须有评论证据。单条高表现只能形成 H 候选，不得包装成稳定公式。
+
+## 五类稳定资产
+
+`data/account_assets.jsonl` 必须各有且只有一行：
+
+```text
+people_judgment
+content_action
+method_value
+relationship_asset
+commercial_boundary
+```
+
+每行填写 `asset_id`、`asset_type`、`statement`、`evidence_status`、`supporting_video_ids`、`supporting_evidence_ids`、`counterevidence`、`alternative_explanations`、`usable_scope` 和 `prohibited_scope`。证据不足时保留 U，不允许缺行或用商品方向补齐。
+
+## 创作空间地图
+
+`data/creation_space.jsonl` 必须各有且只有一行：
+
+```text
+stable
+expandable
+episodic
+commercial_high_risk
+```
+
+每行填写 `space_id`、`zone`、`statement`、`evidence_status`、`supporting_video_ids`、`supporting_evidence_ids`、`conditions`、`counterevidence` 和 `boundary`。它只描述账号创作空间，不生成本次选题或具体商品方向。
 
 ## D1 工作簿
 

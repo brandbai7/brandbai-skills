@@ -4,7 +4,7 @@ description: Analyze a qualified Douyin collection package into an evidence-back
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.2.0"
+  version: "0.3.0"
   category: content-commerce
 ---
 
@@ -111,6 +111,19 @@ data/claim_cards.jsonl
 
 初始化模板不是正式交付。不要覆盖已有分析；需要重做时使用新的输出目录。
 
+## 建立分类中位数基线
+
+初始化后，先为 `works_sample.json` 中每一条近期非置顶作品填写 `data/work_classification.jsonl`。字段和口径见[交付与中间数据合同](references/delivery-contract.md)。必须把自然、商业、活动和直播预告分开，按用户任务、内容类型和账号阶段建立可比组；置顶作品不进入基线。
+
+正式构建前先做 Dry Run：
+
+```powershell
+python scripts/build_account_baseline.py --delivery "<分析输出目录>" --dry-run
+python scripts/build_account_baseline.py --delivery "<分析输出目录>"
+```
+
+脚本依据原始互动字段计算各可比组的赞、评、藏、转中位数，写入 `data/baseline_ledger.jsonl`。只有一个作品的组会标记为 `conditional`，不能据此形成稳定模式；无播放量时仍不得计算互动率、完播率或播放效率。
+
 ## 完成账号分析
 
 阅读 [精简分析方法](references/analysis-method.md)和[交付与中间数据合同](references/delivery-contract.md)，依次完成：
@@ -123,12 +136,14 @@ data/claim_cards.jsonl
 6. 按 [评论与证据编码](references/coding-schema.md) 编码；
 7. 生成视频—评论语义对齐卡；
 8. 检查注意力归属、语义接管、反例和替代解释；
-9. 提炼账号资产、高表现候选机制、失效条件和信任边界；
-10. 输出完成状态和资料缺口后停止。
+9. 逐视频填写评论采集与停止判断，不把“停止补采”写成“平台全量”；
+10. 提炼五类稳定资产：人物判断、内容动作、方法价值、关系资产和商业边界；
+11. 形成稳定创作区、可扩展区、偶发机制区和商业高风险区；
+12. 输出高表现候选机制、失效条件、完成状态和资料缺口后停止。
 
 默认不做音频转写。标题或简介、封面和评论均已读取时，可以完成轻量模式；只能读取标题和评论、连封面都不可读时标记为部分完成。不得把封面观察写成完整视频剧情，也不得把评论中的观众说法改写为已直接观察到的事实。
 
-把深看结果逐行写入 `video_analysis.jsonl`，把评论原文和编码写入 `evidence_ledger.jsonl`，把重要结论写入 `claim_cards.jsonl`。三份普通版必须由这三类数据生成，不要分别凭印象填写。
+把深看结果逐行写入 `video_analysis.jsonl`，把评论原文和编码写入 `evidence_ledger.jsonl`，把评论覆盖与停止判断写入 `comment_collection_ledger.jsonl`，把重要结论写入 `claim_cards.jsonl`，并分别填写 `account_assets.jsonl` 与 `creation_space.jsonl`。三份普通版必须由这些账本生成，不要分别凭印象填写。
 
 ## 生成普通版交付
 
@@ -161,7 +176,7 @@ python scripts/build_d1_workbook.py --delivery "<分析输出目录>"
 python scripts/validate_analysis_delivery.py --delivery "<分析输出目录>"
 ```
 
-只有退出码为 `0` 才能交付。校验会检查：全部置顶是否有分析卡、非置顶深看是否不超过 10 条、P 模式是否至少有两个支持作品和评论证据、评论编码是否合法、三份普通版是否仍有模板占位符，以及 Excel 与内部证据行数是否一致。
+只有退出码为 `0` 才能交付。校验会检查：全部近期非置顶是否已分类并形成可复算的中位数基线、全部置顶是否有分析卡、非置顶深看是否不超过 10 条、评论账本是否覆盖全部深看作品、P 模式是否至少有两个支持作品和评论证据、五类稳定资产与四类创作空间是否齐全、评论编码是否合法、三份普通版是否仍有模板占位符，以及 Excel 与内部证据行数是否一致。
 
 ## 判定完成状态
 

@@ -154,7 +154,7 @@ def completed_delivery(
         write_json(root / "data/works_sample.json", {"works": works})
         write_json(root / "data/comment_inventory.json", [])
     write_json(root / "data/delivery_manifest.json", {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "analysis_status": "complete",
         "analysis_mode": "lightweight_no_asr",
         "account_name": "合成测试账号",
@@ -162,17 +162,94 @@ def completed_delivery(
         "deep_review_video_ids": ["synthetic-001", "synthetic-002"],
         "limitations": [],
     })
+    write_jsonl(root / "data/work_classification.jsonl", [{
+        "video_id": "synthetic-002",
+        "content_task": "合成用户任务",
+        "content_type": "合成内容类型",
+        "commercial_status": "natural",
+        "account_window": "synthetic-window",
+        "comparison_group": "synthetic-task",
+        "classification_status": "included",
+        "excluded_reason": "",
+    }])
+    write_jsonl(root / "data/baseline_ledger.jsonl", [{
+        "baseline_id": "BSL-001",
+        "comparison_group": "synthetic-task",
+        "content_task": "合成用户任务",
+        "content_type": "合成内容类型",
+        "commercial_status": "natural",
+        "account_window": "synthetic-window",
+        "video_ids": ["synthetic-002"],
+        "sample_size": 1,
+        "comparable_status": "conditional",
+        "digg_median": 0,
+        "comment_median": 0,
+        "collect_median": 0,
+        "share_median": 0,
+        "boundary": "只用于合成测试",
+    }])
     write_jsonl(root / "data/video_analysis.jsonl", videos)
     write_jsonl(root / "data/evidence_ledger.jsonl", evidence)
+    write_jsonl(root / "data/comment_collection_ledger.jsonl", [
+        {
+            "video_id": video_id,
+            "platform_comment_count": 1,
+            "encoded_top_level_count": 1,
+            "encoded_reply_count": 0,
+            "collected_at": "2026-08-05T12:00:00+08:00",
+            "sort_order": "platform_default",
+            "completeness": "complete",
+            "activity_pollution": "none",
+            "anomalies": [],
+            "stopping_status": "sufficient",
+            "stopping_reason": "合成证据足以验证结构，不代表平台全量",
+        }
+        for video_id in ("synthetic-001", "synthetic-002")
+    ])
     write_jsonl(root / "data/claim_cards.jsonl", claims)
+    asset_types = (
+        "people_judgment", "content_action", "method_value", "relationship_asset",
+        "commercial_boundary",
+    )
+    write_jsonl(root / "data/account_assets.jsonl", [
+        {
+            "asset_id": f"AST-{index:03d}",
+            "asset_type": asset_type,
+            "statement": "合成稳定资产",
+            "evidence_status": "P",
+            "supporting_video_ids": ["synthetic-001", "synthetic-002"],
+            "supporting_evidence_ids": ["E-001", "E-002"],
+            "counterevidence": "合成反例",
+            "alternative_explanations": ["synthetic alternative"],
+            "usable_scope": "仅用于合成测试",
+            "prohibited_scope": "不得作为真实账号判断",
+        }
+        for index, asset_type in enumerate(asset_types, 1)
+    ])
+    zones = ("stable", "expandable", "episodic", "commercial_high_risk")
+    write_jsonl(root / "data/creation_space.jsonl", [
+        {
+            "space_id": f"SPACE-{index:03d}",
+            "zone": zone,
+            "statement": "合成创作空间",
+            "evidence_status": "P",
+            "supporting_video_ids": ["synthetic-001", "synthetic-002"],
+            "supporting_evidence_ids": ["E-001", "E-002"],
+            "conditions": "合成条件",
+            "counterevidence": "合成反例",
+            "boundary": "仅用于合成测试",
+        }
+        for index, zone in enumerate(zones, 1)
+    ])
 
     report = "# 合成账号深度分析\n\n" + "\n\n".join(
         heading + "\n\n" + "合成分析内容，仅用于验证结构。" * 20
         for heading in (
             "## 一、结论先看", "## 二、样本与数据边界", "## 三、账号近期基线",
-            "## 四、置顶作品代表什么", "## 五、用户真正接收了什么",
-            "## 六、代表作品的视频—评论对齐", "## 七、高表现候选机制与失效条件",
-            "## 八、一般商业承载与信任边界", "## 九、仍未知什么",
+            "## 四、置顶作品代表什么", "## 五、五类稳定资产与账号定位",
+            "## 六、原生内容语法与创作空间地图", "## 七、用户真正接收了什么",
+            "## 八、代表作品的视频—评论对齐", "## 九、高表现候选机制与失效条件",
+            "## 十、一般商业承载与信任边界", "## 十一、仍未知什么",
         )
     )
     notes = "# 分析说明与资料缺口\n\n" + "\n\n".join(
@@ -331,6 +408,30 @@ class AnalysisDeliveryTests(unittest.TestCase):
         code, output = self.run_quietly(validate_main, ["--delivery", str(root)])
         self.assertEqual(code, 2)
         self.assertIn("still contains template placeholders", output)
+
+    def test_fabricated_baseline_median_is_rejected(self):
+        root = self.fresh_dir("false_median")
+        completed_delivery(root)
+        baseline_path = root / "data/baseline_ledger.jsonl"
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        baseline["digg_median"] = 999
+        write_jsonl(baseline_path, [baseline])
+        code, output = self.run_quietly(validate_main, ["--delivery", str(root)])
+        self.assertEqual(code, 2)
+        self.assertIn("is not reproducible from works_sample", output)
+
+    def test_missing_stable_asset_type_is_rejected(self):
+        root = self.fresh_dir("missing_asset")
+        completed_delivery(root)
+        assets_path = root / "data/account_assets.jsonl"
+        assets = [
+            json.loads(line)
+            for line in assets_path.read_text(encoding="utf-8").splitlines()
+        ]
+        write_jsonl(assets_path, assets[:-1])
+        code, output = self.run_quietly(validate_main, ["--delivery", str(root)])
+        self.assertEqual(code, 2)
+        self.assertIn("is missing asset_type values", output)
 
     def test_initializer_dry_run_then_creates_templates_without_overwrite(self):
         root = self.fresh_dir("init")

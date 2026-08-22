@@ -54,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         "input_status": report["status"],
         "sample_rule": report["sample_rule"],
         "sample_counts": report["sample_counts"],
+        "analysis_window": report["analysis_window"],
         "outputs": [
             "data/analysis_manifest.json",
             "data/works_sample.json",
@@ -74,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         "source_paths": report["source_paths"],
         "sample_rule": report["sample_rule"],
         "sample_counts": report["sample_counts"],
+        "analysis_window": report["analysis_window"],
         "warnings": report["warnings"],
         "semantic_analysis_included": False,
         "product_matching_included": False,

@@ -61,17 +61,18 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 ANALYSIS_SKILL_DIR,
                 temp,
-                "brandbai-douyin-account-analysis-v0.2.0",
+                "brandbai-douyin-account-analysis-v0.3.0",
             )
             archive_path = temp / "brandbai-douyin-account-analysis.zip"
             checksum_path = temp / "brandbai-douyin-account-analysis.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.2.0")
+            self.assertEqual(result["version"], "0.3.0")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
                 self.assertIn("assets/02_D1评论语义证据包模板.xlsx", names)
+                self.assertIn("scripts/build_account_baseline.py", names)
                 self.assertIn("scripts/build_d1_workbook.py", names)
                 self.assertIn("scripts/validate_analysis_delivery.py", names)
                 self.assertFalse(any(name.startswith("brandbai-douyin-account-analysis/") for name in names))
