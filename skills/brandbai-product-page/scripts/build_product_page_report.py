@@ -686,7 +686,7 @@ def transaction_section(chain: dict[str, Any]) -> str:
     bundle = current.get("bundle_contents", []) if isinstance(current, dict) else []
     return "\n".join(
         [
-            f"- 当前成交角色：{md(current.get('transaction_role'), 'unknown')}",
+            f"- 当前成交角色：{TRANSACTION_ROLE_LABELS.get(str(current.get('transaction_role')), md(current.get('transaction_role'), 'unknown'))}",
             f"- 当前SKU：{md(current.get('current_sku_id'), 'unknown')}",
             f"- 当前规格／数量：{md(current.get('current_quantity_or_size'), 'unknown')}",
             f"- 平台规格组：{md([item.get('group_name', '') for item in raw_groups if isinstance(item, dict)], '未整理')}",

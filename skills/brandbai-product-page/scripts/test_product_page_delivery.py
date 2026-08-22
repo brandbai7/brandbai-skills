@@ -767,6 +767,11 @@ def run_test() -> None:
         assert pro_result["status"] == "passed", json.dumps(pro_result, ensure_ascii=False, indent=2)
         assert (professional / "02_主图交易区详情页优化页纲.md").is_file()
         assert (professional / "03_资料缺口与证据边界.md").is_file()
+        page_plan = (professional / "02_主图交易区详情页优化页纲.md").read_text(
+            encoding="utf-8"
+        )
+        assert "当前成交角色：正装主销" in page_plan
+        assert "当前成交角色：standard" not in page_plan
         legacy_report = professional / "02_主图与详情页执行页.md"
         legacy_report.write_text("legacy", encoding="utf-8")
         build_delivery(professional, write=True)
@@ -1373,7 +1378,7 @@ def run_test() -> None:
 
         build_delivery(course, write=True)
         assert validate_delivery(course)["status"] == "passed"
-        assert SKILL_VERSION == "0.4.0"
+        assert SKILL_VERSION == "0.4.1"
         print("product-page synthetic tests passed")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

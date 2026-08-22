@@ -4,7 +4,7 @@ description: Diagnose and optimize one ecommerce product page from readable main
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.4.0"
+  version: "0.4.1"
   category: content-commerce
 ---
 
