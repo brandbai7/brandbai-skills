@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.3.0"
-SKILL_VERSION = "0.3.1"
+SCHEMA_VERSION = "0.4.0"
+SKILL_VERSION = "0.4.0"
 
 SCOPES = {"main_images", "detail_page", "combined"}
 TASKS = {"diagnose", "design", "route", "version_review"}
 DELIVERY_MODES = {"course", "professional"}
+ANALYSIS_MODES = {"diagnose_existing", "enhance_with_evidence"}
 RUN_STATUSES = {"ready", "partial", "degraded_no_product_value", "stopped"}
 ANALYSIS_STATUSES = {"draft", "complete", "partial", "insufficient", "stale"}
 DELIVERY_STATUSES = {"ready", "conditional", "blocked", "stale"}
@@ -262,12 +263,15 @@ BASIS_TYPES = {
     "value_expression",
     "product_value_and_value_expression",
     "page_visible_only",
+    "supplemental_evidence",
+    "page_and_supplemental",
 }
 GAP_RETURN_TARGETS = {
     "product_value",
     "value_expression",
     "page_material",
     "human_confirmation",
+    "supporting_material",
 }
 ROUTE_OPTIONS = {
     "shared_master",
@@ -278,15 +282,18 @@ ROUTE_OPTIONS = {
 ROUTE_GATE_STATUSES = {"supported", "not_supported", "unknown"}
 ROUTE_STATUSES = {"suggested_untested", "blocked", "stale"}
 
-COURSE_REPORT = "01_商品页与主图优先优化行动单.md"
+COURSE_REPORT = "01_商品页诊断与优化建议.md"
 PROFESSIONAL_REPORTS = (
-    "01_商品页判断与优先修复.md",
-    "02_主图与详情页下一步.md",
+    "01_商品页诊断与优化建议.md",
+    "02_主图交易区详情页优化页纲.md",
+    "03_资料缺口与证据边界.md",
 )
 DATA_FILES = (
     "page_manifest.json",
     "upstream_snapshot.json",
     "source_inventory.jsonl",
+    "supporting_source_inventory.jsonl",
+    "claim_ledger.jsonl",
     "page_coverage.jsonl",
     "page_component_ledger.jsonl",
     "page_chain.json",
@@ -387,6 +394,8 @@ def delivery_paths(delivery: Path) -> dict[str, Path]:
         "manifest": data / "page_manifest.json",
         "upstream": data / "upstream_snapshot.json",
         "sources": data / "source_inventory.jsonl",
+        "supporting_sources": data / "supporting_source_inventory.jsonl",
+        "claims": data / "claim_ledger.jsonl",
         "coverage": data / "page_coverage.jsonl",
         "components": data / "page_component_ledger.jsonl",
         "chain": data / "page_chain.json",
@@ -398,6 +407,7 @@ def delivery_paths(delivery: Path) -> dict[str, Path]:
         "course_report": delivery / COURSE_REPORT,
         "professional_report_01": delivery / PROFESSIONAL_REPORTS[0],
         "professional_report_02": delivery / PROFESSIONAL_REPORTS[1],
+        "professional_report_03": delivery / PROFESSIONAL_REPORTS[2],
     }
 
 

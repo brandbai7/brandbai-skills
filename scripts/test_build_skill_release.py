@@ -221,13 +221,13 @@ class BuildSkillReleaseTests(unittest.TestCase):
             result = build_release(
                 PRODUCT_PAGE_SKILL_DIR,
                 temp,
-                "brandbai-product-page-v0.3.1",
+                "brandbai-product-page-v0.4.0",
             )
             archive_path = temp / "brandbai-product-page.zip"
             checksum_path = temp / "brandbai-product-page.zip.sha256"
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.3.1")
+            self.assertEqual(result["version"], "0.4.0")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -236,12 +236,15 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("references/page-decision-framework.md", names)
                 self.assertIn("references/fmcg-page-patterns.md", names)
                 self.assertIn("references/release-notes.md", names)
-                self.assertIn("assets/01_商品页与主图优先优化行动单模板.md", names)
+                self.assertIn("assets/01_商品页诊断与优化建议模板.md", names)
+                self.assertIn("assets/02_主图交易区详情页优化页纲模板.md", names)
+                self.assertIn("assets/03_资料缺口与证据边界模板.md", names)
                 self.assertIn("scripts/index_page_sources.py", names)
                 self.assertIn("scripts/init_product_page_delivery.py", names)
                 self.assertIn("scripts/build_product_page_report.py", names)
                 self.assertIn("scripts/validate_product_page_delivery.py", names)
                 self.assertIn("scripts/test_product_page_delivery.py", names)
+                self.assertIn("scripts/test_product_page_modes_v040.py", names)
                 self.assertFalse(any(name.startswith("brandbai-product-page/") for name in names))
 
     def test_rejects_tag_version_mismatch(self):

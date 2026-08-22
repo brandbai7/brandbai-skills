@@ -1,4 +1,4 @@
 interface:
-  display_name: "BrandBAI 商品页优化"
-  short_description: "沿购买决策链检查主图、交易区与详情页，给出可执行优先动作"
-  default_prompt: "使用 $brandbai-product-page 检查这个SKU的主图和详情页，先锁定当前交易角色、规格变体、适用对象和页面范围，再基于商品价值输出最优先的页面优化动作。"
+  display_name: "BrandBAI 商品页诊断优化"
+  short_description: "用一核五决策诊断主图、交易区与详情页，并输出最多五项优化"
+  default_prompt: "使用 $brandbai-product-page 诊断这个商品的现有主图、交易区和详情页。先锁定当前SKU与页面范围，再判断一核和认对、看懂、相信、选对、放心买；只输出零至五项有依据的优化，并标明哪些可直接做、哪些要补资料。"

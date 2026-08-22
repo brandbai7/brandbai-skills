@@ -636,7 +636,7 @@ def run_test() -> None:
         build_delivery(course, write=True)
         passed = validate_delivery(course)
         assert passed["status"] == "passed", json.dumps(passed, ensure_ascii=False, indent=2)
-        report = (course / "01_商品页与主图优先优化行动单.md").read_text(encoding="utf-8")
+        report = (course / "01_商品页诊断与优化建议.md").read_text(encoding="utf-8")
         assert "放心买" in report
         assert "这张页面主要负责：单品价值页" in report
         assert "用户进页前已可靠完成：没有可靠证据表明某项已经完成" in report
@@ -646,7 +646,7 @@ def run_test() -> None:
         assert "### 优先 1｜主图第1张（认对）" in report
         assert "- 现在的问题：" in report and "- 改完怎么检查：" in report
         assert "| 优先顺序 |" not in report
-        assert "by 布兰德老白（BrandBai）" in report
+        assert "by 布兰德老白 BrandBAI" in report
         assert "ACT-001" not in report and "V-001" not in report
 
         excluded_sources = read_jsonl(course / "data" / "source_inventory.jsonl")
@@ -712,9 +712,9 @@ def run_test() -> None:
         assert degraded_result["status"] == "passed", json.dumps(
             degraded_result, ensure_ascii=False, indent=2
         )
-        degraded_report = (degraded / "01_商品页与主图优先优化行动单.md").read_text(encoding="utf-8")
-        assert "本轮不改卖点、不重排主图和详情页" in degraded_report
-        assert "先回去确认商品本身" in degraded_report
+        degraded_report = (degraded / "01_商品页诊断与优化建议.md").read_text(encoding="utf-8")
+        assert "本轮可基于现有页面完成诊断" in degraded_report
+        assert "不得新增资料外主张" in degraded_report
         assert "unreadable" not in degraded_report
 
         professional = temp_root / "professional-main-images"
@@ -765,7 +765,8 @@ def run_test() -> None:
         build_delivery(professional, write=True)
         pro_result = validate_delivery(professional)
         assert pro_result["status"] == "passed", json.dumps(pro_result, ensure_ascii=False, indent=2)
-        assert (professional / "02_主图与详情页下一步.md").is_file()
+        assert (professional / "02_主图交易区详情页优化页纲.md").is_file()
+        assert (professional / "03_资料缺口与证据边界.md").is_file()
         legacy_report = professional / "02_主图与详情页执行页.md"
         legacy_report.write_text("legacy", encoding="utf-8")
         build_delivery(professional, write=True)
@@ -785,7 +786,7 @@ def run_test() -> None:
         assert route_result["status"] == "passed", json.dumps(
             route_result, ensure_ascii=False, indent=2
         )
-        route_report = (route / "01_商品页判断与优先修复.md").read_text(encoding="utf-8")
+        route_report = (route / "01_商品页诊断与优化建议.md").read_text(encoding="utf-8")
         assert "## 页面共用与分版建议" in route_report
         assert "先用一套共用母版" in route_report and "ROUTE-001" not in route_report
 
@@ -1303,7 +1304,7 @@ def run_test() -> None:
         write_json(upstream_path, original_upstream)
 
         build_delivery(course, write=True)
-        course_report_path = course / "01_商品页与主图优先优化行动单.md"
+        course_report_path = course / "01_商品页诊断与优化建议.md"
         clean_report = course_report_path.read_text(encoding="utf-8")
         course_report_path.write_text(clean_report + "\n调用V-001价值。\n", encoding="utf-8")
         assert_error(course, "E_COURSE_INTERNAL_LEAK")
@@ -1372,7 +1373,7 @@ def run_test() -> None:
 
         build_delivery(course, write=True)
         assert validate_delivery(course)["status"] == "passed"
-        assert SKILL_VERSION == "0.3.1"
+        assert SKILL_VERSION == "0.4.0"
         print("product-page synthetic tests passed")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

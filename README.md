@@ -21,6 +21,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.36 | 从商品页、表格、手卡、包装、参数、证据和用户资料建立可回溯事实；高密度字段与脚注确定性建账，大样本可按真实主张 ID 生成紧凑分析包，并在所属阶段拦截证据越界 | Prototype · Noncommercial |
 | [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.11 | 继承有效商品价值，以EX/PEX盘点页面表达；在紧凑方案编译前拦截非原子页面表达、截图冒充原件和客户字段内部ID泄露，继续保留上游冲突、外部对照、真单变量和必要护栏门禁 | Prototype · Noncommercial |
+| [`brandbai-product-page`](skills/brandbai-product-page/) | 0.4.0 | 基于现有主图、交易区和详情页独立完成“一核五决策”诊断；也可在补充商品、证据与用户资料后形成零至五项优先动作和静态页面页纲 | Release candidate · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
 
@@ -106,9 +107,9 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 ```
 
 ```text
-使用 brandbai-product-page，检查这个SKU的主图和详情页。继承商品价值与卖点呈现，
-按认对、看懂、相信、选对、放心买判断页面，只输出这一轮最优先的零至五项动作。
-不要重选核心价值，不要求经营数据，也不要承诺修改后的转化结果。
+使用 brandbai-product-page，诊断这个SKU的现有主图、交易区和详情页。
+先锁定当前成交单元与页面范围，再判断页面当前一核，以及认对、看懂、相信、选对、放心买。
+只输出零至五项有依据的动作，标明可直接优化、补充资料后优化或待上线验证；不要承诺转化结果。
 ```
 
 ### WorkBuddy 一键安装
@@ -202,6 +203,7 @@ cd ../../brandbai-value-expression/scripts
 python -X utf8 -B test_value_expression_delivery.py
 cd ../../brandbai-product-page/scripts
 python -X utf8 -B test_product_page_delivery.py
+python -X utf8 -B test_product_page_modes_v040.py
 ```
 
 提交新 Skill 前请阅读 [`AGENTS.md`](AGENTS.md)。不要提交登录资料、Cookie、客户数据、真实评论样本、输出目录或本地绝对路径。

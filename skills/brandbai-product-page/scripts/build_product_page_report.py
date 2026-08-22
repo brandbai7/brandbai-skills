@@ -23,7 +23,7 @@ from product_page_common import (
 RUN_STATUS_LABELS = {
     "ready": "可以正式优化",
     "partial": "部分可优化",
-    "degraded_no_product_value": "仅做页面表面检查",
+    "degraded_no_product_value": "现有页面诊断",
     "stopped": "暂时无法分析",
 }
 LEGACY_PROFESSIONAL_REPORT = "02_主图与详情页执行页.md"
@@ -43,12 +43,14 @@ RETURN_LABELS = {
     "value_expression": "返回卖点呈现",
     "page_material": "补页面资料",
     "human_confirmation": "需要人工确认",
+    "supporting_material": "补充资料后再优化",
 }
 COURSE_RETURN_LABELS = {
     "product_value": "先回去确认商品本身",
     "value_expression": "先补卖点怎么被看见",
     "page_material": "先补页面资料",
     "human_confirmation": "需要品牌内部确认",
+    "supporting_material": "可选补充资料",
 }
 READABILITY_LABELS = {
     "unreadable": "本轮未读取或不可读",
@@ -151,6 +153,8 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
         "manifest",
         "upstream",
         "sources",
+        "supporting_sources",
+        "claims",
         "coverage",
         "components",
         "chain",
@@ -166,6 +170,8 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
         "manifest": read_json(paths["manifest"]),
         "upstream": read_json(paths["upstream"]),
         "sources": read_jsonl(paths["sources"]),
+        "supporting_sources": read_jsonl(paths["supporting_sources"]),
+        "claims": read_jsonl(paths["claims"]),
         "coverage": read_jsonl(paths["coverage"]),
         "components": read_jsonl(paths["components"]),
         "chain": read_json(paths["chain"]),
@@ -225,7 +231,7 @@ def run_decision_summary(manifest: dict[str, Any], actions: list[dict[str, Any]]
     if status == "partial":
         return f"本轮只能有条件优化；只处理下方{action_count}项，不把待验证判断写成已证实结论。"
     if status == "degraded_no_product_value":
-        return f"本轮不改卖点、不重排主图和详情页；只完成下方{action_count}项人工核验，再返回商品价值。"
+        return f"本轮可基于现有页面完成诊断；只执行下方{action_count}项有页面依据的动作，不新增资料外卖点。"
     return "本轮暂停页面优化；先补齐停止原因所对应的最低资料。"
 
 
@@ -265,6 +271,9 @@ def action_rows(actions: list[dict[str, Any]], course: bool) -> str:
     if course:
         sections: list[str] = []
         for item in ordered:
+            label = str(item.get("recommendation_label", "")).strip() or (
+                "补充资料后优化" if item.get("action_type") == "人工核实" else "可直接优化"
+            )
             needed = "；".join(
                 value.rstrip("。；; ") for value in (
                     str(item.get("material_needed", "")).strip(),
@@ -275,6 +284,7 @@ def action_rows(actions: list[dict[str, Any]], course: bool) -> str:
                 [
                     f"### 优先 {md(item.get('priority'))}｜{md(item.get('page_location'))}（{md(item.get('decision_name'))}）",
                     "",
+                    f"- 建议标签：{md(label)}",
                     f"- 现在的问题：{md(item.get('gap_or_risk'))}",
                     f"- 为什么这样判断：{md(item.get('basis_summary'))}",
                     f"- 这一轮怎么改：{md(item.get('action_type'))}——{md(item.get('action_detail'))}",
@@ -287,11 +297,15 @@ def action_rows(actions: list[dict[str, Any]], course: bool) -> str:
         return "\n".join(sections).rstrip()
     sections: list[str] = []
     for item in ordered:
+        label = str(item.get("recommendation_label", "")).strip() or (
+            "补充资料后优化" if item.get("action_type") == "人工核实" else "可直接优化"
+        )
         sections.extend(
             [
                 f"### 优先动作 {md(item.get('priority'))}｜{md(item.get('page_location'))}",
                 "",
                 f"- 用户判断：{md(item.get('decision_name'))}",
+                f"- 建议标签：{md(label)}",
                 f"- 当前观察：{md(item.get('current_observation'))}",
                 f"- 缺口或风险：{md(item.get('gap_or_risk'))}",
                 f"- 调用依据：{md(item.get('basis_summary'))}",
@@ -314,7 +328,10 @@ def gap_sections(gaps: list[dict[str, Any]], course: bool = False) -> str:
         return "- 当前没有新增的开放缺口。"
     lines: list[str] = []
     labels = COURSE_RETURN_LABELS if course else RETURN_LABELS
-    for target in ("product_value", "value_expression", "page_material", "human_confirmation"):
+    for target in (
+        "product_value", "value_expression", "page_material",
+        "supporting_material", "human_confirmation",
+    ):
         items = [item for item in open_gaps if item.get("return_to") == target]
         if not items:
             continue
@@ -460,9 +477,9 @@ def build_course(data: dict[str, Any]) -> str:
     actions = data["actions"]
     first = sorted(actions, key=lambda item: safe_order(item.get("priority")))[0] if actions else None
     lines = [
-        "# 商品页与主图优先优化行动单",
+        "# 商品页诊断与优化建议",
         "",
-        "> 方法：by 布兰德老白（BrandBai）",
+        "> 方法：by 布兰德老白 BrandBAI",
         "",
         f"> **现在能不能改：** {run_decision_summary(manifest, actions)}",
         "",
@@ -480,7 +497,7 @@ def build_course(data: dict[str, Any]) -> str:
         "",
         action_rows(actions, course=True),
         "",
-        "> 依据不足时不凑满五项。没有可用商品价值底座时，本表最多三项页面基础动作。",
+        "> 依据不足时不凑满五项。只有现有页面时可以调整结构、顺序和清晰度，但不得新增资料外主张。",
         "",
         "## 四、需要返回上一步补什么",
         "",
@@ -525,9 +542,9 @@ def build_professional_01(data: dict[str, Any]) -> str:
     pv = upstream.get("product_value", {})
     ve = upstream.get("value_expression", {})
     lines = [
-        "# 商品页判断与优先修复",
+        "# 商品页诊断与优化建议",
         "",
-        "> 方法：by 布兰德老白（BrandBai）",
+        "> 方法：by 布兰德老白 BrandBAI",
         "",
         "## 先看结论",
         "",
@@ -540,12 +557,12 @@ def build_professional_01(data: dict[str, Any]) -> str:
         (
             "- 商品价值上游：可调用；已继承当前商品价值与边界。"
             if pv.get("usable")
-            else "- 商品价值上游：不可调用；当前商品价值仍处于停止、阻断、陈旧或资料不足状态，不能据此决定页面卖点。"
+            else "- 商品价值上游：未调用或不可用；本轮仍可诊断页面当前表达，但不把页面主张升级为商品事实。"
         ),
         (
             "- 卖点呈现上游：可调用；已继承与当前商品及商品页场景一致的卖点呈现。"
             if ve.get("usable")
-            else "- 卖点呈现上游：不可调用；当前没有与本商品、商品价值和商品页场景一致的可用卖点呈现。"
+            else "- 卖点呈现上游：未调用或不可用；本轮不强制安装其他 Skill。"
         ),
         "",
         "## 2｜五个用户判断",
@@ -623,19 +640,18 @@ def validation_sections(validations: list[dict[str, Any]]) -> str:
 
 def build_professional_02(data: dict[str, Any]) -> str:
     status = str(data["manifest"].get("run_status", ""))
-    title = "# 主图与详情页下一步"
+    title = "# 主图交易区详情页优化页纲"
     notice = "> 本页是页面执行 Brief，不是最终视觉稿、完整成品文案或发布审核结论。"
     if status == "degraded_no_product_value":
-        title = "# 主图与详情页下一步（本轮不改图）"
-        notice = "> 商品价值尚不可用。本页只列人工核验与发布闸门，不代表可以开始改卖点、主图或详情页。"
+        notice = "> 本轮只使用现有页面依据：可以重排、删减、澄清和核实，但不得新增资料外卖点。"
     elif status == "stopped":
-        title = "# 主图与详情页下一步（暂停页面动作）"
+        title = "# 主图交易区详情页优化页纲（暂停页面动作）"
         notice = "> 当前资料不足以继续页面工作。本页只保留停止边界和补资料方向。"
     return "\n".join(
         [
             title,
             "",
-            "> 方法：by 布兰德老白（BrandBai）",
+            "> 方法：by 布兰德老白 BrandBAI",
             "",
             notice,
             "",
@@ -643,21 +659,80 @@ def build_professional_02(data: dict[str, Any]) -> str:
             "",
             component_table(data["components"], "main_images"),
             "",
-            "## 2｜详情页模块",
+            "## 2｜交易区",
+            "",
+            transaction_section(data["chain"]),
+            "",
+            "## 3｜详情页模块",
             "",
             component_table(data["components"], "detail_page"),
             "",
-            "## 3｜页面版本与验证",
+            "## 4｜页面版本与验证",
             "",
             validation_sections(data["validation"]),
             "",
-            "## 4｜执行边界",
+            "## 5｜执行边界",
             "",
-            "- 只调用已确认商品事实、价值与可用卖点呈现。",
+            "- 页面已有结构优化可以使用页面可见依据；新增主张必须调用可核验补充资料。",
             "- 动态交易信息发布前必须人工复核当前有效性。",
             "- 视觉创作不得扩大功效、跨SKU或把待验证建议写成效果事实。",
         ]
     )
+
+
+def transaction_section(chain: dict[str, Any]) -> str:
+    current = chain.get("current_transaction", {}) if isinstance(chain, dict) else {}
+    raw_groups = current.get("raw_spec_groups", []) if isinstance(current, dict) else []
+    bundle = current.get("bundle_contents", []) if isinstance(current, dict) else []
+    return "\n".join(
+        [
+            f"- 当前成交角色：{md(current.get('transaction_role'), 'unknown')}",
+            f"- 当前SKU：{md(current.get('current_sku_id'), 'unknown')}",
+            f"- 当前规格／数量：{md(current.get('current_quantity_or_size'), 'unknown')}",
+            f"- 平台规格组：{md([item.get('group_name', '') for item in raw_groups if isinstance(item, dict)], '未整理')}",
+            f"- 套组实际到手：{md([item.get('item_name', '') for item in bundle if isinstance(item, dict)], '未整理')}",
+            "- 页纲要求：平台字段名不直接等于用户选择任务；先讲清真实SKU、选择顺序与实际到手。",
+        ]
+    )
+
+
+def build_professional_03(data: dict[str, Any]) -> str:
+    claims = data.get("claims", [])
+    supporting = data.get("supporting_sources", [])
+    usable = [item for item in claims if item.get("evidence_status") == "usable"]
+    pending = [item for item in claims if item.get("evidence_status") != "usable"]
+    lines = [
+        "# 资料缺口与证据边界",
+        "",
+        "> 方法：by 布兰德老白 BrandBAI",
+        "",
+        "## 1｜本次补充资料",
+        "",
+        f"- 已登记补充资料：{len(supporting)} 份。",
+        f"- 可直接调用主张：{len(usable)} 条；待核实或仅作信号：{len(pending)} 条。",
+        "",
+        "## 2｜当前开放缺口",
+        "",
+        gap_sections(data["gaps"]),
+        "",
+        "## 3｜当前资料不能证明什么",
+        "",
+    ]
+    cannot_prove = [str(item.get("cannot_prove", "")).strip() for item in claims]
+    lines.append(bullet_lines(cannot_prove, "没有新增可调用主张；继续继承页面主张不等于商品事实的边界"))
+    lines.extend(
+        [
+            "",
+            "## 4｜永久边界",
+            "",
+            "- 评论只作为用户语言、顾虑和场景信号，不裁定商品功效。",
+            "- 竞品页面只支持结构与表达比较，不证明本商品优势。",
+            "- 价格、赠品、库存、物流和权益必须带页面时间，发布前复核。",
+            "- 其他SKU、变体、套组单品和品牌共性不能自动证明当前成交单元。",
+            "- 静态诊断与改版建议不等于转化归因或经营结果保证。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
@@ -670,6 +745,7 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
         outputs = {
             PROFESSIONAL_REPORTS[0]: build_professional_01(data),
             PROFESSIONAL_REPORTS[1]: build_professional_02(data),
+            PROFESSIONAL_REPORTS[2]: build_professional_03(data),
         }
     else:
         raise ValueError("delivery_mode 必须是 course 或 professional")

@@ -15,6 +15,10 @@ ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".svg"}
 DOCUMENT_SUFFIXES = {".pdf", ".html", ".htm", ".md", ".txt", ".json", ".csv", ".xlsx"}
 VERSION_LABELS = {"current", "comparison"}
+SUPPORTING_SOURCE_ROLES = {
+    "product_document", "evidence_document", "user_signal", "business_context",
+    "competitor_page", "optional_upstream", "unknown",
+}
 
 
 def media_type(path: Path) -> str:
@@ -192,12 +196,79 @@ def index_sources(
     return new_rows
 
 
+def build_supporting_plan(input_path: Path, delivery: Path) -> dict[str, Any]:
+    """Describe a supplemental-source indexing operation without writing files."""
+    validate_location(input_path, delivery)
+    root, files = files_under(input_path)
+    inventory = delivery.resolve() / "data" / "supporting_source_inventory.jsonl"
+    existing_count = len(read_jsonl(inventory)) if inventory.is_file() else 0
+    return {
+        "action": "index_supporting_sources",
+        "dry_run": True,
+        "source_root_name": root.name,
+        "new_file_count": len(files),
+        "existing_file_count": existing_count,
+        "target": "data/supporting_source_inventory.jsonl",
+    }
+
+
+def index_supporting_sources(
+    input_path: Path,
+    delivery: Path,
+    capture_time: str = "unknown",
+    source_role: str = "unknown",
+) -> list[dict[str, Any]]:
+    """Index optional evidence without treating it as part of the product page."""
+    if source_role not in SUPPORTING_SOURCE_ROLES:
+        raise ValueError(f"source_role 必须是 {sorted(SUPPORTING_SOURCE_ROLES)} 之一")
+    validate_location(input_path, delivery)
+    delivery = delivery.expanduser().resolve()
+    manifest_path = delivery / "data" / "page_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError("交付目录缺少 data/page_manifest.json，请先初始化")
+    inventory = delivery / "data" / "supporting_source_inventory.jsonl"
+    existing = read_jsonl(inventory) if inventory.is_file() else []
+    root, files = files_under(input_path)
+    known_hashes = {
+        str(row.get("sha256", "")): str(row.get("supporting_source_id", ""))
+        for row in existing if row.get("sha256")
+    }
+    rows: list[dict[str, Any]] = []
+    start = len(existing) + 1
+    for offset, path in enumerate(files):
+        digest = file_sha256(path)
+        kind = media_type(path)
+        row = {
+            "supporting_source_id": f"SUP-SF-{start + offset:03d}",
+            "relative_path": path.relative_to(root).as_posix(),
+            "file_name": path.name,
+            "extension": path.suffix.lower(),
+            "media_type": kind,
+            "size_bytes": path.stat().st_size,
+            "sha256": digest,
+            "source_role": source_role,
+            "readability_status": "unsupported_archive" if kind == "archive" else "not_reviewed",
+            "capture_time": capture_time.strip() or "unknown",
+            "duplicate_of": known_hashes.get(digest, ""),
+            "notes": "补充资料必须逐份读取并登记能证明、不能证明与适用SKU。",
+        }
+        rows.append(row)
+        known_hashes.setdefault(digest, row["supporting_source_id"])
+    write_jsonl(inventory, [*existing, *rows])
+    manifest = read_json(manifest_path)
+    manifest["updated_at"] = now_iso()
+    write_json(manifest_path, manifest)
+    return rows
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--delivery", required=True, type=Path)
     parser.add_argument("--version-label", choices=sorted(VERSION_LABELS), default="current")
     parser.add_argument("--capture-time", default="")
+    parser.add_argument("--source-kind", choices=("page", "supporting"), default="page")
+    parser.add_argument("--source-role", choices=sorted(SUPPORTING_SOURCE_ROLES), default="unknown")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -205,14 +276,28 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.dry_run:
-        result = build_plan(args.input, args.delivery, args.version_label, args.capture_time)
+        result = (
+            build_supporting_plan(args.input, args.delivery)
+            if args.source_kind == "supporting"
+            else build_plan(args.input, args.delivery, args.version_label, args.capture_time)
+        )
     else:
-        rows = index_sources(args.input, args.delivery, args.version_label, args.capture_time or None)
+        rows = (
+            index_supporting_sources(
+                args.input, args.delivery, args.capture_time or "unknown", args.source_role
+            )
+            if args.source_kind == "supporting"
+            else index_sources(args.input, args.delivery, args.version_label, args.capture_time or None)
+        )
         result = {
             "status": "indexed",
             "new_file_count": len(rows),
-            "version_label": args.version_label,
-            "target": "data/source_inventory.jsonl",
+            "version_label": args.version_label if args.source_kind == "page" else "not_applicable",
+            "target": (
+                "data/supporting_source_inventory.jsonl"
+                if args.source_kind == "supporting"
+                else "data/source_inventory.jsonl"
+            ),
         }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

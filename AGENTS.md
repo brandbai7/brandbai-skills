@@ -57,6 +57,7 @@ cd ../../brandbai-value-expression/scripts
 python -X utf8 -B test_value_expression_delivery.py
 cd ../../brandbai-product-page/scripts
 python -X utf8 -B test_product_page_delivery.py
+python -X utf8 -B test_product_page_modes_v040.py
 ```
 
 Update the commands when a new skill adds its own tests.

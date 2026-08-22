@@ -55,4 +55,4 @@ jobs:
         run: python -B test_value_expression_delivery.py
       - name: Run Product Page synthetic tests
         working-directory: skills/brandbai-product-page/scripts
-        run: python -B test_product_page_delivery.py
+        run: python -B test_product_page_delivery.py && python -B test_product_page_modes_v040.py

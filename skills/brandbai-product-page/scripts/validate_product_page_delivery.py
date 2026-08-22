@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from product_page_common import (
+    ANALYSIS_MODES,
     ACTION_SCOPES,
     ACTION_STATUSES,
     ACTION_TYPES,
@@ -79,11 +80,30 @@ from product_page_common import (
 
 MANIFEST_FIELDS = {
     "schema_version", "skill_version", "product_page_id", "brand", "product",
-    "category", "sku", "scope", "task", "delivery_mode", "run_status",
+    "category", "sku", "scope", "task", "analysis_mode", "delivery_mode", "run_status",
     "analysis_status", "delivery_status", "page_snapshot_time", "entry_context",
     "cross_surface_summary", "output_version", "source_count", "limitations",
     "created_at", "updated_at",
 }
+SUPPORTING_SOURCE_FIELDS = {
+    "supporting_source_id", "relative_path", "file_name", "extension", "media_type",
+    "size_bytes", "sha256", "source_role", "readability_status", "capture_time",
+    "duplicate_of", "notes",
+}
+CLAIM_FIELDS = {
+    "claim_id", "statement", "claim_type", "supporting_source_ids",
+    "applicable_sku", "support_scope", "evidence_status", "can_support",
+    "cannot_prove", "dynamic_status", "human_confirmation", "boundary",
+}
+SUPPORTING_SOURCE_ROLES = {
+    "product_document", "evidence_document", "user_signal", "business_context",
+    "competitor_page", "optional_upstream", "unknown",
+}
+SUPPORT_CLAIM_TYPES = {
+    "confirmed_fact", "page_claim", "user_signal", "dynamic_snapshot",
+    "competitor_observation", "unverified_claim",
+}
+CLAIM_EVIDENCE_STATUSES = {"usable", "conditional", "unverified", "blocked"}
 SOURCE_FIELDS = {
     "source_file_id", "source_version", "relative_path", "file_name", "extension",
     "media_type", "size_bytes", "sha256", "page_scope", "page_location",
@@ -157,7 +177,7 @@ MEDIA_EXTENSIONS = {
 }
 
 REPORT_ID_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_-])(?:(?:PP|PAGE-SF|COV|COMP|ACT|TEST|GAP|ROUTE|PV|VE|VIS|V|F|U|EX|DYN|STRAT)-[0-9a-fA-F]{3,}|DEC-0[1-5])(?![A-Za-z0-9_-])"
+    r"(?<![A-Za-z0-9_-])(?:(?:PP|PAGE-SF|SUP-SF|CLAIM|COV|COMP|ACT|TEST|GAP|ROUTE|PV|VE|VIS|V|F|U|EX|DYN|STRAT)-[0-9a-fA-F]{3,}|DEC-0[1-5])(?![A-Za-z0-9_-])"
 )
 ABSOLUTE_PATH_PATTERN = re.compile(
     r"(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]"
@@ -573,8 +593,12 @@ def validate_upstream(
         and product_value.get("p0_status") in P0_READY_STATUSES
     ):
         add_error(errors, "E_RUN_STATUS", "ready 必须同时有可用商品价值和卖点呈现")
-    if run_status == "partial" and not product_value_usable:
-        add_error(errors, "E_RUN_STATUS", "partial 必须有可用商品价值")
+    if (
+        run_status == "partial"
+        and not product_value_usable
+        and manifest.get("analysis_mode") != "enhance_with_evidence"
+    ):
+        add_error(errors, "E_RUN_STATUS", "partial 必须有可用商品价值或处于补充资料增强模式")
     if run_status == "degraded_no_product_value" and product_value_usable:
         add_error(errors, "E_RUN_STATUS", "有可用商品价值时不得标为degraded_no_product_value")
     return fact_ids, value_ids, vis_ids, product_value_usable, value_expression_usable
@@ -587,7 +611,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     warnings: list[str] = []
     data_paths = {
         name: paths[name]
-        for name in ("manifest", "upstream", "sources", "coverage", "components", "chain", "decisions", "actions", "validation", "gaps")
+        for name in (
+            "manifest", "upstream", "sources", "supporting_sources", "claims",
+            "coverage", "components", "chain", "decisions", "actions", "validation", "gaps",
+        )
     }
     missing = [str(path) for path in data_paths.values() if not path.is_file()]
     if missing:
@@ -597,6 +624,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         manifest = read_json(paths["manifest"])
         upstream = read_json(paths["upstream"])
         sources = read_jsonl(paths["sources"])
+        supporting_sources = read_jsonl(paths["supporting_sources"])
+        claims = read_jsonl(paths["claims"])
         coverage = read_jsonl(paths["coverage"])
         components = read_jsonl(paths["components"])
         chain = read_json(paths["chain"])
@@ -611,6 +640,8 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     counts = {
         "sources": len(sources),
+        "supporting_sources": len(supporting_sources),
+        "claims": len(claims),
         "coverage_rows": len(coverage),
         "components": len(components),
         "chain_findings": len(chain.get("chain_findings", [])) if isinstance(chain, dict) else 0,
@@ -644,6 +675,16 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         add_error(errors, "E_MODE_SCOPE", "scope不在允许范围")
     if manifest.get("task") not in TASKS:
         add_error(errors, "E_MODE_SCOPE", "task不在允许范围")
+    if manifest.get("analysis_mode") not in ANALYSIS_MODES:
+        add_error(errors, "E_MODE_SCOPE", "analysis_mode不在允许范围")
+    if manifest.get("analysis_mode") == "diagnose_existing" and supporting_sources:
+        add_error(errors, "E_MODE_SCOPE", "diagnose_existing不得混入补充资料")
+    if manifest.get("analysis_mode") == "enhance_with_evidence" and not (
+        supporting_sources
+        or upstream.get("product_value", {}).get("provided")
+        or upstream.get("value_expression", {}).get("provided")
+    ):
+        add_error(errors, "E_MODE_SCOPE", "enhance_with_evidence缺少补充资料或可选上游")
     if manifest.get("delivery_mode") not in DELIVERY_MODES:
         add_error(errors, "E_MODE_SCOPE", "delivery_mode不在允许范围")
     if manifest.get("run_status") not in RUN_STATUSES:
@@ -790,6 +831,98 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
                 add_error(errors, "E_VERSION_TIME", f"{version}版混入多个页面时间")
             if version == "current" and capture_times != {str(manifest.get("page_snapshot_time", "")).strip()}:
                 add_error(errors, "E_VERSION_TIME", "current版来源时间与page_manifest不一致")
+
+    supporting_source_ids: set[str] = set()
+    supporting_lookup: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(supporting_sources, start=1):
+        label = f"supporting_source_inventory第{index}条"
+        missing = missing_fields(row, SUPPORTING_SOURCE_FIELDS)
+        if missing:
+            add_error(errors, "E_SUPPORT_SOURCE", f"{label}缺少字段: {', '.join(missing)}")
+        source_id = str(row.get("supporting_source_id", ""))
+        if not re.fullmatch(r"SUP-SF-\d{3,}", source_id):
+            add_error(errors, "E_SUPPORT_SOURCE", f"{label} supporting_source_id格式无效")
+        supporting_source_ids.add(source_id)
+        supporting_lookup[source_id] = row
+        if row.get("source_role") not in SUPPORTING_SOURCE_ROLES:
+            add_error(errors, "E_SUPPORT_SOURCE", f"{source_id} source_role无效")
+        if row.get("readability_status") not in READABILITY_STATUSES:
+            add_error(errors, "E_SUPPORT_SOURCE", f"{source_id} readability_status无效")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256", ""))):
+            add_error(errors, "E_SUPPORT_SOURCE", f"{source_id} sha256无效")
+        relative_path = str(row.get("relative_path", ""))
+        if not relative_path or re.search(r"(?:^[A-Za-z]:|^/|^\\|(?:^|/)\.\.(?:/|$))", relative_path):
+            add_error(errors, "E_ABSOLUTE_PATH_LEAK", f"{source_id} relative_path不是安全相对路径")
+        media = str(row.get("media_type", ""))
+        extension = str(row.get("extension", "")).lower()
+        if media not in MEDIA_EXTENSIONS:
+            add_error(errors, "E_SUPPORT_SOURCE", f"{source_id} media_type无效")
+        elif media != "other" and extension not in MEDIA_EXTENSIONS[media]:
+            add_error(errors, "E_SUPPORT_SOURCE", f"{source_id}扩展名与media_type不一致")
+        if media == "archive" and row.get("readability_status") != "unsupported_archive":
+            add_error(errors, "E_SUPPORT_SOURCE", f"{source_id}压缩包未解压不得标为可读")
+    duplicate_supporting = duplicate_ids(supporting_sources, "supporting_source_id")
+    if duplicate_supporting:
+        add_error(errors, "E_SUPPORT_SOURCE", f"补充来源ID重复: {', '.join(duplicate_supporting)}")
+    for row in supporting_sources:
+        duplicate_of = str(row.get("duplicate_of", ""))
+        if duplicate_of and duplicate_of not in supporting_source_ids:
+            add_error(errors, "E_SUPPORT_SOURCE", f"{row.get('supporting_source_id')} duplicate_of未知")
+
+    claim_ids: set[str] = set()
+    usable_claim_ids: set[str] = set()
+    claim_lookup: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(claims, start=1):
+        label = f"claim_ledger第{index}条"
+        missing = missing_fields(row, CLAIM_FIELDS)
+        if missing:
+            add_error(errors, "E_CLAIM_SCHEMA", f"{label}缺少字段: {', '.join(missing)}")
+        claim_id = str(row.get("claim_id", ""))
+        if not re.fullmatch(r"CLAIM-\d{3,}", claim_id):
+            add_error(errors, "E_CLAIM_SCHEMA", f"{label} claim_id格式无效")
+        claim_ids.add(claim_id)
+        claim_lookup[claim_id] = row
+        if row.get("claim_type") not in SUPPORT_CLAIM_TYPES:
+            add_error(errors, "E_CLAIM_SCHEMA", f"{claim_id} claim_type无效")
+        if row.get("evidence_status") not in CLAIM_EVIDENCE_STATUSES:
+            add_error(errors, "E_CLAIM_SCHEMA", f"{claim_id} evidence_status无效")
+        if row.get("dynamic_status") not in DYNAMIC_STATUSES:
+            add_error(errors, "E_CLAIM_SCHEMA", f"{claim_id} dynamic_status无效")
+        for field in (
+            "statement", "applicable_sku", "support_scope", "can_support",
+            "cannot_prove", "human_confirmation", "boundary",
+        ):
+            if not nonempty(row, field):
+                add_error(errors, "E_CLAIM_SCHEMA", f"{claim_id}缺少{field}")
+        validate_reference_list(
+            errors, claim_id, row, "supporting_source_ids", supporting_source_ids, "E_SUPPORT_SOURCE"
+        )
+        referenced = [supporting_lookup.get(str(item), {}) for item in list_value(row, "supporting_source_ids")]
+        if not referenced:
+            add_error(errors, "E_CLAIM_UNGROUNDED", f"{claim_id}必须绑定补充资料")
+        if row.get("evidence_status") == "usable":
+            if row.get("claim_type") not in {"confirmed_fact", "dynamic_snapshot"}:
+                add_error(errors, "E_CLAIM_OVERREACH", f"{claim_id}当前类型不得标为usable")
+            if not referenced or any(
+                item.get("readability_status") not in {"readable", "partially_readable"}
+                for item in referenced
+            ):
+                add_error(errors, "E_CLAIM_UNGROUNDED", f"{claim_id}的usable状态缺少可读补充来源")
+            else:
+                usable_claim_ids.add(claim_id)
+        if row.get("claim_type") == "user_signal" and row.get("evidence_status") == "usable":
+            add_error(errors, "E_COMMENT_AS_PRODUCT_FACT", f"{claim_id}把用户信号升级为商品事实")
+        if row.get("claim_type") == "competitor_observation" and row.get("evidence_status") == "usable":
+            add_error(errors, "E_CLAIM_OVERREACH", f"{claim_id}把竞品观察升级为本商品事实")
+    duplicate_claims = duplicate_ids(claims, "claim_id")
+    if duplicate_claims:
+        add_error(errors, "E_CLAIM_SCHEMA", f"主张ID重复: {', '.join(duplicate_claims)}")
+    if (
+        manifest.get("run_status") == "partial"
+        and not product_value_usable
+        and not usable_claim_ids
+    ):
+        add_error(errors, "E_RUN_STATUS", "没有可用商品价值时，partial增强模式至少需要一条可用补充事实")
 
     requested_scopes = (
         set(COMPONENT_SCOPES)
@@ -1484,8 +1617,6 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
 
     if len(actions) > 5:
         add_error(errors, "E_ACTION_LIMIT", "优先动作总数不能超过5")
-    if manifest.get("run_status") == "degraded_no_product_value" and len(actions) > 3:
-        add_error(errors, "E_ACTION_LIMIT", "无商品价值时最多3项页面基础动作")
     if manifest.get("run_status") == "stopped" and actions:
         add_error(errors, "E_FORCED_ACTION", "stopped状态的优先动作必须为0")
     priorities = [item.get("priority") for item in actions]
@@ -1529,6 +1660,12 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         validate_reference_list(errors, action_id, row, "fact_ids", fact_ids, "E_UPSTREAM_REF_MISSING")
         validate_reference_list(errors, action_id, row, "value_ids", value_ids, "E_UPSTREAM_REF_MISSING")
         validate_reference_list(errors, action_id, row, "vis_ids", vis_ids, "E_UPSTREAM_REF_MISSING")
+        if "supporting_source_ids" in row:
+            validate_reference_list(
+                errors, action_id, row, "supporting_source_ids", supporting_source_ids, "E_SUPPORT_SOURCE"
+            )
+        if "claim_ids" in row:
+            validate_reference_list(errors, action_id, row, "claim_ids", claim_ids, "E_CLAIM_UNGROUNDED")
         if not list_value(row, "source_file_ids") or not list_value(row, "component_ids"):
             add_error(errors, "E_ACTION_UNGROUNDED", f"{action_id}必须绑定页面来源与组件观察")
         referenced_components = [
@@ -1573,15 +1710,40 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             if not COMPONENT_SCOPES <= source_scopes or not COMPONENT_SCOPES <= component_scopes:
                 add_error(errors, "E_SCOPE_REFERENCE", f"{action_id}跨触点动作必须同时绑定主图与详情页证据")
         if manifest.get("run_status") == "degraded_no_product_value":
-            if row.get("basis_type") != "page_visible_only":
-                add_error(errors, "E_P0_CREATED", f"{action_id}降级模式只能使用页面可见依据")
+            allowed_basis = {"page_visible_only"}
+            if manifest.get("analysis_mode") == "enhance_with_evidence":
+                allowed_basis |= {"supplemental_evidence", "page_and_supplemental"}
+            if row.get("basis_type") not in allowed_basis:
+                add_error(errors, "E_P0_CREATED", f"{action_id}当前模式使用了不允许的依据类型")
             if list_value(row, "fact_ids") or list_value(row, "value_ids") or list_value(row, "vis_ids"):
                 add_error(errors, "E_P0_CREATED", f"{action_id}降级模式不得调用上游价值或VIS")
+            if row.get("basis_type") in {"supplemental_evidence", "page_and_supplemental"}:
+                if not list_value(row, "claim_ids"):
+                    add_error(errors, "E_CLAIM_UNGROUNDED", f"{action_id}补充资料动作缺少claim_ids")
+                elif any(str(item) not in usable_claim_ids for item in list_value(row, "claim_ids")):
+                    add_error(errors, "E_CLAIM_OVERREACH", f"{action_id}引用了不可直接调用的补充主张")
         elif manifest.get("run_status") != "stopped":
-            if row.get("basis_type") == "page_visible_only":
-                add_error(errors, "E_UPSTREAM_REF_MISSING", f"{action_id}正式动作必须调用有效商品价值")
-            if not (list_value(row, "fact_ids") or list_value(row, "value_ids") or list_value(row, "vis_ids")):
-                add_error(errors, "E_UPSTREAM_REF_MISSING", f"{action_id}缺少有效上游引用")
+            usable_claim_refs = [
+                str(item) for item in list_value(row, "claim_ids")
+                if str(item) in usable_claim_ids
+            ]
+            if row.get("basis_type") == "page_visible_only" and not usable_claim_refs:
+                add_error(errors, "E_UPSTREAM_REF_MISSING", f"{action_id}正式增强动作必须调用有效上游或补充事实")
+            if not (
+                list_value(row, "fact_ids")
+                or list_value(row, "value_ids")
+                or list_value(row, "vis_ids")
+                or usable_claim_refs
+            ):
+                add_error(errors, "E_UPSTREAM_REF_MISSING", f"{action_id}缺少有效上游或补充事实引用")
+            if list_value(row, "claim_ids") and len(usable_claim_refs) != len(list_value(row, "claim_ids")):
+                add_error(errors, "E_CLAIM_OVERREACH", f"{action_id}引用了不可直接调用的补充主张")
+            if any(
+                str(claim_lookup.get(claim_id, {}).get("applicable_sku", "")).strip()
+                != str(manifest.get("sku", "")).strip()
+                for claim_id in usable_claim_refs
+            ):
+                add_error(errors, "E_SKU_APPLICABILITY", f"{action_id}引用的补充事实不适用于当前SKU")
             if list_value(row, "vis_ids") and not value_expression_usable:
                 add_error(errors, "E_UPSTREAM_REF_MISSING", f"{action_id}调用了不可用VIS")
         action_text = " ".join(str(row.get(field, "")) for field in (
@@ -1809,7 +1971,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_P0_MUTATED", f"{path.name}试图重选或替换核心价值")
         if any(pattern.search(text) for pattern in COMMENT_FACT_PATTERNS):
             add_error(errors, "E_COMMENT_AS_PRODUCT_FACT", f"{path.name}把评论或评价升级为事实")
-        if "by 布兰德老白（BrandBai）" not in text:
+        if "by 布兰德老白 BrandBAI" not in text:
             add_error(errors, "E_BRAND_NOTICE", f"{path.name}缺少固定方法署名")
         if re.search(r"最终主图|可直接上线详情页|已完成发布稿", text):
             add_error(errors, "E_FINAL_ARTWORK_CLAIM", f"{path.name}越界声称完成最终视觉稿")
@@ -1830,7 +1992,14 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     if manifest.get("delivery_mode") == "professional":
         for name, headings in (
             ("professional_report_01", ("## 1｜对象、范围与证据成熟度", "## 2｜五个用户判断", "## 3｜优先修复")),
-            ("professional_report_02", ("## 1｜主图序列", "## 2｜详情页模块", "## 3｜页面版本与验证")),
+            (
+                "professional_report_02",
+                ("## 1｜主图序列", "## 2｜交易区", "## 3｜详情页模块", "## 4｜页面版本与验证"),
+            ),
+            (
+                "professional_report_03",
+                ("## 1｜本次补充资料", "## 2｜当前开放缺口", "## 3｜当前资料不能证明什么"),
+            ),
         ):
             if not paths[name].is_file():
                 continue

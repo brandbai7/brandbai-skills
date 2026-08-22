@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from index_page_sources import build_unattached_plan as build_source_plan
-from index_page_sources import index_sources
+from index_page_sources import build_supporting_plan, index_sources, index_supporting_sources
 from product_page_common import (
+    ANALYSIS_MODES,
     COURSE_REPORT,
     DECISION_NAMES,
     DELIVERY_MODES,
@@ -46,9 +47,10 @@ def validate_output_location(
     out: Path,
     page_sources: Path,
     comparison_sources: Path | None,
+    supporting_sources: Path | None = None,
 ) -> None:
     target = out.expanduser().resolve()
-    for source in (page_sources, comparison_sources):
+    for source in (page_sources, comparison_sources, supporting_sources):
         if source is None:
             continue
         resolved = source.expanduser().resolve()
@@ -394,10 +396,20 @@ def build_plan(
     entry_context: str,
     comparison_sources: Path | None,
     comparison_snapshot_time: str = "unknown",
+    analysis_mode: str = "diagnose_existing",
+    supporting_sources: Path | None = None,
 ) -> dict[str, Any]:
     if scope not in SCOPES:
         raise ValueError(f"scope 必须是 {sorted(SCOPES)} 之一")
-    validate_output_location(out, page_sources, comparison_sources)
+    validate_output_location(out, page_sources, comparison_sources, supporting_sources)
+    if analysis_mode not in ANALYSIS_MODES:
+        raise ValueError(f"analysis_mode 必须是 {sorted(ANALYSIS_MODES)} 之一")
+    if analysis_mode == "diagnose_existing" and supporting_sources is not None:
+        raise ValueError("提供 --supporting-sources 时请使用 analysis_mode=enhance_with_evidence")
+    if analysis_mode == "enhance_with_evidence" and not any(
+        value is not None for value in (supporting_sources, product_value, value_expression)
+    ):
+        raise ValueError("enhance_with_evidence 至少需要补充资料或可选上游交付")
     identity, snapshot, run_status, limitations = prepare_inputs(
         product_value, value_expression, brand, product, category, sku
     )
@@ -416,6 +428,11 @@ def build_plan(
         if comparison_sources is not None
         else None
     )
+    supporting_plan = (
+        build_supporting_plan(supporting_sources, out)
+        if supporting_sources is not None
+        else None
+    )
     reports = [COURSE_REPORT] if delivery_mode == "course" else list(PROFESSIONAL_REPORTS)
     return {
         "action": "initialize_product_page_delivery",
@@ -423,6 +440,7 @@ def build_plan(
         "target": str(out.expanduser().resolve()),
         "identity": identity,
         "scope": scope,
+        "analysis_mode": analysis_mode,
         "task": task,
         "delivery_mode": delivery_mode,
         "initial_run_status": run_status,
@@ -432,8 +450,10 @@ def build_plan(
         "page_snapshot_time": page_snapshot_time or "unknown",
         "source_plan": source_plan,
         "comparison_plan": comparison_plan,
+        "supporting_plan": supporting_plan,
         "will_create": [*reports, *(f"data/{name}" for name in (
             "page_manifest.json", "upstream_snapshot.json", "source_inventory.jsonl",
+            "supporting_source_inventory.jsonl", "claim_ledger.jsonl",
             "page_coverage.jsonl", "page_component_ledger.jsonl", "page_chain.json",
             "decision_ledger.jsonl", "action_ledger.jsonl",
             "validation_ledger.jsonl", "gap_ledger.jsonl",
@@ -474,13 +494,13 @@ def initial_gaps(
         rows.append(
             {
                 "gap_id": "GAP-001",
-                "category": "商品价值",
-                "missing": snapshot["product_value"]["reason"] or "当前SKU的有效商品价值底座",
-                "impact": "只能做页面表面检查，不能决定核心卖点和价值顺序",
-                "minimum_needed": "补充当前SKU的有效 BrandBAI 商品价值底座",
-                "return_to": "product_value",
+                "category": "可选增强资料",
+                "missing": "当前未提供页面之外的商品事实、证据或用户资料",
+                "impact": "仍可完成现有页面诊断，但不能把页面主张升级为已确认商品事实",
+                "minimum_needed": "如需增强优化，可补包装、参数、检测、用户研究或有效商品价值交付",
+                "return_to": "supporting_material",
                 "source_file_ids": [],
-                "priority": "high",
+                "priority": "medium",
                 "state": "open",
             }
         )
@@ -569,10 +589,20 @@ def init_delivery(
     entry_context: str,
     comparison_sources: Path | None,
     comparison_snapshot_time: str = "unknown",
+    analysis_mode: str = "diagnose_existing",
+    supporting_sources: Path | None = None,
 ) -> dict[str, Any]:
     if scope not in SCOPES:
         raise ValueError(f"scope 必须是 {sorted(SCOPES)} 之一")
-    validate_output_location(out, page_sources, comparison_sources)
+    validate_output_location(out, page_sources, comparison_sources, supporting_sources)
+    if analysis_mode not in ANALYSIS_MODES:
+        raise ValueError(f"analysis_mode 必须是 {sorted(ANALYSIS_MODES)} 之一")
+    if analysis_mode == "diagnose_existing" and supporting_sources is not None:
+        raise ValueError("提供 --supporting-sources 时请使用 analysis_mode=enhance_with_evidence")
+    if analysis_mode == "enhance_with_evidence" and not any(
+        value is not None for value in (supporting_sources, product_value, value_expression)
+    ):
+        raise ValueError("enhance_with_evidence 至少需要补充资料或可选上游交付")
     final_out = out.expanduser().resolve()
     if final_out.exists() and any(final_out.iterdir()):
         raise FileExistsError(f"目标目录不是空目录，拒绝覆盖: {final_out}")
@@ -603,6 +633,7 @@ def init_delivery(
             **identity,
             "scope": scope,
             "task": task,
+            "analysis_mode": analysis_mode,
             "delivery_mode": delivery_mode,
             "run_status": run_status,
             "analysis_status": "draft",
@@ -708,6 +739,8 @@ def init_delivery(
         )
         for filename in (
             "source_inventory.jsonl",
+            "supporting_source_inventory.jsonl",
+            "claim_ledger.jsonl",
             "page_component_ledger.jsonl",
             "decision_ledger.jsonl",
             "action_ledger.jsonl",
@@ -758,6 +791,13 @@ def init_delivery(
                 shutil.copy2(assets / f"{name.removesuffix('.md')}模板.md", staging / name)
 
         index_sources(page_sources, staging, "current", page_snapshot_time)
+        if supporting_sources is not None:
+            index_supporting_sources(
+                supporting_sources,
+                staging,
+                page_snapshot_time,
+                "unknown",
+            )
         if comparison_sources is not None:
             index_sources(
                 comparison_sources,
@@ -785,13 +825,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--page-sources", required=True, type=Path)
     parser.add_argument("--product-value", type=Path)
     parser.add_argument("--value-expression", type=Path)
+    parser.add_argument("--supporting-sources", type=Path)
     parser.add_argument("--brand", default="")
     parser.add_argument("--product", default="")
     parser.add_argument("--category", default="")
     parser.add_argument("--sku", default="")
     parser.add_argument("--scope", choices=sorted(SCOPES), default="combined")
+    parser.add_argument("--analysis-mode", choices=sorted(ANALYSIS_MODES), default="diagnose_existing")
     parser.add_argument("--task", choices=sorted(TASKS), default="diagnose")
-    parser.add_argument("--delivery-mode", choices=sorted(DELIVERY_MODES), default="course")
+    parser.add_argument("--delivery-mode", choices=sorted(DELIVERY_MODES), default="professional")
     parser.add_argument("--page-snapshot-time", default="unknown")
     parser.add_argument("--entry-context", default="")
     parser.add_argument("--comparison-sources", type=Path)
@@ -807,11 +849,13 @@ def main() -> int:
         "page_sources": args.page_sources,
         "product_value": args.product_value,
         "value_expression": args.value_expression,
+        "supporting_sources": args.supporting_sources,
         "brand": args.brand,
         "product": args.product,
         "category": args.category,
         "sku": args.sku,
         "scope": args.scope,
+        "analysis_mode": args.analysis_mode,
         "task": args.task,
         "delivery_mode": args.delivery_mode,
         "page_snapshot_time": args.page_snapshot_time,
