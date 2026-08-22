@@ -1,4 +1,4 @@
 interface:
   display_name: "BrandBAI 抖音账号分析"
-  short_description: "无需音频转写，分析抖音账号作品基线、评论接收与候选机制"
-  default_prompt: "使用 $brandbai-douyin-account-analysis 以轻量无转写模式分析这份抖音采集包，输出账号深度分析和 D1 评论语义证据包。"
+  short_description: "无需音频转写，分析分类基线、评论接收、稳定资产与创作空间"
+  default_prompt: "使用 $brandbai-douyin-account-analysis 以轻量无转写模式分析这份抖音采集包，输出分类中位数基线、五类稳定资产、创作空间、账号深度分析和 D1 评论语义证据包；不要进入具体商品匹配。"

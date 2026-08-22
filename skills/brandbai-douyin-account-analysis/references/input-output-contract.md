@@ -63,6 +63,7 @@ data/评论采集/run_manifest.json
 - 非置顶作品按发布时间倒序选择。
 - 非置顶样本用于近期基线；置顶作品单独分析。
 - 深看全部置顶作品，并从非置顶样本中选最多 10 条代表作品。
+- 采集任务只请求了较小 N、同时清单明确观察到更多可见作品时，采集任务可以是 `complete`，但账号分析观察窗必须标 `partial`；不得把“最近 5 条下载完成”改写成“近期账号基线完整”。
 
 ## 评论合同
 
@@ -87,12 +88,17 @@ data/analysis_manifest.json
 data/works_sample.json
 data/comment_inventory.json
 data/delivery_manifest.json
+data/work_classification.jsonl
+data/baseline_ledger.jsonl
 data/video_analysis.jsonl
 data/evidence_ledger.jsonl
+data/comment_collection_ledger.jsonl
 data/claim_cards.jsonl
+data/account_assets.jsonl
+data/creation_space.jsonl
 ```
 
-`build_analysis_dataset.py` 只生成前三个确定性文件。`init_analysis_delivery.py` 创建后四个空白合同文件和普通版模板；宿主在语义分析阶段填写，不得把空模板交付。
+`build_analysis_dataset.py` 只生成前三个确定性文件。`init_analysis_delivery.py` 创建其余空白合同文件和普通版模板；宿主在语义分析阶段填写，不得把空模板交付。`build_account_baseline.py` 只根据作品分类与原始互动数字生成中位数基线，不生成语义结论。
 
 ## 编号
 

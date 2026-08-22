@@ -135,6 +135,24 @@ class AnalysisDatasetTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(validate_main(["--input", str(package)]), 3)
 
+    def test_short_download_scope_is_partial_for_default_thirty_work_window(self):
+        with workspace_temp() as temp:
+            package = make_package(temp)
+            manifest_path = package / "data" / "作品采集" / "download_manifest.json"
+            manifest_path.write_text(
+                json.dumps({
+                    "status": "complete",
+                    "requested_recent_non_pinned": 5,
+                    "visible_works_observed": 36,
+                    "recent_selected": 5,
+                }),
+                encoding="utf-8",
+            )
+            report = inspect_input(package)
+            self.assertEqual(report["status"], "partial")
+            self.assertEqual(report["analysis_window"]["status"], "partial")
+            self.assertTrue(any("requested only 5" in item for item in report["warnings"]))
+
     def test_dry_run_does_not_create_output_and_build_writes_three_files(self):
         with workspace_temp() as root:
             package = make_package(root / "package")

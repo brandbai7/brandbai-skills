@@ -18,7 +18,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.3 | 单篇完整笔记、当前页达人快照与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.3 | TikTok 单作品当前页达人快照、视频、图集、主页、搜索、插件作品清单续跑与可见一级评论；支持独立原声缺口、海外市场预设和本机中英双语证据 | Prototype · Noncommercial |
 | [`brandbai-weibo-download`](skills/brandbai-weibo-download/) | 0.1.4 | 微博单作品当前页达人快照、账号、搜索、话题、超话和热搜证据，支持多任务项目计划、断点恢复、合并交付与耐久测试 | Prototype · Noncommercial |
-| [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.2.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”连接作品表达、评论接收和候选机制 | Prototype · Noncommercial |
+| [`brandbai-douyin-account-analysis`](skills/brandbai-douyin-account-analysis/) | 0.3.0 | 轻量无音频转写，基于“全部置顶＋最近最多 30 条非置顶作品”建立分类中位数基线、评论接收、五类稳定资产、创作空间和候选机制 | Prototype · Noncommercial |
 | [`brandbai-product-value`](skills/brandbai-product-value/) | 0.1.36 | 从商品页、表格、手卡、包装、参数、证据和用户资料建立可回溯事实；高密度字段与脚注确定性建账，大样本可按真实主张 ID 生成紧凑分析包，并在所属阶段拦截证据越界 | Prototype · Noncommercial |
 | [`brandbai-value-expression`](skills/brandbai-value-expression/) | 0.1.11 | 继承有效商品价值，以EX/PEX盘点页面表达；在紧凑方案编译前拦截非原子页面表达、截图冒充原件和客户字段内部ID泄露，继续保留上游冲突、外部对照、真单变量和必要护栏门禁 | Prototype · Noncommercial |
 
@@ -57,7 +57,8 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 ```text
 使用 brandbai-douyin-account-analysis，分析这份抖音采集包。纳入全部置顶作品和置顶之外
-最近最多 30 条作品，默认不做音频转写、不上传媒体，输出账号深度分析和 D1 评论语义证据包。
+最近最多 30 条作品，默认不做音频转写、不上传媒体，输出分类中位数基线、五类稳定资产、
+创作空间地图、账号深度分析和 D1 评论语义证据包；不要进入具体商品匹配。
 ```
 
 ```text

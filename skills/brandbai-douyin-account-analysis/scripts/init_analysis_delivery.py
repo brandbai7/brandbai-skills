@@ -15,9 +15,14 @@ ASSET_TO_OUTPUT = {
     "03_分析说明与资料缺口模板.md": "03_分析说明与资料缺口.md",
 }
 INTERNAL_FILES = (
+    "data/work_classification.jsonl",
+    "data/baseline_ledger.jsonl",
     "data/video_analysis.jsonl",
     "data/evidence_ledger.jsonl",
+    "data/comment_collection_ledger.jsonl",
     "data/claim_cards.jsonl",
+    "data/account_assets.jsonl",
+    "data/creation_space.jsonl",
 )
 
 
@@ -79,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     for relative in INTERNAL_FILES:
         (output_dir / relative).touch(exist_ok=False)
     delivery_manifest = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "analysis_status": "draft",
         "analysis_mode": "lightweight_no_asr",
         "account_name": "",

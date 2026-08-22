@@ -41,7 +41,7 @@ python -m unittest scripts/test_build_skill_release.py scripts/test_publish_skil
 cd skills/brandbai-douyin-download/scripts
 python -m unittest test_download_creator_works.py test_selection_contract.py test_package_delivery.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
 cd ../../brandbai-douyin-account-analysis/scripts
-python -m unittest test_analysis_dataset.py test_analysis_delivery.py
+python -m unittest test_analysis_dataset.py test_account_baseline.py test_analysis_delivery.py
 cd ../../brandbai-tmall-download/scripts
 python -m unittest test_collector_core.py test_browser_collect_tmall.py test_build_delivery.py test_run_foundation.py
 cd ../../brandbai-xiaohongshu-download/scripts
