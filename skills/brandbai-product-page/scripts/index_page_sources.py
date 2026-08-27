@@ -14,6 +14,7 @@ from product_page_common import file_sha256, now_iso, read_json, read_jsonl, wri
 ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".svg"}
 DOCUMENT_SUFFIXES = {".pdf", ".html", ".htm", ".md", ".txt", ".json", ".csv", ".xlsx"}
+VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
 VERSION_LABELS = {"current", "comparison"}
 SUPPORTING_SOURCE_ROLES = {
     "product_document", "evidence_document", "user_signal", "business_context",
@@ -31,6 +32,8 @@ def media_type(path: Path) -> str:
         return "archive"
     if suffix in DOCUMENT_SUFFIXES:
         return "document"
+    if suffix in VIDEO_SUFFIXES:
+        return "video"
     return "other"
 
 

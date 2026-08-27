@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.4.0"
-SKILL_VERSION = "0.4.1"
+SCHEMA_VERSION = "0.5.0"
+SKILL_VERSION = "0.5.1"
 
 SCOPES = {"main_images", "detail_page", "combined"}
 TASKS = {"diagnose", "design", "route", "version_review"}
@@ -25,6 +25,7 @@ DECISION_NAMES = ("认对", "看懂", "相信", "选对", "放心买")
 DECISION_STATUSES = {"已讲清", "部分讲清", "未讲清", "资料不足"}
 ACTION_TYPES = {"保留", "删除", "补充", "前移", "重新组织", "人工核实"}
 ACTION_STATUSES = {"suggested_untested", "candidate", "blocked", "stale"}
+RECOMMENDATION_LABELS = {"可直接优化", "补充资料后优化", "待上线验证", "不建议使用"}
 READABILITY_STATUSES = {
     "not_reviewed",
     "readable",
@@ -78,6 +79,25 @@ ENTRY_CONTEXT_BASES = {
     "provided_evidence",
     "page_visible_inference",
     "unknown",
+}
+ANALYSIS_TARGET_BASES = {
+    "detail_page_and_visible_option",
+    "user_confirmed",
+    "page_visible_target",
+    "unknown",
+}
+VISIBLE_OPTION_MATCH_STATUSES = {
+    "matched",
+    "not_found",
+    "ambiguous",
+    "not_provided",
+}
+ANALYSIS_TARGET_DECISIONS = {"continue", "stopped"}
+DYNAMIC_SNAPSHOT_APPLICABILITY = {
+    "applicable_to_analysis_sku",
+    "not_applicable_to_analysis_sku",
+    "unknown",
+    "not_provided",
 }
 BUNDLE_COMPONENT_ROLES = {
     "primary",

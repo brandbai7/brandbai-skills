@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from build_product_page_report import build_delivery
 from index_page_sources import build_plan as build_index_plan
-from index_page_sources import index_sources
+from index_page_sources import index_sources, media_type
 from init_product_page_delivery import build_plan, init_delivery
 from product_page_common import (
     DECISION_NAMES,
@@ -325,6 +325,38 @@ def component_rows(with_upstream: bool = True) -> list[dict[str, object]]:
 
 def decision_rows(with_upstream: bool = True) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    details = {
+        "认对": (
+            "页面能认出商品名称和当前包装。",
+            "当前规格与实际到手数量没有在首屏一次讲清。",
+            "用户可能认对商品但下单前仍要跨页确认规格。",
+            "在首屏补齐当前规格和到手数量。",
+        ),
+        "看懂": (
+            "页面已经出现核心体验语言。",
+            "核心体验与具体商品事实之间的关系还没有讲清。",
+            "用户知道页面在说好，但不容易复述为什么值得买。",
+            "把核心体验与相邻事实放在同一模块。",
+        ),
+        "相信": (
+            "页面已经出现支持核心体验的画面。",
+            "画面具体支持哪项主张及其边界还没有讲清。",
+            "用户可能看到证据却不知道它在证明什么。",
+            "给证据标明支持对象并保留不能证明什么。",
+        ),
+        "选对": (
+            "页面能看到当前商品和基础规格。",
+            "不同可选规格的选择顺序与差异仍不清楚。",
+            "用户可能在多个选项之间反复比较或误选。",
+            "按真实选择维度重组规格说明。",
+        ),
+        "放心买": (
+            "页面能确认商品属于当前交易页面。",
+            "价格、物流和售后时点信息未提供。",
+            "用户无法在购买前完成交易条件核对。",
+            "补充带时间的价格、物流和售后信息。",
+        ),
+    }
     for index, name in enumerate(DECISION_NAMES, start=1):
         if name in {"认对", "选对"}:
             source_ids = ["PAGE-SF-001"]
@@ -338,6 +370,10 @@ def decision_rows(with_upstream: bool = True) -> list[dict[str, object]]:
                 "decision_name": name,
                 "status": "部分讲清" if name in {"认对", "看懂", "相信", "选对"} else "资料不足",
                 "summary": f"当前页面对{name}只完成了部分信息承接。",
+                "explained": details[name][0],
+                "not_explained": details[name][1],
+                "purchase_impact": details[name][2],
+                "recommended_fix": details[name][3],
                 "source_file_ids": source_ids,
                 "component_ids": component_ids,
                 "fact_ids": ["F-001"] if with_upstream else [],
@@ -362,9 +398,13 @@ def action_row(
     return {
         "action_id": action_id,
         "priority": priority,
+        "project_name": "购买信息主线重构" if scope == "main_images" else "详情价值叙事重构",
+        "root_problem_ids": ["ROOT-001"],
+        "strategic_goal": "让页面先形成一条可复述的购买理由，再由页面位置承接。",
         "scope": scope,
         "page_location": location,
         "decision_name": "认对" if scope == "main_images" else "看懂",
+        "recommendation_label": "可直接优化",
         "current_observation": "页面当前能认出商品，但关键判断还没有一次讲清。",
         "gap_or_risk": "用户可能需要跨页面寻找规格或核心价值。",
         "basis_type": "product_value_and_value_expression" if with_upstream else "page_visible_only",
@@ -390,6 +430,16 @@ def page_chain(components: list[dict[str, object]], sku: str = "300毫升乘12�
     component_ids = [str(item["component_id"]) for item in components]
     return {
         "schema_version": SCHEMA_VERSION,
+        "analysis_target": {
+            "analysis_sku": sku,
+            "target_basis": "page_visible_target",
+            "page_primary_sku_or_variant": sku,
+            "visible_option_match_status": "matched",
+            "visible_option_evidence": "当前SKU在页面可见选项中唯一匹配。",
+            "dynamic_snapshot_applicability": "applicable_to_analysis_sku",
+            "decision": "continue",
+            "boundary": "只分析已确认的当前SKU，不外推到其他规格。",
+        },
         "page_role": "single_product_page",
         "page_role_basis": "page_visible_inference",
         "entry_context_basis": "unknown",
@@ -414,6 +464,38 @@ def page_chain(components: list[dict[str, object]], sku: str = "300毫升乘12�
         "continuation_handoffs": [],
         "chain_findings": [],
         "aggregate_implications": [],
+        "overall_diagnosis": {
+            "current_page_strategy": "页面以商品身份、核心体验和规格信息共同推动购买。",
+            "current_conversion_logic": "先认出当前商品，再理解核心体验，最后确认规格与到手。",
+            "current_core_purchase_reason": "当前页面试图以清楚的核心体验推动用户选择当前SKU。",
+            "strengths_to_preserve": ["商品身份已经可以识别", "核心体验已有页面承接"],
+            "root_problems": [
+                {
+                    "root_problem_id": "ROOT-001",
+                    "title": "购买主线没有一次讲清",
+                    "diagnosis": "页面信息各自成立，但缺少统一主次和连续解释。",
+                    "supporting_observations": "主图与详情页分别呈现规格和体验，用户需要跨位置拼接。",
+                    "supporting_component_ids": component_ids,
+                    "purchase_consequence": "用户能认出商品，却难以复述主要购买理由。",
+                    "affected_decisions": ["认对", "看懂"],
+                }
+            ],
+            "professional_judgement": "本轮应先重构整体购买主线，再调整具体页面位置。",
+        },
+        "rebuild_strategy": {
+            "strategic_objective": "把分散信息编成一条可理解、可相信、可选择的购买逻辑。",
+            "proposed_purchase_logic": "当前SKU身份与核心体验先建立，再由事实支持和实际到手完成闭合。",
+            "narrative_route": ["认出当前SKU", "理解核心体验", "看见事实支持", "确认规格与到手"],
+            "surface_roles": {
+                "main_images": "快速认出商品并建立一个主要购买理由。",
+                "transaction_panel": "讲清规格、选择顺序、价格权益和实际到手。",
+                "detail_page": "连续解释核心体验、事实支持、用法和边界。",
+                "decision_close": "汇总选择理由与到手信息，不重复催单。",
+            },
+            "preserve": ["商品身份", "当前SKU事实", "已有核心体验素材"],
+            "deprioritize_or_remove": ["重复表达", "没有服务购买判断的孤立信息"],
+            "success_definition": "用户看完整页后能复述购买理由、选择当前SKU并知道实际到手。",
+        },
         "cross_surface_consistency": {
             "status": "partially_checked",
             "checked_surfaces": ["main_images", "detail_page"],
@@ -597,6 +679,8 @@ def run_test() -> None:
             "2026-08-11T10:00:00+08:00", "", None,
         )
         assert plan["dry_run"] is True
+        assert media_type(Path("sample.mp4")) == "video"
+        assert media_type(Path("sample.webm")) == "video"
         assert not course.exists(), "dry-run不得创建交付目录"
         assert "data/page_chain.json" in plan["will_create"], "dry-run必须完整声明page_chain交付文件"
         init_delivery(
@@ -643,11 +727,57 @@ def run_test() -> None:
         assert "页面还必须补齐：认对、看懂、相信、选对、放心买" in report
         assert "规格选择顺序：数量" in report
         assert "已核对" in report and "本次提供范围已逐张看完" in report
-        assert "### 优先 1｜主图第1张（认对）" in report
+        assert "### 优先 1｜购买信息主线重构" in report
+        assert "页面整体诊断" in report and "整体重构思路" in report
+        assert "三个以内的整体根因" in report
         assert "- 现在的问题：" in report and "- 改完怎么检查：" in report
         assert "| 优先顺序 |" not in report
         assert "by 布兰德老白 BrandBAI" in report
         assert "ACT-001" not in report and "V-001" not in report
+        assert "品牌先看这一页" in report
+        assert "本次真正分析的SKU" in report
+        assert "最优先的改版项目（最多三个）" in report
+        assert "我买的到底是哪一款、多少、到手是什么" in report
+
+        chain_path = course / "data" / "page_chain.json"
+        original_chain = read_json(chain_path)
+        missing_target_chain = deepcopy(original_chain)
+        missing_target_chain["analysis_target"].update(
+            {
+                "visible_option_match_status": "not_found",
+                "dynamic_snapshot_applicability": "unknown",
+                "decision": "continue",
+            }
+        )
+        write_json(chain_path, missing_target_chain)
+        assert_error(course, "E_ANALYSIS_TARGET")
+        write_json(chain_path, original_chain)
+
+        missing_overall = deepcopy(original_chain)
+        missing_overall["overall_diagnosis"]["current_page_strategy"] = ""
+        write_json(chain_path, missing_overall)
+        assert_error(course, "E_OVERALL_DIAGNOSIS")
+        write_json(chain_path, original_chain)
+
+        decisions_path = course / "data" / "decision_ledger.jsonl"
+        original_decisions = read_jsonl(decisions_path)
+        vague_decisions = deepcopy(original_decisions)
+        vague_decisions[0]["not_explained"] = "部分讲清"
+        write_jsonl(decisions_path, vague_decisions)
+        assert_error(course, "E_DECISION_GAP_UNCLEAR")
+
+        generic_decisions = deepcopy(original_decisions)
+        generic_decisions[0]["explained"] = "页面已有可读内容承接‘认对’，相关商品信息可以被找到。"
+        write_jsonl(decisions_path, generic_decisions)
+        assert_error(course, "E_DECISION_GENERIC")
+
+        fully_clear_decisions = deepcopy(original_decisions)
+        fully_clear_decisions[0]["status"] = "已讲清"
+        fully_clear_decisions[0]["not_explained"] = "当前未发现影响购买的关键缺口。"
+        fully_clear_decisions[0]["recommended_fix"] = "保留当前表达并继续核对动态信息。"
+        write_jsonl(decisions_path, fully_clear_decisions)
+        assert_error(course, "E_ACTION_NOT_GAP_TARGETED")
+        write_jsonl(decisions_path, original_decisions)
 
         excluded_sources = read_jsonl(course / "data" / "source_inventory.jsonl")
         excluded_source = deepcopy(excluded_sources[0])
@@ -767,6 +897,14 @@ def run_test() -> None:
         assert pro_result["status"] == "passed", json.dumps(pro_result, ensure_ascii=False, indent=2)
         assert (professional / "02_主图交易区详情页优化页纲.md").is_file()
         assert (professional / "03_资料缺口与证据边界.md").is_file()
+        professional_report = (professional / "01_商品页诊断与优化建议.md").read_text(
+            encoding="utf-8"
+        )
+        assert "品牌内部商品资料：本次已提供" in professional_report
+        assert "已验证卖点资产：本次已提供" in professional_report
+        assert "商品价值上游" not in professional_report
+        assert "卖点呈现上游" not in professional_report
+        assert "资料缺口、待确认事项与下一步" in professional_report
         page_plan = (professional / "02_主图交易区详情页优化页纲.md").read_text(
             encoding="utf-8"
         )
@@ -909,6 +1047,16 @@ def run_test() -> None:
 
         actions_path = course / "data" / "action_ledger.jsonl"
         original_actions = read_jsonl(actions_path)
+
+        missing_action_label = deepcopy(original_actions)
+        missing_action_label[0]["recommendation_label"] = ""
+        write_jsonl(actions_path, missing_action_label)
+        assert_error(course, "E_ACTION_LABEL")
+
+        invalid_action_label = deepcopy(original_actions)
+        invalid_action_label[0]["recommendation_label"] = "马上能提升转化"
+        write_jsonl(actions_path, invalid_action_label)
+        assert_error(course, "E_ACTION_LABEL")
 
         six = deepcopy(original_actions)
         while len(six) < 6:
@@ -1141,6 +1289,11 @@ def run_test() -> None:
         assert build_delivery(course, write=False)["status"] == "dry_run"
         assert_error(course, "E_ACTION_FIELDS_MISSING")
 
+        unrooted_action = deepcopy(original_actions)
+        unrooted_action[0]["root_problem_ids"] = []
+        write_jsonl(actions_path, unrooted_action)
+        assert_error(course, "E_ACTION_NOT_ROOTED")
+
         blocked_action = deepcopy(original_actions)
         blocked_action[0]["status"] = "blocked"
         write_jsonl(actions_path, blocked_action)
@@ -1318,6 +1471,11 @@ def run_test() -> None:
             assert_error(course, "E_COURSE_INTERNAL_LEAK")
         course_report_path.write_text(clean_report + "\n来源：D:/客户资料/页面.png\n", encoding="utf-8")
         assert_error(course, "E_ABSOLUTE_PATH_LEAK")
+        course_report_path.write_text(
+            clean_report + "\n下载时选中的是另一个规格。\n",
+            encoding="utf-8",
+        )
+        assert_error(course, "E_COLLECTION_PROCESS_LEAK")
         for leaked_path in (
             "/tmp/client/page.png",
             "/var/data/client/page.png",
@@ -1335,6 +1493,16 @@ def run_test() -> None:
             encoding="utf-8",
         )
         assert validate_delivery(course)["status"] == "passed"
+        for safe_slash_text in (
+            "比例：55%/33%。",
+            "规格：抽数/包数。",
+            "容量：500ml/瓶。",
+        ):
+            course_report_path.write_text(
+                clean_report + f"\n{safe_slash_text}\n",
+                encoding="utf-8",
+            )
+            assert validate_delivery(course)["status"] == "passed"
         build_delivery(course, write=True)
 
         failed_out = temp_root / "transaction-failed"
@@ -1378,7 +1546,7 @@ def run_test() -> None:
 
         build_delivery(course, write=True)
         assert validate_delivery(course)["status"] == "passed"
-        assert SKILL_VERSION == "0.4.1"
+        assert SKILL_VERSION == "0.5.1"
         print("product-page synthetic tests passed")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
