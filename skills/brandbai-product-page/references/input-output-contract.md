@@ -2,7 +2,14 @@
 
 ## 1. 一次运行的对象
 
-一次运行只处理一个品牌、一个商品、一个当前可成交 SKU／套组和一个页面版本。`combined` 可以同时读取主图、交易区与详情页，但仍是一套共同判断和零至五项共同优先动作。
+一次运行只处理一个品牌、一个商品、一个页面主讲 SKU／套组和一个页面版本。页面主讲 SKU 是主图与详情页主要内容实际围绕、且能在交易区可见选项中确认的成交对象。`combined` 可以同时读取主图、交易区与详情页，但仍是一套共同判断和零至五项共同改版项目。
+
+分析对象按以下优先级确定：
+
+1. 主图与详情页存在清晰、稳定且占主导的 SKU／套组；
+2. 该对象能在交易区可见选项中找到，或由用户明确确认仍可成交；
+3. 当前页面可见交易信息能明确归属于该对象；无法确认归属的价格、库存、赠品、物流和到手信息不得写入正式结论；
+4. 页面没有主讲对象、主讲对象不在可见选项中，或可见选项无法确认时停止正式动作。
 
 ## 2. 两种分析模式
 
@@ -81,9 +88,39 @@ delivery_status, page_snapshot_time, entry_context, cross_surface_summary,
 output_version, source_count, limitations, created_at, updated_at
 ```
 
+### page_chain.json 中的 analysis_target
+
+```text
+analysis_sku, target_basis, page_primary_sku_or_variant,
+visible_option_match_status, visible_option_evidence,
+dynamic_snapshot_applicability, decision, boundary
+```
+
+`visible_option_match_status`：`matched`、`not_found`、`ambiguous`、`not_provided`。
+
+`decision`：`continue` 或 `stopped`。非停止交付必须是 `continue`；动态交易快照只有能明确归属于分析 SKU 时才可调用。
+
+### page_chain.json 中的 overall_diagnosis
+
+```text
+current_page_strategy, current_conversion_logic, current_core_purchase_reason,
+strengths_to_preserve, root_problems, professional_judgement
+```
+
+整体诊断先于局部动作。`root_problems` 最多三项，每项必须写明问题、页面依据、购买影响与受影响的购买判断；已经做对的部分进入 `strengths_to_preserve`，不得为了显得专业而制造问题。
+
+### page_chain.json 中的 rebuild_strategy
+
+```text
+strategic_objective, proposed_purchase_logic, narrative_route, surface_roles,
+preserve, deprioritize_or_remove, success_definition
+```
+
+`surface_roles` 固定说明主图、交易区、详情页和决策收口各自承担什么。新版购买逻辑必须是一条连续路径，不是把逐图建议重新排列。
+
 ### source_inventory.jsonl
 
-只登记待诊断页面：文件哈希、相对路径、页面范围、位置、顺序、可读状态、截图／下载时间和质量排除原因。压缩包未解压不能标为已读。
+只登记待诊断页面：文件哈希、相对路径、页面范围、位置、顺序、可读状态、页面快照／观察时间和质量排除原因。压缩包未展开并实际读取时不能标为已读。
 
 ### supporting_source_inventory.jsonl
 
@@ -106,11 +143,13 @@ human_confirmation, boundary
 
 ### decision_ledger.jsonl
 
-固定五条：认对、看懂、相信、选对、放心买。只使用“已讲清、部分讲清、未讲清、资料不足”，不生成无基准总分。
+固定五条：认对、看懂、相信、选对、放心买。只使用“已讲清、部分讲清、未讲清、资料不足”，不生成无基准总分。每条除摘要外必须填写 `explained`、`not_explained`、`purchase_impact`、`recommended_fix`，分别说明已经讲清什么、还没讲清什么、怎样影响购买和具体怎么补。
+
+“部分讲清”不能只复述状态。优化动作必须指向状态不是“已讲清”的购买判断，并且只修复其 `not_explained` 中的真实缺口。
 
 ### action_ledger.jsonl
 
-零至五条。每条必须写明页面位置、当前问题、依据、动作、必须保留、所需资料、人工确认、验收问题、上线验证问题与边界。
+零至五条。每条必须写明改版项目名称、对应整体根因、项目目标、主要页面落点、当前问题、依据、动作、必须保留、所需资料、人工确认、验收问题、上线验证问题、边界，以及非空的 `recommendation_label`。除“保留”外，任何项目都必须绑定至少一个整体根因，不能从单张图直接生成。
 
 普通版标签：
 
@@ -118,6 +157,8 @@ human_confirmation, boundary
 - `补充资料后优化`：方向成立，但素材、事实或授权不足；
 - `待上线验证`：可执行，但效果只能上线后观察；
 - `不建议使用`：越过事实、SKU、合规或时效边界。
+
+`recommendation_label` 只能填写以上四种标签，不能留空，也不能自造“马上提升转化”等承诺式标签。
 
 ### gap_ledger.jsonl
 

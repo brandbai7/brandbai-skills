@@ -12,9 +12,12 @@ from typing import Any, Iterable
 
 from product_page_common import (
     ANALYSIS_MODES,
+    ANALYSIS_TARGET_BASES,
+    ANALYSIS_TARGET_DECISIONS,
     ACTION_SCOPES,
     ACTION_STATUSES,
     ACTION_TYPES,
+    RECOMMENDATION_LABELS,
     ANALYSIS_STATUSES,
     BASIS_TYPES,
     BUNDLE_COMPONENT_ROLES,
@@ -55,6 +58,7 @@ from product_page_common import (
     DELIVERY_MODES,
     DELIVERY_STATUSES,
     DYNAMIC_STATUSES,
+    DYNAMIC_SNAPSHOT_APPLICABILITY,
     GAP_RETURN_TARGETS,
     PAGE_SCOPES,
     READABILITY_STATUSES,
@@ -69,6 +73,7 @@ from product_page_common import (
     TASKS,
     UPSTREAM_ANALYSIS_STATUSES,
     UPSTREAM_DELIVERY_STATUSES,
+    VISIBLE_OPTION_MATCH_STATUSES,
     MODULE_ROLES,
     delivery_paths,
     product_page_id,
@@ -130,20 +135,24 @@ COMPONENT_FIELDS = {
 }
 CHAIN_FIELDS = {
     "schema_version", "page_role", "page_role_basis", "entry_context_basis",
+    "analysis_target",
     "precompleted_decisions", "remaining_decision_tasks", "dominant_route",
     "parallel_routes", "category_must_answer_tasks",
     "surface_coverage", "ordered_component_ids", "decision_closure",
     "continuation_handoffs", "chain_findings", "aggregate_implications",
+    "overall_diagnosis", "rebuild_strategy",
     "cross_surface_consistency", "presentation_actuality_checks", "eligibility_gate",
     "variant_routes", "quantified_claim_checks", "current_transaction",
     "cross_surface_sku_consistency", "post_purchase_handoff", "limitations",
 }
 DECISION_FIELDS = {
-    "decision_id", "decision_name", "status", "summary", "source_file_ids",
+    "decision_id", "decision_name", "status", "summary", "explained",
+    "not_explained", "purchase_impact", "recommended_fix", "source_file_ids",
     "component_ids", "fact_ids", "value_ids", "vis_ids", "unknowns", "boundary",
 }
 ACTION_FIELDS = {
-    "action_id", "priority", "scope", "page_location", "decision_name",
+    "action_id", "priority", "project_name", "root_problem_ids", "strategic_goal",
+    "scope", "page_location", "decision_name", "recommendation_label",
     "current_observation", "gap_or_risk", "basis_type", "basis_summary",
     "source_file_ids", "component_ids", "fact_ids", "value_ids", "vis_ids",
     "action_type", "action_detail", "must_preserve", "material_needed",
@@ -173,6 +182,7 @@ MEDIA_EXTENSIONS = {
     "pdf": {".pdf"},
     "archive": {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"},
     "document": {".html", ".htm", ".md", ".txt", ".json", ".csv", ".xlsx"},
+    "video": {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"},
     "other": set(),
 }
 
@@ -183,7 +193,7 @@ ABSOLUTE_PATH_PATTERN = re.compile(
     r"(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]"
     r"|file://+[^\s|<>()]+"
     r"|//[^/\s|<>]+/[^/\s|<>]+(?:/[^\s|<>]+)*"
-    r"|(?<![A-Za-z0-9/])/(?!/)[^\s|<>()]+"
+    r"|(?:^|(?<=[\s:：=（(【\[]))/(?!/)(?:(?:tmp|var|home|Users|etc|opt|srv|mnt|private|Volumes|usr|root|data)(?:/|$)|[A-Za-z._~][A-Za-z0-9._~-]*/)[^\s|<>()]*"
     r"|\\\\[^\\\s|<>]+\\[^\\\s|<>]+)"
 )
 REMOTE_URL_PATTERN = re.compile(r"\b(?:https?|ftp)://[^\s|<>()]+", re.IGNORECASE)
@@ -1193,6 +1203,41 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         add_error(errors, "E_CHAIN_SCHEMA", f"page_chain缺少字段: {', '.join(missing_chain)}")
     if chain.get("schema_version") != SCHEMA_VERSION:
         add_error(errors, "E_VERSION_DRIFT", "page_chain.schema_version与脚本不一致")
+
+    analysis_target = chain.get("analysis_target")
+    if not isinstance(analysis_target, dict):
+        add_error(errors, "E_ANALYSIS_TARGET", "page_chain.analysis_target必须是对象")
+        analysis_target = {}
+    target_required = {
+        "analysis_sku", "target_basis", "page_primary_sku_or_variant",
+        "visible_option_match_status", "visible_option_evidence",
+        "dynamic_snapshot_applicability", "decision", "boundary",
+    }
+    target_missing = missing_fields(analysis_target, target_required)
+    if target_missing:
+        add_error(errors, "E_ANALYSIS_TARGET", f"analysis_target缺少字段: {', '.join(target_missing)}")
+    if str(analysis_target.get("analysis_sku", "")).strip() != str(manifest.get("sku", "")).strip():
+        add_error(errors, "E_ANALYSIS_TARGET", "analysis_target.analysis_sku必须与manifest.sku一致")
+    if analysis_target.get("target_basis") not in ANALYSIS_TARGET_BASES:
+        add_error(errors, "E_ANALYSIS_TARGET", "analysis_target.target_basis无效")
+    if analysis_target.get("visible_option_match_status") not in VISIBLE_OPTION_MATCH_STATUSES:
+        add_error(errors, "E_ANALYSIS_TARGET", "analysis_target.visible_option_match_status无效")
+    if analysis_target.get("dynamic_snapshot_applicability") not in DYNAMIC_SNAPSHOT_APPLICABILITY:
+        add_error(errors, "E_ANALYSIS_TARGET", "analysis_target.dynamic_snapshot_applicability无效")
+    if analysis_target.get("decision") not in ANALYSIS_TARGET_DECISIONS:
+        add_error(errors, "E_ANALYSIS_TARGET", "analysis_target.decision无效")
+    if not nonempty(analysis_target, "boundary"):
+        add_error(errors, "E_ANALYSIS_TARGET", "analysis_target必须写明对象边界")
+
+    non_stopped = manifest.get("run_status") != "stopped"
+    if non_stopped and analysis_target.get("decision") != "continue":
+        add_error(errors, "E_ANALYSIS_TARGET", "非停止交付必须确认可继续分析")
+    if non_stopped and analysis_target.get("target_basis") == "unknown":
+        add_error(errors, "E_ANALYSIS_TARGET", "非停止交付必须说明分析SKU的识别依据")
+    if non_stopped and analysis_target.get("visible_option_match_status") in {"not_found", "ambiguous"}:
+        add_error(errors, "E_ANALYSIS_TARGET", "页面主讲SKU未在可见选项中唯一匹配时必须停止")
+    if analysis_target.get("target_basis") == "detail_page_and_visible_option" and analysis_target.get("visible_option_match_status") != "matched":
+        add_error(errors, "E_ANALYSIS_TARGET", "依据详情页主讲SKU继续分析时必须在可见选项中匹配")
     for field in (
         "precompleted_decisions", "remaining_decision_tasks", "parallel_routes",
         "category_must_answer_tasks", "surface_coverage",
@@ -1202,6 +1247,82 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
     ):
         if not isinstance(chain.get(field), list):
             add_error(errors, "E_CHAIN_SCHEMA", f"page_chain.{field}必须是数组")
+
+    overall = chain.get("overall_diagnosis")
+    root_problem_ids: set[str] = set()
+    if not isinstance(overall, dict):
+        add_error(errors, "E_OVERALL_DIAGNOSIS", "overall_diagnosis必须是对象")
+        overall = {}
+    overall_required = {
+        "current_page_strategy", "current_conversion_logic",
+        "current_core_purchase_reason", "strengths_to_preserve",
+        "root_problems", "professional_judgement",
+    }
+    overall_missing = missing_fields(overall, overall_required)
+    if overall_missing:
+        add_error(errors, "E_OVERALL_DIAGNOSIS", f"overall_diagnosis缺少字段: {', '.join(overall_missing)}")
+    if not isinstance(overall.get("strengths_to_preserve"), list):
+        add_error(errors, "E_OVERALL_DIAGNOSIS", "strengths_to_preserve必须是数组")
+    roots = overall.get("root_problems", [])
+    if not isinstance(roots, list):
+        add_error(errors, "E_OVERALL_DIAGNOSIS", "root_problems必须是数组")
+        roots = []
+    if len(roots) > 3:
+        add_error(errors, "E_OVERALL_DIAGNOSIS", "整体根因最多3项")
+    for index, root in enumerate(roots, start=1):
+        if not isinstance(root, dict):
+            add_error(errors, "E_OVERALL_DIAGNOSIS", f"root_problems第{index}项必须是对象")
+            continue
+        root_id = str(root.get("root_problem_id", ""))
+        if not re.fullmatch(r"ROOT-\d{3,}", root_id) or root_id in root_problem_ids:
+            add_error(errors, "E_OVERALL_DIAGNOSIS", f"root_problems第{index}项ID无效或重复")
+        root_problem_ids.add(root_id)
+        for field in ("title", "diagnosis", "supporting_observations", "purchase_consequence"):
+            if not nonempty(root, field):
+                add_error(errors, "E_OVERALL_DIAGNOSIS", f"{root_id or index}缺少{field}")
+        if not isinstance(root.get("affected_decisions"), list) or not root.get("affected_decisions"):
+            add_error(errors, "E_OVERALL_DIAGNOSIS", f"{root_id or index}缺少affected_decisions")
+        elif any(name not in DECISION_NAMES for name in root.get("affected_decisions", [])):
+            add_error(errors, "E_OVERALL_DIAGNOSIS", f"{root_id or index} affected_decisions无效")
+        validate_reference_list(
+            errors, root_id or f"root:{index}", root,
+            "supporting_component_ids", component_ids, "E_PAGE_REF_INVALID",
+        )
+    if non_stopped:
+        for field in (
+            "current_page_strategy", "current_conversion_logic",
+            "current_core_purchase_reason", "professional_judgement",
+        ):
+            if not nonempty(overall, field):
+                add_error(errors, "E_OVERALL_DIAGNOSIS", f"非停止交付缺少{field}")
+
+    rebuild = chain.get("rebuild_strategy")
+    if not isinstance(rebuild, dict):
+        add_error(errors, "E_REBUILD_STRATEGY", "rebuild_strategy必须是对象")
+        rebuild = {}
+    rebuild_required = {
+        "strategic_objective", "proposed_purchase_logic", "narrative_route",
+        "surface_roles", "preserve", "deprioritize_or_remove", "success_definition",
+    }
+    rebuild_missing = missing_fields(rebuild, rebuild_required)
+    if rebuild_missing:
+        add_error(errors, "E_REBUILD_STRATEGY", f"rebuild_strategy缺少字段: {', '.join(rebuild_missing)}")
+    for field in ("narrative_route", "preserve", "deprioritize_or_remove"):
+        if not isinstance(rebuild.get(field), list):
+            add_error(errors, "E_REBUILD_STRATEGY", f"rebuild_strategy.{field}必须是数组")
+    surface_roles = rebuild.get("surface_roles")
+    required_surfaces = {"main_images", "transaction_panel", "detail_page", "decision_close"}
+    if not isinstance(surface_roles, dict) or missing_fields(surface_roles, required_surfaces):
+        add_error(errors, "E_REBUILD_STRATEGY", "surface_roles必须完整覆盖主图、交易区、详情页和决策收口")
+    elif non_stopped and any(not nonempty(surface_roles, field) for field in required_surfaces):
+        add_error(errors, "E_REBUILD_STRATEGY", "非停止交付的surface_roles不能留空")
+    if non_stopped:
+        for field in ("strategic_objective", "proposed_purchase_logic", "success_definition"):
+            if not nonempty(rebuild, field):
+                add_error(errors, "E_REBUILD_STRATEGY", f"非停止交付缺少{field}")
+        if len(rebuild.get("narrative_route", [])) < 2:
+            add_error(errors, "E_REBUILD_STRATEGY", "新版叙事路线至少需要2个连续节点")
+
     if chain.get("page_role") not in PAGE_ROLES:
         add_error(errors, "E_PAGE_ROLE", "page_role无效")
     if chain.get("page_role_basis") not in ENTRY_CONTEXT_BASES:
@@ -1584,9 +1705,31 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_DECISION_INCOMPLETE", f"{decision_id} decision_name无效")
         if row.get("status") not in DECISION_STATUSES:
             add_error(errors, "E_DECISION_INCOMPLETE", f"{decision_id} status无效")
-        for field in ("summary", "boundary"):
+        for field in (
+            "summary", "explained", "not_explained", "purchase_impact",
+            "recommended_fix", "boundary",
+        ):
             if not nonempty(row, field):
                 add_error(errors, "E_DECISION_INCOMPLETE", f"{decision_id}缺少{field}")
+        if row.get("status") in {"部分讲清", "未讲清", "资料不足"} and str(
+            row.get("not_explained", "")
+        ).strip() in {"部分讲清", "未讲清", "资料不足", "当前资料不足", "尚未讲清"}:
+            add_error(errors, "E_DECISION_GAP_UNCLEAR", f"{decision_id}必须具体写明还没讲清什么")
+        generic_decision_text = " ".join(
+            str(row.get(field, "")) for field in (
+                "explained", "not_explained", "purchase_impact", "recommended_fix"
+            )
+        )
+        if re.search(
+            r"页面已有可读内容承接|相关商品信息可以被找到|尚未把[‘'\"]?.+?[’'\"]?放进一条连续购买逻辑|"
+            r"用户完成[‘'\"]?.+?[’'\"]?需要自行跨页面拼接信息|把[‘'\"]?.+?[’'\"]?所需信息放在用户做决定之前",
+            generic_decision_text,
+        ):
+            add_error(
+                errors,
+                "E_DECISION_GENERIC",
+                f"{decision_id}仍是通用空话，必须写出本商品的具体事实、缺口、购买影响和补法",
+            )
         if not isinstance(row.get("unknowns"), list):
             add_error(errors, "E_UNKNOWN_DROPPED", f"{decision_id}.unknowns必须是数组")
         validate_reference_list(errors, decision_id, row, "source_file_ids", source_ids, "E_PAGE_REF_INVALID")
@@ -1614,6 +1757,11 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_P0_MUTATED", f"{decision_id}试图重选或替换核心价值")
         if any(pattern.search(decision_text) for pattern in COMMENT_FACT_PATTERNS):
             add_error(errors, "E_COMMENT_AS_PRODUCT_FACT", f"{decision_id}把评论或评价升级为事实")
+
+    decision_status_lookup = {
+        str(row.get("decision_name", "")): str(row.get("status", ""))
+        for row in decisions
+    }
 
     if len(actions) > 5:
         add_error(errors, "E_ACTION_LIMIT", "优先动作总数不能超过5")
@@ -1644,6 +1792,27 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_ACTION_UNGROUNDED", f"{action_id} basis_type无效")
         if row.get("action_type") not in ACTION_TYPES:
             add_error(errors, "E_ACTION_FIELDS_MISSING", f"{action_id} action_type无效")
+        if row.get("recommendation_label") not in RECOMMENDATION_LABELS:
+            add_error(
+                errors,
+                "E_ACTION_LABEL",
+                f"{action_id} recommendation_label必须是{sorted(RECOMMENDATION_LABELS)}之一",
+            )
+        if not nonempty(row, "project_name") or not nonempty(row, "strategic_goal"):
+            add_error(errors, "E_ACTION_FIELDS_MISSING", f"{action_id}必须写明改版项目名称和整体目标")
+        linked_roots = row.get("root_problem_ids")
+        if not isinstance(linked_roots, list):
+            add_error(errors, "E_ACTION_FIELDS_MISSING", f"{action_id}.root_problem_ids必须是数组")
+            linked_roots = []
+        unknown_roots = [root_id for root_id in linked_roots if root_id not in root_problem_ids]
+        if unknown_roots:
+            add_error(errors, "E_ACTION_NOT_ROOTED", f"{action_id}引用未知整体根因: {unknown_roots}")
+        if row.get("action_type") != "保留" and not linked_roots:
+            add_error(errors, "E_ACTION_NOT_ROOTED", f"{action_id}必须先绑定整体根因，不能从单张图直接生成")
+        if row.get("action_type") != "保留" and decision_status_lookup.get(
+            str(row.get("decision_name", ""))
+        ) == "已讲清":
+            add_error(errors, "E_ACTION_NOT_GAP_TARGETED", f"{action_id}不能重复优化已经讲清的购买判断")
         if row.get("status") not in ACTION_STATUSES:
             add_error(errors, "E_ACTION_FIELDS_MISSING", f"{action_id} status无效")
         elif row.get("status") not in ACTIVE_ACTION_STATUSES:
@@ -1975,15 +2144,20 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_BRAND_NOTICE", f"{path.name}缺少固定方法署名")
         if re.search(r"最终主图|可直接上线详情页|已完成发布稿", text):
             add_error(errors, "E_FINAL_ARTWORK_CLAIM", f"{path.name}越界声称完成最终视觉稿")
+        if re.search(r"下载时选中|下载选错|误选项", text):
+            add_error(errors, "E_COLLECTION_PROCESS_LEAK", f"{path.name}混入下载过程信息")
     if manifest.get("delivery_mode") == "course" and paths["course_report"].is_file():
         course = paths["course_report"].read_text(encoding="utf-8")
         for heading in (
-            "## 一、这次看什么",
-            "## 二、用户现在能不能顺利完成五个判断",
-            "## 三、这一轮最应该先改什么",
-            "## 四、需要返回上一步补什么",
-            "## 五、回去以后第一步",
-            "## 六、限制说明",
+            "## 一、品牌先看这一页",
+            "## 二、这次看了什么",
+            "### 页面整体诊断",
+            "### 整体重构思路",
+            "## 三、五个购买判断分别卡在哪里",
+            "## 四、这一轮的改版项目",
+            "## 五、需要返回上一步补什么",
+            "## 六、回去以后第一步",
+            "## 七、限制说明",
         ):
             if heading not in course:
                 add_error(errors, "E_COURSE_ACTION_CARD_MISSING", f"课程行动单缺少章节: {heading}")
@@ -1991,10 +2165,18 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_ACTION_LIMIT", "课程行动单动作超过5项")
     if manifest.get("delivery_mode") == "professional":
         for name, headings in (
-            ("professional_report_01", ("## 1｜对象、范围与证据成熟度", "## 2｜五个用户判断", "## 3｜优先修复")),
+            (
+                "professional_report_01",
+                (
+                    "## 品牌先看这一页", "### 本次到底在分析哪个SKU",
+                    "## 1｜页面整体诊断", "## 2｜整体优化与重构思路",
+                    "### 最优先的改版项目（最多三个）", "## 3｜五个购买判断的具体诊断",
+                    "## 4｜完整改版项目", "## 5｜对象、范围与证据成熟度",
+                ),
+            ),
             (
                 "professional_report_02",
-                ("## 1｜主图序列", "## 2｜交易区", "## 3｜详情页模块", "## 4｜页面版本与验证"),
+                ("## 先看整体改版方向", "## 改版项目与先后顺序", "## 1｜主图序列执行清单", "## 2｜交易区执行清单", "## 3｜详情页模块执行清单", "## 4｜页面版本与验证"),
             ),
             (
                 "professional_report_03",
