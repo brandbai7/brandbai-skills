@@ -121,7 +121,7 @@ def run_test() -> None:
         failed = validate_delivery(enhanced)
         assert any("E_SKU_APPLICABILITY" in item for item in failed["errors"])
 
-        print("product-page v0.5 mode tests passed")
+        print("product-page v0.6 mode tests passed")
     finally:
         shutil.rmtree(root, ignore_errors=True)
         try:
