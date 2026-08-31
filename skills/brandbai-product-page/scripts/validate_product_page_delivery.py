@@ -26,6 +26,14 @@ from product_page_common import (
     ENTRY_CONTEXT_BASES,
     INFORMATION_NODE_TYPES,
     MATCH_STATUSES,
+    CATEGORY_DECISION_BASIS_TYPES,
+    CATEGORY_DECISION_MATURITIES,
+    CATEGORY_TASK_REQUIREMENTS,
+    CATEGORY_TASK_IMPORTANCE,
+    CONTENT_COVERAGE_STATUSES,
+    CONTENT_POSITION_STATUSES,
+    EVIDENCE_CONNECTION_STATUSES,
+    CONTENT_REDUNDANCY_STATUSES,
     PACKAGE_VERSION_STATUSES,
     PAGE_ROLES,
     ADJACENCY_STATUSES,
@@ -123,7 +131,7 @@ COVERAGE_FIELDS = {
 COMPONENT_FIELDS = {
     "component_id", "scope", "page_location", "sequence", "source_file_ids",
     "readability_status", "current_observation", "page_says", "page_shows",
-    "decision_names", "fact_ids", "value_ids", "vis_ids", "dynamic_status",
+    "decision_names", "category_task_ids", "fact_ids", "value_ids", "vis_ids", "dynamic_status",
     "content_layer", "module_role", "support_target",
     "information_node_type", "primary_decision_name", "match_status",
     "predecessor_requirement", "next_node_or_touchpoint", "comparison_dimension",
@@ -137,13 +145,71 @@ CHAIN_FIELDS = {
     "schema_version", "page_role", "page_role_basis", "entry_context_basis",
     "analysis_target",
     "precompleted_decisions", "remaining_decision_tasks", "dominant_route",
-    "parallel_routes", "category_must_answer_tasks",
+    "parallel_routes", "category_decision_chain",
     "surface_coverage", "ordered_component_ids", "decision_closure",
     "continuation_handoffs", "chain_findings", "aggregate_implications",
-    "overall_diagnosis", "rebuild_strategy",
+    "overall_diagnosis", "rebuild_strategy", "transaction_panel_plan",
+    "detail_page_assessment", "detail_page_plan",
     "cross_surface_consistency", "presentation_actuality_checks", "eligibility_gate",
     "variant_routes", "quantified_claim_checks", "current_transaction",
     "cross_surface_sku_consistency", "post_purchase_handoff", "limitations",
+}
+DETAIL_PAGE_PLAN_FIELDS = {
+    "status", "strategy_summary", "narrative_route", "modules",
+    "asset_migration", "boundary",
+}
+DETAIL_PAGE_MODULE_FIELDS = {
+    "module_id", "sequence", "module_name", "user_question", "page_answer",
+    "required_content", "category_task_ids", "source_component_ids",
+    "source_asset_summary", "presentation_direction", "material_needed",
+    "acceptance_check", "boundary",
+}
+DETAIL_ASSET_MIGRATION_FIELDS = {
+    "migration_id", "source_component_ids", "current_content", "handling",
+    "destination_module_ids", "execution_note", "boundary",
+}
+TRANSACTION_PANEL_PLAN_FIELDS = {
+    "status", "selection_area_mode", "platform_capability_status", "capability_summary",
+    "strategy_summary", "selection_route", "field_groups",
+    "fixed_information", "dynamic_information", "boundary",
+}
+TRANSACTION_FIELD_GROUP_FIELDS = {
+    "group_id", "sequence", "group_name", "user_question", "current_expression",
+    "recommended_structure", "current_selection_display", "actual_receipt_and_offer",
+    "implementation_status", "implementation_path", "fallback_path", "confirmation_needed",
+    "category_task_ids", "material_needed", "acceptance_check", "boundary",
+}
+TRANSACTION_IMPLEMENTATION_STATUSES = {
+    "confirmed_native", "conditional_native", "content_workaround",
+    "requires_platform_confirmation", "unknown",
+}
+TRANSACTION_PANEL_PLAN_STATUSES = {
+    "planned", "preserve_only", "insufficient_material", "not_in_scope", "stopped",
+}
+TRANSACTION_SELECTION_AREA_MODES = {
+    "single_primary_area", "no_choice_needed", "unknown",
+}
+DETAIL_PAGE_PLAN_STATUSES = {
+    "planned", "preserve_only", "insufficient_material", "not_in_scope", "stopped",
+}
+DETAIL_PAGE_ASSESSMENT_FIELDS = {
+    "status", "assessment_basis", "strengths", "improvement_opportunities", "boundary",
+}
+DETAIL_PAGE_ASSESSMENT_STATUSES = {
+    "assessed", "insufficient_material", "not_in_scope", "stopped",
+}
+DETAIL_PAGE_STRENGTH_FIELDS = {
+    "assessment_id", "title", "why_it_helps", "supporting_component_ids",
+    "category_task_ids", "decision_names", "preserve_requirement", "boundary",
+}
+DETAIL_PAGE_OPPORTUNITY_FIELDS = {
+    "assessment_id", "title", "what_is_not_yet_clear", "purchase_impact",
+    "supporting_component_ids", "category_task_ids", "decision_names",
+    "improvement_direction", "acceptance_check", "boundary",
+}
+DETAIL_ASSET_HANDLINGS = {
+    "继续使用", "集中到一个章节", "分别放入不同章节", "提前说明",
+    "放到后面", "本轮不使用", "确认后再安排",
 }
 DECISION_FIELDS = {
     "decision_id", "decision_name", "status", "summary", "explained",
@@ -151,13 +217,19 @@ DECISION_FIELDS = {
     "component_ids", "fact_ids", "value_ids", "vis_ids", "unknowns", "boundary",
 }
 ACTION_FIELDS = {
-    "action_id", "priority", "project_name", "root_problem_ids", "strategic_goal",
+    "action_id", "priority", "project_name", "root_problem_ids", "category_task_ids", "strategic_goal",
     "scope", "page_location", "decision_name", "recommendation_label",
     "current_observation", "gap_or_risk", "basis_type", "basis_summary",
     "source_file_ids", "component_ids", "fact_ids", "value_ids", "vis_ids",
     "action_type", "action_detail", "must_preserve", "material_needed",
     "human_confirmation", "acceptance_check", "validation_question", "status",
     "boundary",
+}
+MATCH_FIELDS = {
+    "match_id", "category_task_id", "component_ids", "source_file_ids",
+    "coverage_status", "position_status", "evidence_connection_status",
+    "redundancy_status", "current_content_summary", "match_reason",
+    "user_consequence", "recommended_resolution", "boundary",
 }
 VALIDATION_FIELDS = {
     "test_id", "scope", "version_a", "version_b", "must_keep", "single_variable",
@@ -187,7 +259,7 @@ MEDIA_EXTENSIONS = {
 }
 
 REPORT_ID_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_-])(?:(?:PP|PAGE-SF|SUP-SF|CLAIM|COV|COMP|ACT|TEST|GAP|ROUTE|PV|VE|VIS|V|F|U|EX|DYN|STRAT)-[0-9a-fA-F]{3,}|DEC-0[1-5])(?![A-Za-z0-9_-])"
+    r"(?<![A-Za-z0-9_-])(?:(?:PP|PAGE-SF|SUP-SF|CLAIM|COV|COMP|CAT|MATCH|ACT|TEST|GAP|ROUTE|PV|VE|VIS|V|F|U|EX|DYN|STRAT)-[0-9a-fA-F]{2,}|DEC-0[1-5])(?![A-Za-z0-9_-])"
 )
 ABSOLUTE_PATH_PATTERN = re.compile(
     r"(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]"
@@ -623,7 +695,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         name: paths[name]
         for name in (
             "manifest", "upstream", "sources", "supporting_sources", "claims",
-            "coverage", "components", "chain", "decisions", "actions", "validation", "gaps",
+            "coverage", "components", "chain", "matches", "decisions", "actions", "validation", "gaps",
         )
     }
     missing = [str(path) for path in data_paths.values() if not path.is_file()]
@@ -639,6 +711,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         coverage = read_jsonl(paths["coverage"])
         components = read_jsonl(paths["components"])
         chain = read_json(paths["chain"])
+        matches = read_jsonl(paths["matches"])
         decisions = read_jsonl(paths["decisions"])
         actions = read_jsonl(paths["actions"])
         validations = read_jsonl(paths["validation"])
@@ -654,6 +727,7 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         "claims": len(claims),
         "coverage_rows": len(coverage),
         "components": len(components),
+        "content_decision_matches": len(matches),
         "chain_findings": len(chain.get("chain_findings", [])) if isinstance(chain, dict) else 0,
         "decisions": len(decisions),
         "priority_actions": len(actions),
@@ -1164,6 +1238,10 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         for name in list_value(row, "decision_names"):
             if name not in DECISION_NAMES:
                 add_error(errors, "E_ACTION_FIELDS_MISSING", f"{component_id}引用未知用户判断{name}")
+        if not isinstance(row.get("category_task_ids"), list):
+            add_error(errors, "E_CATEGORY_TASK_REF", f"{component_id}.category_task_ids必须是数组")
+        elif manifest.get("run_status") != "stopped" and not row.get("category_task_ids"):
+            add_error(errors, "E_CATEGORY_TASK_REF", f"{component_id}至少承接一个细分类目购买任务")
         component_text = record_text(row)
         if contains_effect_promise(component_text):
             add_error(errors, "E_EFFECT_PROMISE", f"{component_id}包含未经验证的效果承诺")
@@ -1240,13 +1318,166 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         add_error(errors, "E_ANALYSIS_TARGET", "依据详情页主讲SKU继续分析时必须在可见选项中匹配")
     for field in (
         "precompleted_decisions", "remaining_decision_tasks", "parallel_routes",
-        "category_must_answer_tasks", "surface_coverage",
+        "surface_coverage",
         "ordered_component_ids", "continuation_handoffs", "chain_findings",
         "aggregate_implications", "presentation_actuality_checks", "variant_routes",
         "quantified_claim_checks", "limitations",
     ):
         if not isinstance(chain.get(field), list):
             add_error(errors, "E_CHAIN_SCHEMA", f"page_chain.{field}必须是数组")
+
+    category_chain = chain.get("category_decision_chain")
+    category_task_ids: set[str] = set()
+    category_tasks: list[dict[str, Any]] = []
+    if not isinstance(category_chain, dict):
+        add_error(errors, "E_CATEGORY_CHAIN", "category_decision_chain必须是对象")
+        category_chain = {}
+    category_chain_required = {
+        "subcategory", "decision_context", "basis_type", "maturity", "tasks", "boundary",
+    }
+    missing_category_chain = missing_fields(category_chain, category_chain_required)
+    if missing_category_chain:
+        add_error(
+            errors,
+            "E_CATEGORY_CHAIN",
+            f"category_decision_chain缺少字段: {', '.join(missing_category_chain)}",
+        )
+    if category_chain.get("basis_type") not in CATEGORY_DECISION_BASIS_TYPES:
+        add_error(errors, "E_CATEGORY_CHAIN", "category_decision_chain.basis_type无效")
+    if category_chain.get("maturity") not in CATEGORY_DECISION_MATURITIES:
+        add_error(errors, "E_CATEGORY_CHAIN", "category_decision_chain.maturity无效")
+    raw_category_tasks = category_chain.get("tasks")
+    if not isinstance(raw_category_tasks, list):
+        add_error(errors, "E_CATEGORY_CHAIN", "category_decision_chain.tasks必须是数组")
+        raw_category_tasks = []
+    category_source_ids = source_ids | supporting_source_ids
+    task_sequences: list[int] = []
+    task_required_fields = {
+        "task_id", "sequence", "task_name", "user_question", "requirement",
+        "importance", "basis_summary", "source_file_ids", "boundary",
+    }
+    for index, task_row in enumerate(raw_category_tasks, start=1):
+        if not isinstance(task_row, dict):
+            add_error(errors, "E_CATEGORY_CHAIN", f"类目任务第{index}条必须是对象")
+            continue
+        category_tasks.append(task_row)
+        task_id = str(task_row.get("task_id", ""))
+        missing_task_fields = missing_fields(task_row, task_required_fields)
+        if missing_task_fields:
+            add_error(errors, "E_CATEGORY_CHAIN", f"{task_id or index}缺少字段: {', '.join(missing_task_fields)}")
+        if not re.fullmatch(r"CAT-\d{2,}", task_id) or task_id in category_task_ids:
+            add_error(errors, "E_CATEGORY_CHAIN", f"{task_id or index}任务ID无效或重复")
+        category_task_ids.add(task_id)
+        sequence = task_row.get("sequence")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+            add_error(errors, "E_CATEGORY_CHAIN", f"{task_id or index}.sequence必须为正整数")
+        else:
+            task_sequences.append(sequence)
+        if task_row.get("requirement") not in CATEGORY_TASK_REQUIREMENTS:
+            add_error(errors, "E_CATEGORY_CHAIN", f"{task_id or index}.requirement无效")
+        if task_row.get("importance") not in CATEGORY_TASK_IMPORTANCE:
+            add_error(errors, "E_CATEGORY_CHAIN", f"{task_id or index}.importance无效")
+        for field in ("task_name", "user_question", "basis_summary", "boundary"):
+            if not nonempty(task_row, field):
+                add_error(errors, "E_CATEGORY_CHAIN", f"{task_id or index}缺少{field}")
+        validate_reference_list(
+            errors, task_id or str(index), task_row, "source_file_ids",
+            category_source_ids, "E_CATEGORY_TASK_REF",
+        )
+    if task_sequences and sorted(task_sequences) != list(range(1, len(task_sequences) + 1)):
+        add_error(errors, "E_CATEGORY_CHAIN", "细分类目购买任务必须从1连续排序")
+    if non_stopped:
+        if len(category_tasks) < 2:
+            add_error(errors, "E_CATEGORY_CHAIN", "非停止交付至少需要两个细分类目购买任务")
+        for field in ("subcategory", "decision_context", "boundary"):
+            if not nonempty(category_chain, field):
+                add_error(errors, "E_CATEGORY_CHAIN", f"非停止交付缺少category_decision_chain.{field}")
+        if category_chain.get("basis_type") == "unknown" or category_chain.get("maturity") == "unknown":
+            add_error(errors, "E_CATEGORY_CHAIN", "非停止交付必须明确类目链依据与成熟度")
+    if manifest.get("analysis_mode") == "diagnose_existing" and non_stopped:
+        if category_chain.get("basis_type") not in {
+            "page_visible_hypothesis", "category_reference_hypothesis"
+        }:
+            add_error(errors, "E_CATEGORY_CHAIN_OVERCLAIM", "只读当前页面时类目链只能使用页面或类目参考假设")
+        if category_chain.get("maturity") != "working_hypothesis":
+            add_error(errors, "E_CATEGORY_CHAIN_OVERCLAIM", "只读当前页面时类目链必须标为工作假设")
+    maturity_basis = {
+        "evidence_strengthened": {"page_and_supporting_evidence"},
+        "brand_confirmed": {"brand_confirmed"},
+        "user_validated": {"user_research_supported"},
+    }
+    if category_chain.get("maturity") in maturity_basis and category_chain.get("basis_type") not in maturity_basis[
+        str(category_chain.get("maturity"))
+    ]:
+        add_error(errors, "E_CATEGORY_CHAIN_OVERCLAIM", "类目链成熟度与形成依据不一致")
+
+    match_task_counts: Counter[str] = Counter()
+    match_lookup: dict[str, dict[str, Any]] = {}
+    unresolved_category_task_ids: set[str] = set()
+    match_ids: set[str] = set()
+    for index, row in enumerate(matches, start=1):
+        match_id = str(row.get("match_id", ""))
+        missing_match_fields = missing_fields(row, MATCH_FIELDS)
+        if missing_match_fields:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"match第{index}条缺少字段: {', '.join(missing_match_fields)}")
+        if not re.fullmatch(r"MATCH-\d{3,}", match_id) or match_id in match_ids:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index} ID无效或重复")
+        match_ids.add(match_id)
+        task_id = str(row.get("category_task_id", ""))
+        match_task_counts[task_id] += 1
+        match_lookup.setdefault(task_id, row)
+        if task_id not in category_task_ids:
+            add_error(errors, "E_CATEGORY_TASK_REF", f"{match_id or index}引用未知细分类目任务{task_id}")
+        validate_reference_list(errors, match_id or str(index), row, "component_ids", component_ids, "E_PAGE_REF_INVALID")
+        validate_reference_list(errors, match_id or str(index), row, "source_file_ids", category_source_ids, "E_PAGE_REF_INVALID")
+        if row.get("coverage_status") not in CONTENT_COVERAGE_STATUSES:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}.coverage_status无效")
+        if row.get("position_status") not in CONTENT_POSITION_STATUSES:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}.position_status无效")
+        if row.get("evidence_connection_status") not in EVIDENCE_CONNECTION_STATUSES:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}.evidence_connection_status无效")
+        if row.get("redundancy_status") not in CONTENT_REDUNDANCY_STATUSES:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}.redundancy_status无效")
+        for field in (
+            "current_content_summary", "match_reason", "user_consequence",
+            "recommended_resolution", "boundary",
+        ):
+            if not nonempty(row, field):
+                add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}缺少{field}")
+        linked_components = list_value(row, "component_ids")
+        if row.get("coverage_status") != "missing" and not linked_components:
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}非缺失任务必须绑定页面内容节点")
+        if row.get("coverage_status") == "missing" and row.get("position_status") != "not_present":
+            add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}缺失任务的位置必须是not_present")
+        if (
+            row.get("coverage_status") != "matched"
+            or row.get("position_status") != "right_position"
+            or row.get("evidence_connection_status") in {"weak", "disconnected", "unknown"}
+            or row.get("redundancy_status") in {"duplicated", "overloaded", "unknown"}
+        ):
+            unresolved_category_task_ids.add(task_id)
+        for component_id in linked_components:
+            component = next(
+                (item for item in components if str(item.get("component_id", "")) == str(component_id)),
+                {},
+            )
+            if component and task_id not in list_value(component, "category_task_ids"):
+                add_error(errors, "E_CONTENT_DECISION_MATCH", f"{match_id or index}与{component_id}的类目任务标注不一致")
+    if non_stopped:
+        for task_id in category_task_ids:
+            if match_task_counts[task_id] != 1:
+                add_error(errors, "E_CONTENT_DECISION_MATCH", f"{task_id}必须且只能有一条双链匹配记录")
+    elif matches:
+        add_error(errors, "E_CONTENT_DECISION_MATCH", "停止交付不得生成双链匹配结论")
+    for component in components:
+        component_id = str(component.get("component_id", ""))
+        for task_id in list_value(component, "category_task_ids"):
+            if task_id not in category_task_ids:
+                add_error(errors, "E_CATEGORY_TASK_REF", f"{component_id}引用未知细分类目任务{task_id}")
+                continue
+            match_row = match_lookup.get(str(task_id), {})
+            if component_id not in list_value(match_row, "component_ids"):
+                add_error(errors, "E_CONTENT_DECISION_MATCH", f"{component_id}与{task_id}的双向匹配关系不完整")
 
     overall = chain.get("overall_diagnosis")
     root_problem_ids: set[str] = set()
@@ -1323,6 +1554,207 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         if len(rebuild.get("narrative_route", [])) < 2:
             add_error(errors, "E_REBUILD_STRATEGY", "新版叙事路线至少需要2个连续节点")
 
+    detail_plan = chain.get("detail_page_plan")
+    if not isinstance(detail_plan, dict):
+        add_error(errors, "E_DETAIL_PAGE_PLAN", "detail_page_plan必须是对象")
+        detail_plan = {}
+    detail_missing = missing_fields(detail_plan, DETAIL_PAGE_PLAN_FIELDS)
+    if detail_missing:
+        add_error(errors, "E_DETAIL_PAGE_PLAN", f"detail_page_plan缺少字段: {', '.join(detail_missing)}")
+    detail_status = str(detail_plan.get("status", ""))
+    if detail_status not in DETAIL_PAGE_PLAN_STATUSES:
+        add_error(errors, "E_DETAIL_PAGE_PLAN", "detail_page_plan.status无效")
+    for field in ("narrative_route", "modules", "asset_migration"):
+        if not isinstance(detail_plan.get(field), list):
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"detail_page_plan.{field}必须是数组")
+
+    detail_component_ids = {
+        str(row.get("component_id", ""))
+        for row in components
+        if row.get("scope") == "detail_page"
+    }
+    modules = detail_plan.get("modules", []) if isinstance(detail_plan.get("modules"), list) else []
+    migrations = detail_plan.get("asset_migration", []) if isinstance(
+        detail_plan.get("asset_migration"), list
+    ) else []
+    module_ids: set[str] = set()
+    module_sequences: list[int] = []
+    for index, module in enumerate(modules, start=1):
+        if not isinstance(module, dict):
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"详情页内容章节第{index}项必须是对象")
+            continue
+        module_id = str(module.get("module_id", ""))
+        missing = missing_fields(module, DETAIL_PAGE_MODULE_FIELDS)
+        if missing:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}缺少字段: {', '.join(missing)}")
+        if not re.fullmatch(r"DPM-\d{3,}", module_id) or module_id in module_ids:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}章节ID无效或重复")
+        module_ids.add(module_id)
+        sequence = module.get("sequence")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}.sequence必须为正整数")
+        else:
+            module_sequences.append(sequence)
+        for field in (
+            "module_name", "user_question", "page_answer", "source_asset_summary",
+            "presentation_direction", "material_needed", "acceptance_check", "boundary",
+        ):
+            if not nonempty(module, field):
+                add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}缺少{field}")
+        if not isinstance(module.get("required_content"), list) or not module.get("required_content"):
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}.required_content必须是非空数组")
+        linked_tasks = module.get("category_task_ids")
+        if not isinstance(linked_tasks, list) or not linked_tasks:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}.category_task_ids必须是非空数组")
+        elif any(str(task_id) not in category_task_ids for task_id in linked_tasks):
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}引用未知细分类目任务")
+        source_components = module.get("source_component_ids")
+        if not isinstance(source_components, list):
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}.source_component_ids必须是数组")
+        elif any(str(component_id) not in detail_component_ids for component_id in source_components):
+            add_error(errors, "E_DETAIL_PAGE_PLAN", f"{module_id or index}只能引用详情页内容节点")
+    if module_sequences and sorted(module_sequences) != list(range(1, len(module_sequences) + 1)):
+        add_error(errors, "E_DETAIL_PAGE_PLAN", "详情页内容章节sequence必须从1连续递增")
+
+    migrated_components: list[str] = []
+    migration_ids: set[str] = set()
+    for index, migration in enumerate(migrations, start=1):
+        if not isinstance(migration, dict):
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"素材迁移第{index}项必须是对象")
+            continue
+        migration_id = str(migration.get("migration_id", ""))
+        missing = missing_fields(migration, DETAIL_ASSET_MIGRATION_FIELDS)
+        if missing:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}缺少字段: {', '.join(missing)}")
+        if not re.fullmatch(r"MIG-\d{3,}", migration_id) or migration_id in migration_ids:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}迁移ID无效或重复")
+        migration_ids.add(migration_id)
+        source_components = migration.get("source_component_ids")
+        if not isinstance(source_components, list) or not source_components:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}.source_component_ids必须是非空数组")
+            source_components = []
+        unknown_components = [
+            str(component_id) for component_id in source_components
+            if str(component_id) not in detail_component_ids
+        ]
+        if unknown_components:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}引用非详情页内容节点")
+        migrated_components.extend(str(component_id) for component_id in source_components)
+        if migration.get("handling") not in DETAIL_ASSET_HANDLINGS:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}.handling无效")
+        destinations = migration.get("destination_module_ids")
+        if not isinstance(destinations, list):
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}.destination_module_ids必须是数组")
+        elif any(str(module_id) not in module_ids for module_id in destinations):
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}引用未知新版内容章节")
+        if migration.get("handling") != "删除" and not destinations:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}非删除内容必须写明新版去向")
+        for field in ("current_content", "execution_note", "boundary"):
+            if not nonempty(migration, field):
+                add_error(errors, "E_DETAIL_ASSET_MIGRATION", f"{migration_id or index}缺少{field}")
+
+    detail_in_scope = manifest.get("scope") in {"detail_page", "combined"}
+    if manifest.get("run_status") == "stopped":
+        if detail_status != "stopped":
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "停止交付的详情页计划状态必须为stopped")
+    elif not detail_in_scope:
+        if detail_status != "not_in_scope":
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "未包含详情页的任务必须标为not_in_scope")
+    elif not detail_component_ids:
+        if detail_status != "insufficient_material":
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "没有可读详情页内容时必须标为insufficient_material")
+        if modules or migrations:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "资料不足时不能生成详情页章节或素材迁移结论")
+    else:
+        if detail_status not in {"planned", "preserve_only"}:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "有可读详情页时必须形成整体内容地图或明确只保留")
+        if not modules:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "有可读详情页时至少需要一个新版内容章节")
+        if len(detail_plan.get("narrative_route", [])) < 2:
+            add_error(errors, "E_DETAIL_PAGE_PLAN", "详情页新版讲述路线至少需要2个连续节点")
+        migration_counts = Counter(migrated_components)
+        if set(migration_counts) != detail_component_ids:
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", "素材迁移必须完整覆盖全部详情页内容节点")
+        if any(count != 1 for count in migration_counts.values()):
+            add_error(errors, "E_DETAIL_ASSET_MIGRATION", "每个现有详情页内容节点只能在迁移表登记一次")
+
+    detail_assessment = chain.get("detail_page_assessment")
+    if not isinstance(detail_assessment, dict):
+        add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "detail_page_assessment必须是对象")
+        detail_assessment = {}
+    assessment_missing = missing_fields(detail_assessment, DETAIL_PAGE_ASSESSMENT_FIELDS)
+    if assessment_missing:
+        add_error(
+            errors, "E_DETAIL_PAGE_ASSESSMENT",
+            f"detail_page_assessment缺少字段: {', '.join(assessment_missing)}",
+        )
+    assessment_status = str(detail_assessment.get("status", ""))
+    if assessment_status not in DETAIL_PAGE_ASSESSMENT_STATUSES:
+        add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "detail_page_assessment.status无效")
+    strengths = detail_assessment.get("strengths", [])
+    opportunities = detail_assessment.get("improvement_opportunities", [])
+    if not isinstance(strengths, list) or not isinstance(opportunities, list):
+        add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "详情页优势与提升空间必须是数组")
+        strengths = [] if not isinstance(strengths, list) else strengths
+        opportunities = [] if not isinstance(opportunities, list) else opportunities
+    assessment_ids: set[str] = set()
+    for kind, items, required, id_pattern in (
+        ("优势", strengths, DETAIL_PAGE_STRENGTH_FIELDS, r"DPA-S-\d{3,}"),
+        ("提升空间", opportunities, DETAIL_PAGE_OPPORTUNITY_FIELDS, r"DPA-O-\d{3,}"),
+    ):
+        for index, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"详情页{kind}第{index}项必须是对象")
+                continue
+            assessment_id = str(item.get("assessment_id", ""))
+            missing = missing_fields(item, required)
+            if missing:
+                add_error(
+                    errors, "E_DETAIL_PAGE_ASSESSMENT",
+                    f"{assessment_id or kind + str(index)}缺少字段: {', '.join(missing)}",
+                )
+            if not re.fullmatch(id_pattern, assessment_id) or assessment_id in assessment_ids:
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id or kind + str(index)} ID无效或重复")
+            assessment_ids.add(assessment_id)
+            linked_components = item.get("supporting_component_ids")
+            if not isinstance(linked_components, list) or not linked_components:
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}必须绑定详情页内容节点")
+            elif any(str(component_id) not in detail_component_ids for component_id in linked_components):
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}只能引用详情页内容节点")
+            linked_tasks = item.get("category_task_ids")
+            if not isinstance(linked_tasks, list) or not linked_tasks:
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}必须绑定细分类目任务")
+            elif any(str(task_id) not in category_task_ids for task_id in linked_tasks):
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}引用未知细分类目任务")
+            linked_decisions = item.get("decision_names")
+            if not isinstance(linked_decisions, list) or not linked_decisions:
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}必须绑定买前判断")
+            elif any(str(name) not in DECISION_NAMES for name in linked_decisions):
+                add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}引用未知买前判断")
+            for field in required - {
+                "assessment_id", "supporting_component_ids", "category_task_ids", "decision_names",
+            }:
+                if not nonempty(item, field):
+                    add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", f"{assessment_id}缺少{field}")
+    if manifest.get("run_status") == "stopped":
+        if assessment_status != "stopped":
+            add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "停止交付的详情页评估必须标为stopped")
+    elif not detail_in_scope:
+        if assessment_status != "not_in_scope":
+            add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "未包含详情页的评估必须标为not_in_scope")
+    elif not detail_component_ids:
+        if assessment_status != "insufficient_material":
+            add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "没有可读详情页时评估必须标为insufficient_material")
+        if strengths or opportunities:
+            add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "没有可读详情页时不得推测优势或提升空间")
+    else:
+        if assessment_status != "assessed":
+            add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "有可读详情页时必须完成优势与提升空间评估")
+        if not strengths and not opportunities:
+            add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "有可读详情页时至少需要一项有依据的评估结论")
+    if not nonempty(detail_assessment, "assessment_basis") or not nonempty(detail_assessment, "boundary"):
+        add_error(errors, "E_DETAIL_PAGE_ASSESSMENT", "详情页评估必须写明综合依据与边界")
+
     if chain.get("page_role") not in PAGE_ROLES:
         add_error(errors, "E_PAGE_ROLE", "page_role无效")
     if chain.get("page_role_basis") not in ENTRY_CONTEXT_BASES:
@@ -1355,9 +1787,6 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         add_error(errors, "E_ENTRY_CONTEXT", "非停止交付必须保留页面仍需完成的决策任务")
     if manifest.get("run_status") != "stopped" and not nonempty(chain, "dominant_route"):
         add_error(errors, "E_CHAIN_SCHEMA", "非停止交付必须写明页面主导路线")
-    if manifest.get("run_status") != "stopped" and not chain.get("category_must_answer_tasks"):
-        add_error(errors, "E_CHAIN_SCHEMA", "非停止交付必须写明本品类最低必答任务")
-
     surface_rows = chain.get("surface_coverage", []) if isinstance(chain.get("surface_coverage"), list) else []
     seen_surfaces: set[str] = set()
     for index, row in enumerate(surface_rows, start=1):
@@ -1516,6 +1945,118 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
         and manifest.get("run_status") == "ready"
     ):
         add_error(errors, "E_ELIGIBILITY", "高风险品类适用对象未解决时不得ready")
+
+    transaction_plan = chain.get("transaction_panel_plan")
+    if not isinstance(transaction_plan, dict):
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "transaction_panel_plan必须是对象")
+        transaction_plan = {}
+    transaction_plan_missing = missing_fields(transaction_plan, TRANSACTION_PANEL_PLAN_FIELDS)
+    if transaction_plan_missing:
+        add_error(
+            errors, "E_TRANSACTION_PANEL_PLAN",
+            f"transaction_panel_plan缺少字段: {', '.join(transaction_plan_missing)}",
+        )
+    transaction_plan_status = str(transaction_plan.get("status", ""))
+    if transaction_plan_status not in TRANSACTION_PANEL_PLAN_STATUSES:
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "transaction_panel_plan.status无效")
+    selection_area_mode = str(transaction_plan.get("selection_area_mode", ""))
+    if selection_area_mode not in TRANSACTION_SELECTION_AREA_MODES:
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "transaction_panel_plan.selection_area_mode无效")
+    platform_capability_status = str(transaction_plan.get("platform_capability_status", ""))
+    if platform_capability_status not in TRANSACTION_IMPLEMENTATION_STATUSES:
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "transaction_panel_plan.platform_capability_status无效")
+    if not nonempty(transaction_plan, "capability_summary"):
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区方案必须说明平台可实施性")
+    for field in ("selection_route", "field_groups", "fixed_information", "dynamic_information"):
+        if not isinstance(transaction_plan.get(field), list):
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"transaction_panel_plan.{field}必须是数组")
+
+    field_groups = transaction_plan.get("field_groups", []) if isinstance(
+        transaction_plan.get("field_groups"), list
+    ) else []
+    field_group_ids: set[str] = set()
+    field_group_sequences: list[int] = []
+    for index, group in enumerate(field_groups, start=1):
+        if not isinstance(group, dict):
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"交易区选择组第{index}项必须是对象")
+            continue
+        group_id = str(group.get("group_id", ""))
+        missing = missing_fields(group, TRANSACTION_FIELD_GROUP_FIELDS)
+        if missing:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}缺少字段: {', '.join(missing)}")
+        if not re.fullmatch(r"TPG-\d{3,}", group_id) or group_id in field_group_ids:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}选择组ID无效或重复")
+        field_group_ids.add(group_id)
+        sequence = group.get("sequence")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}.sequence必须为正整数")
+        else:
+            field_group_sequences.append(sequence)
+        for field in (
+            "group_name", "user_question", "current_expression", "recommended_structure",
+            "current_selection_display", "actual_receipt_and_offer", "implementation_path",
+            "fallback_path", "confirmation_needed", "material_needed", "acceptance_check", "boundary",
+        ):
+            if not nonempty(group, field):
+                add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}缺少{field}")
+        if group.get("implementation_status") not in TRANSACTION_IMPLEMENTATION_STATUSES:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}.implementation_status无效")
+        linked_tasks = group.get("category_task_ids")
+        if not isinstance(linked_tasks, list) or not linked_tasks:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}.category_task_ids必须是非空数组")
+        elif any(str(task_id) not in category_task_ids for task_id in linked_tasks):
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", f"{group_id or index}引用未知细分类目任务")
+    if field_group_sequences and sorted(field_group_sequences) != list(range(1, len(field_group_sequences) + 1)):
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区选择组sequence必须从1连续递增")
+    if transaction_plan_status == "planned" and selection_area_mode == "single_primary_area" and len(field_groups) != 1:
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "需要调整的单选择区必须且只能有一个主要规格选择区")
+    if transaction_plan_status == "preserve_only" and field_groups:
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区保持现状时不得生成选择区改版卡")
+    if selection_area_mode == "no_choice_needed" and field_groups:
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "无需选择时不能生成规格选择区")
+
+    transaction_surface_status = next(
+        (
+            str(row.get("status", "")) for row in surface_rows
+            if isinstance(row, dict) and row.get("surface") == "transaction_panel"
+        ),
+        "unknown",
+    )
+    if manifest.get("run_status") == "stopped":
+        if transaction_plan_status != "stopped":
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "停止交付的交易区计划状态必须为stopped")
+    elif transaction_surface_status == "not_applicable":
+        if transaction_plan_status != "not_in_scope":
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区不在范围内时必须标为not_in_scope")
+    elif transaction_surface_status in {"not_provided", "unknown", ""}:
+        if transaction_plan_status != "insufficient_material":
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "没有可读交易区资料时必须标为insufficient_material")
+        if selection_area_mode != "unknown":
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "没有可读交易区资料时selection_area_mode必须为unknown")
+        if field_groups:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "资料不足时不能生成交易区选择组")
+    else:
+        if transaction_plan_status not in {"planned", "preserve_only"}:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "有可读交易区时必须形成选择方案或明确只保留")
+        if selection_area_mode == "unknown":
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "有可读交易区时必须确认是单选择区或无需选择")
+        if transaction_plan_status == "planned" and selection_area_mode == "single_primary_area" and not field_groups:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区需要调整且有规格选择时必须形成唯一主要规格选择区")
+        if transaction_plan_status == "planned" and not transaction_plan.get("selection_route"):
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区改版方案必须写明用户选择顺序")
+        if not transaction_plan.get("fixed_information") or not transaction_plan.get("dynamic_information"):
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区必须区分长期商品信息与发布前更新信息")
+        if transaction_plan_status == "planned" and platform_capability_status not in {
+            "confirmed_native", "content_workaround"
+        }:
+            add_error(errors, "E_TRANSACTION_PANEL_PLAN", "正式交易区改版方案只能保留已确认可实施的结构")
+        for group in field_groups:
+            if isinstance(group, dict) and group.get("implementation_status") not in {
+                "confirmed_native", "content_workaround"
+            }:
+                add_error(errors, "E_TRANSACTION_PANEL_PLAN", "正式交易区选择区只能保留已确认可实施的动作")
+    if not nonempty(transaction_plan, "strategy_summary") or not nonempty(transaction_plan, "boundary"):
+        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区计划必须写明整体任务与执行边界")
 
     variant_ids: set[str] = set()
     for index, row in enumerate(chain.get("variant_routes", []), start=1):
@@ -1800,6 +2341,21 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             )
         if not nonempty(row, "project_name") or not nonempty(row, "strategic_goal"):
             add_error(errors, "E_ACTION_FIELDS_MISSING", f"{action_id}必须写明改版项目名称和整体目标")
+        linked_category_tasks = row.get("category_task_ids")
+        if not isinstance(linked_category_tasks, list):
+            add_error(errors, "E_CATEGORY_TASK_REF", f"{action_id}.category_task_ids必须是数组")
+            linked_category_tasks = []
+        unknown_category_tasks = [
+            task_id for task_id in linked_category_tasks if task_id not in category_task_ids
+        ]
+        if unknown_category_tasks:
+            add_error(errors, "E_CATEGORY_TASK_REF", f"{action_id}引用未知细分类目任务: {unknown_category_tasks}")
+        if not linked_category_tasks:
+            add_error(errors, "E_CATEGORY_TASK_REF", f"{action_id}必须绑定至少一个细分类目购买任务")
+        if row.get("action_type") != "保留" and not any(
+            task_id in unresolved_category_task_ids for task_id in linked_category_tasks
+        ):
+            add_error(errors, "E_ACTION_NOT_CATEGORY_GAP", f"{action_id}没有解决任何真实双链断点")
         linked_roots = row.get("root_problem_ids")
         if not isinstance(linked_roots, list):
             add_error(errors, "E_ACTION_FIELDS_MISSING", f"{action_id}.root_problem_ids必须是数组")
@@ -2146,17 +2702,24 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             add_error(errors, "E_FINAL_ARTWORK_CLAIM", f"{path.name}越界声称完成最终视觉稿")
         if re.search(r"下载时选中|下载选错|误选项", text):
             add_error(errors, "E_COLLECTION_PROCESS_LEAK", f"{path.name}混入下载过程信息")
+        if re.search(r"(?:明天|下周|首周|本月)(?:先|再|启动|开始|完成|推进|处理|执行|上线|验证)", text):
+            add_error(errors, "E_EXPIRES_WITH_TIME", f"{path.name}包含脱离明确排期就会过期的时间词")
+        if re.search(r"这类商品，?用户通常(?:依次)?确认", text):
+            add_error(errors, "E_USER_CONSENSUS_OVERSTATED", f"{path.name}把诊断顺序写成用户普遍共识")
+        if re.search(r"本次先按这条购买顺序检查|买前需要依次想清楚|最大购买断点|完整判断依据|页面当前内容顺序|商品价值底座|已验证卖点资产", text):
+            add_error(errors, "E_REPORT_INTERNAL_TONE", f"{path.name}仍含内部检查口吻")
     if manifest.get("delivery_mode") == "course" and paths["course_report"].is_file():
         course = paths["course_report"].read_text(encoding="utf-8")
         for heading in (
             "## 一、品牌先看这一页",
             "## 二、这次看了什么",
             "### 页面整体诊断",
+            "### 用户买前要弄清楚什么",
             "### 整体重构思路",
-            "## 三、五个购买判断分别卡在哪里",
+            "## 三、五个买前问题还有哪些没讲清",
             "## 四、这一轮的改版项目",
-            "## 五、需要返回上一步补什么",
-            "## 六、回去以后第一步",
+            "## 五、还需要补什么资料",
+            "## 六、建议先做",
             "## 七、限制说明",
         ):
             if heading not in course:
@@ -2168,19 +2731,17 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             (
                 "professional_report_01",
                 (
-                    "## 品牌先看这一页", "### 本次到底在分析哪个SKU",
-                    "## 1｜页面整体诊断", "## 2｜整体优化与重构思路",
-                    "### 最优先的改版项目（最多三个）", "## 3｜五个购买判断的具体诊断",
-                    "## 4｜完整改版项目", "## 5｜对象、范围与证据成熟度",
+                    "## 先看结论", "### 现有页面中建议继续保留",
+                    "## 1｜哪些信息还需要讲清",
+                    "## 2｜改版后怎么讲", "## 3｜本轮改版项目",
+                    "## 4｜五个买前问题（需要时再看）",
+                    "## 5｜本次分析范围", "## 6｜还需补什么与下一步",
+                    "## 7｜使用边界", "### 补充资料与证明范围", "### 长期边界",
                 ),
             ),
             (
                 "professional_report_02",
-                ("## 先看整体改版方向", "## 改版项目与先后顺序", "## 1｜主图序列执行清单", "## 2｜交易区执行清单", "## 3｜详情页模块执行清单", "## 4｜页面版本与验证"),
-            ),
-            (
-                "professional_report_03",
-                ("## 1｜本次补充资料", "## 2｜当前开放缺口", "## 3｜当前资料不能证明什么"),
+                ("## 先看这次怎么改", "## 改版项目先做什么", "## 1｜主图怎么改", "## 2｜交易区是否需要调整", "## 3｜详情页整体怎么改", "### 现有详情内容在新版中的安排", "## 4｜上线后怎么判断是否有效"),
             ),
         ):
             if not paths[name].is_file():
@@ -2189,6 +2750,31 @@ def validate_delivery(delivery: Path) -> dict[str, Any]:
             for heading in headings:
                 if heading not in text:
                     add_error(errors, "E_PRO_TRACE_MISSING", f"{paths[name].name}缺少章节: {heading}")
+            if name == "professional_report_01":
+                if "**用户下单前，需要依次确认：**" not in text:
+                    add_error(errors, "E_PRO_ROUTE_MISSING", "专业报告必须用用户主语说明下单前需要确认的问题")
+                if "**页面现在的讲述顺序：**" not in text or "**建议的新购买顺序：**" not in text:
+                    add_error(errors, "E_PRO_ROUTE_MISSING", "专业报告必须分开呈现页面当前顺序与改版后建议顺序")
+                if re.search(r"(?:承接较弱|存在冲突|暂时无法判断)(?:；[^|\n]+){2,}", text):
+                    add_error(errors, "E_PRO_AUDIT_JARGON", "专业报告并排暴露过多内部审计状态")
+                if "已经做对" in text or "做错" in text:
+                    add_error(errors, "E_PRO_AUDIT_JARGON", "专业报告不得用对错身份评价页面")
+            if name == "professional_report_02" and detail_plan.get("status") in {"planned", "preserve_only"}:
+                if "| 新版内容章节 |" not in text or "| 现有内容 | 新版怎么安排 | 放到新版哪里 |" not in text:
+                    add_error(errors, "E_DETAIL_PAGE_PLAN", "详情页执行方案必须呈现内容地图和素材迁移表")
+            if name == "professional_report_02" and transaction_plan.get("status") in {"planned", "preserve_only"}:
+                if transaction_plan.get("status") == "planned" and transaction_plan.get("selection_area_mode") == "single_primary_area":
+                    if "### 一个主要规格选择区｜" not in text or "- **同一组选项怎么写：**" not in text or "- **完成标准：**" not in text:
+                        add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区执行方案必须呈现一个可落地的主要规格选择区")
+                if transaction_plan.get("status") == "preserve_only" and "### 本轮保持现状" not in text:
+                    add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区保持现状时必须说明保留理由")
+                if "### 长期商品信息与当前优惠分开呈现" not in text:
+                    add_error(errors, "E_TRANSACTION_PANEL_PLAN", "交易区执行方案必须区分长期商品信息与当前优惠")
+            if name in {"professional_report_01", "professional_report_02"} and "已经做对" in text:
+                add_error(errors, "E_PRO_AUDIT_JARGON", "品牌报告不得用已经做对评价页面")
+        legacy_boundary_report = delivery / "03_资料缺口与证据边界.md"
+        if legacy_boundary_report.exists():
+            add_error(errors, "E_LEGACY_REPORT", "专业交付应只保留两份正式文档；资料缺口与证明边界必须合并进第一份报告")
         if manifest.get("task") == "route" and paths["professional_report_01"].is_file():
             text = paths["professional_report_01"].read_text(encoding="utf-8")
             if "## 页面共用与分版建议" not in text:

@@ -27,7 +27,10 @@ RUN_STATUS_LABELS = {
     "degraded_no_product_value": "现有页面诊断",
     "stopped": "暂时无法分析",
 }
-LEGACY_PROFESSIONAL_REPORT = "02_主图与详情页执行页.md"
+LEGACY_PROFESSIONAL_REPORTS = (
+    "02_主图与详情页执行页.md",
+    "03_资料缺口与证据边界.md",
+)
 SCOPE_LABELS = {
     "main_images": "只看主图",
     "detail_page": "只看详情页",
@@ -40,8 +43,8 @@ TASK_LABELS = {
     "version_review": "版本对照",
 }
 RETURN_LABELS = {
-    "product_value": "返回商品价值",
-    "value_expression": "返回卖点呈现",
+    "product_value": "补充商品核心资料",
+    "value_expression": "补充已验证卖点资产",
     "page_material": "补页面资料",
     "human_confirmation": "需要人工确认",
     "supporting_material": "补充资料后再优化",
@@ -122,6 +125,15 @@ TRANSACTION_ROLE_LABELS = {
     "gift": "礼赠装",
     "unknown": "交易角色尚未确认",
 }
+DETAIL_HANDLING_LABELS = {
+    "继续使用": "继续使用",
+    "集中到一个章节": "集中到一个章节",
+    "分别放入不同章节": "分别放入不同章节",
+    "提前说明": "提前说明",
+    "放到后面": "放到后面",
+    "本轮不使用": "本轮不再使用",
+    "确认后再安排": "确认后再安排",
+}
 DECISION_CLOSURE_LABELS = {
     "closed": "当前商品的主要购买判断已经闭合",
     "partially_closed": "已经讲清一部分，但还有关键问题没有闭合",
@@ -160,6 +172,77 @@ DYNAMIC_SNAPSHOT_LABELS = {
     "unknown": "是否适用于本次分析SKU尚未确认",
     "not_provided": "本轮未提供动态价格权益",
 }
+CURRENT_ROUTE_ROLE_LABELS = {
+    "identity": "商品与当前规格",
+    "problem_education": "需求与问题",
+    "value_claim": "核心购买理由",
+    "mechanism": "结构与原理",
+    "evidence": "证明与信任",
+    "experience_demo": "体验演示",
+    "sku_selection": "规格选择与实际到手",
+    "campaign_benefit": "活动与权益",
+    "fulfilment_service": "履约与服务",
+    "usage_boundary": "用法、适用与边界",
+    "brand_trust": "品牌与信任",
+    "other": "其他补充内容",
+}
+
+BRAND_LANGUAGE_REPLACEMENTS = (
+    ("当前SKU的有效商品价值底座", "品牌确认的核心购买理由及支持资料"),
+    ("SKU专属主图最低配置", "为每个商品选项补齐专属主图"),
+    ("当前SKU准确到手", "当前所选商品会收到什么"),
+    ("当前SKU技术与证据", "当前商品的技术与证明资料"),
+    ("当前SKU配方", "当前商品配方"),
+    ("SKU证据一致性", "商品与证明资料一致"),
+    ("跨SKU一致性", "不同商品选项之间保持一致"),
+    ("商品价值底座", "商品核心价值资料"),
+    ("静态信息与动态权益分区", "把长期商品信息与当前优惠分开"),
+    ("动态权益", "当前优惠"),
+    ("动态优惠边界", "当前优惠说明"),
+    ("静态信息", "长期商品信息"),
+    ("SKU", "商品选项"),
+    ("事实型购买理由", "具体购买理由"),
+    ("事实型价值", "具体价值"),
+    ("事实型", "具体"),
+    ("结果型利益", "结果承诺"),
+    ("结果型语言", "结果说法"),
+    ("结果型词语", "结果说法"),
+    ("结果型文案", "结果说法"),
+    ("结果型表达", "结果说法"),
+    ("结果型主图", "结果承诺主图"),
+    ("结果主张", "结果说法"),
+    ("强主张", "重点说法"),
+    ("主张依据", "说法依据"),
+    ("新增主张", "新增说法"),
+    ("事实资产", "商品信息与画面"),
+    ("商品事实和饮用判断", "商品本身和饮用方法"),
+    ("交代商品事实", "交代商品基础信息"),
+    ("基础商品事实", "商品基础信息"),
+    ("商品事实先行", "商品基础信息先讲"),
+    ("完整商品事实", "完整商品信息"),
+    ("实时交易", "下单前确认"),
+    ("静态页面改版方向", "当前页面的改版方向"),
+    ("调用可核验补充资料", "使用可核验的补充资料"),
+    ("支持对象与边界", "证明什么、适用于谁"),
+    ("页面现有说法升级为独立确认事实", "把页面上的说法当作已经单独验证的结论"),
+    ("独立确认事实", "单独验证的结论"),
+    ("已确认事实", "已经验证的结论"),
+    ("证据边界", "证明范围"),
+    ("适用边界", "适用范围"),
+    ("实时交易收口", "下单前确认"),
+    ("交易收口", "下单前确认"),
+    ("页面主张", "页面现有说法"),
+    ("当前成交单元", "当前商品"),
+    ("静态诊断", "当前页面诊断"),
+    ("条件式诊断", "在当前资料范围内诊断"),
+    ("条件式建议", "在当前资料范围内提出建议"),
+)
+
+
+def brand_language(text: str) -> str:
+    for old, new in BRAND_LANGUAGE_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
 
 
 def safe_order(value: Any) -> int:
@@ -184,6 +267,7 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
         "coverage",
         "components",
         "chain",
+        "matches",
         "decisions",
         "actions",
         "validation",
@@ -201,6 +285,7 @@ def load_delivery(delivery: Path) -> dict[str, Any]:
         "coverage": read_jsonl(paths["coverage"]),
         "components": read_jsonl(paths["components"]),
         "chain": read_json(paths["chain"]),
+        "matches": read_jsonl(paths["matches"]),
         "decisions": read_jsonl(paths["decisions"]),
         "actions": read_jsonl(paths["actions"]),
         "validation": read_jsonl(paths["validation"]),
@@ -253,12 +338,12 @@ def run_decision_summary(manifest: dict[str, Any], actions: list[dict[str, Any]]
     status = str(manifest.get("run_status", ""))
     action_count = len(actions)
     if status == "ready":
-        return f"本轮可以正式优化；只执行下方{action_count}个改版项目，改完仍需验证。"
+        return f"可以直接开始优化；建议只推进下方{action_count}个改版项目，改完后再验证。"
     if status == "partial":
-        return f"本轮只能有条件优化；只处理下方{action_count}项，不把待验证判断写成已证实结论。"
+        return f"可以先做有把握的部分；建议只推进下方{action_count}项，待确认内容不写成确定结论。"
     if status == "degraded_no_product_value":
-        return f"本轮可基于现有页面完成诊断；只执行下方{action_count}个有页面依据的改版项目，不新增资料外卖点。"
-    return "本轮暂停页面优化；先补齐停止原因所对应的最低资料。"
+        return f"只用现有页面也可以提出优化；建议只推进下方{action_count}个有依据的项目，不新增页面之外的卖点。"
+    return "暂时不要改页面；先补齐商品、规格或页面材料。"
 
 
 def decision_rows(decisions: list[dict[str, Any]]) -> str:
@@ -287,11 +372,41 @@ def analysis_target_summary(manifest: dict[str, Any], chain: dict[str, Any]) -> 
     page_primary = str(target.get("page_primary_sku_or_variant", "")).strip()
     return "\n".join(
         [
-            f"- **本次真正分析的SKU：** {md(target.get('analysis_sku'), manifest.get('sku'))}",
-            f"- **页面主要在讲：** {md(page_primary, '尚未确认')}",
-            f"- **为什么可以继续：** {ANALYSIS_TARGET_BASIS_LABELS.get(str(target.get('target_basis')), '尚未确认')}；{VISIBLE_OPTION_MATCH_LABELS.get(str(target.get('visible_option_match_status')), '尚未确认')}",
-            f"- **当前价格、赠品等能否用于本SKU：** {DYNAMIC_SNAPSHOT_LABELS.get(str(target.get('dynamic_snapshot_applicability')), '尚未确认')}",
-            f"- **对象边界：** {md(target.get('boundary'), '尚未确认')}",
+            f"- **分析商品：** {md(target.get('analysis_sku'), manifest.get('sku'))}",
+            f"- **页面主要销售的规格：** {md(page_primary, '尚未确认')}",
+            f"- **商品与页面是否对应：** {ANALYSIS_TARGET_BASIS_LABELS.get(str(target.get('target_basis')), '尚未确认')}；{VISIBLE_OPTION_MATCH_LABELS.get(str(target.get('visible_option_match_status')), '尚未确认')}",
+            f"- **价格、赠品等是否适用于这个规格：** {DYNAMIC_SNAPSHOT_LABELS.get(str(target.get('dynamic_snapshot_applicability')), '尚未确认')}",
+            f"- **本次分析范围：** {md(target.get('boundary'), '尚未确认')}",
+        ]
+    )
+
+
+def brand_scope_summary(manifest: dict[str, Any], chain: dict[str, Any]) -> str:
+    """Explain the reviewed product in client language, without exposing workflow jargon."""
+    target = chain.get("analysis_target", {}) if isinstance(chain, dict) else {}
+    if not isinstance(target, dict):
+        target = {}
+    match_status = str(target.get("visible_option_match_status", ""))
+    match_text = {
+        "matched": "页面主要内容与当前可购买选项能够对应，本次可以继续提出优化方案。",
+        "not_found": "页面主要内容暂时无法与当前可购买选项对应，先核实商品后再改。",
+        "ambiguous": "页面主要内容可能对应多个可购买选项，先由品牌确认主推款。",
+        "not_provided": "本次未看到可购买选项，只对已提供页面内容提出条件式建议。",
+    }.get(match_status, "当前商品与页面的对应关系仍需品牌确认。")
+    dynamic_status = str(target.get("dynamic_snapshot_applicability", ""))
+    dynamic_text = {
+        "applicable_to_analysis_sku": "页面当时显示的价格和优惠可作为本次商品的时点参考，发布前仍需复核。",
+        "not_applicable_to_analysis_sku": "页面价格或优惠不能明确归到本次商品，本报告不把它写进改版方案。",
+        "unknown": "价格和优惠是否适用于本次商品尚未确认，本报告不作确定表达。",
+        "not_provided": "本次没有使用价格、赠品或库存信息。",
+    }.get(dynamic_status, "价格和优惠按页面时点处理，发布前需复核。")
+    return "\n".join(
+        [
+            f"- **分析商品：** {md(target.get('analysis_sku'), manifest.get('sku'))}",
+            f"- **页面主要销售的规格：** {md(target.get('page_primary_sku_or_variant'), '尚未确认')}",
+            f"- **商品与页面是否对应：** {match_text}",
+            f"- **价格和优惠：** {dynamic_text}",
+            f"- **本次分析范围：** {md(target.get('boundary'), '未提供或尚未确认的商品与动态交易信息')}",
         ]
     )
 
@@ -303,16 +418,16 @@ def overall_diagnosis_section(chain: dict[str, Any]) -> str:
     strengths = diagnosis.get("strengths_to_preserve", [])
     roots = diagnosis.get("root_problems", [])
     lines = [
-        f"- **当前页面策略：** {md(diagnosis.get('current_page_strategy'), '尚未完成整体判断')}",
-        f"- **当前成交逻辑：** {md(diagnosis.get('current_conversion_logic'), '尚未完成整体判断')}",
-        f"- **页面当前核心购买理由：** {md(diagnosis.get('current_core_purchase_reason'), '尚未确认')}",
-        f"- **专业判断：** {md(diagnosis.get('professional_judgement'), '尚未完成整体判断')}",
+        f"- **页面现在怎样推动购买：** {md(diagnosis.get('current_page_strategy'), '尚未完成整体判断')}",
+        f"- **用户目前怎样完成选择：** {md(diagnosis.get('current_conversion_logic'), '尚未完成整体判断')}",
+        f"- **页面最想让用户记住的购买理由：** {md(diagnosis.get('current_core_purchase_reason'), '尚未确认')}",
+        f"- **整体判断：** {md(diagnosis.get('professional_judgement'), '尚未完成整体判断')}",
         "",
-        "### 已经做对、应该保留",
+        "### 现有页面中建议继续保留",
         "",
         bullet_lines(strengths, "当前还没有确认可保留优势"),
         "",
-        "### 三个以内的整体根因",
+        "### 最值得先解决的问题",
         "",
     ]
     if not roots:
@@ -323,16 +438,64 @@ def overall_diagnosis_section(chain: dict[str, Any]) -> str:
                 continue
             lines.extend(
                 [
-                    f"#### 根因 {index}｜{md(item.get('title'), '尚未命名')}",
+                    f"#### 问题 {index}｜{md(item.get('title'), '尚未命名')}",
                     "",
-                    f"- 诊断：{md(item.get('diagnosis'))}",
+                    f"- 具体表现：{md(item.get('diagnosis'))}",
                     f"- 页面依据：{md(item.get('supporting_observations'))}",
                     f"- 购买影响：{md(item.get('purchase_consequence'))}",
-                    f"- 影响判断：{md(item.get('affected_decisions'))}",
+                    f"- 影响哪些买前问题：{md(item.get('affected_decisions'))}",
                     "",
                 ]
             )
     return "\n".join(lines).rstrip()
+
+
+def detail_page_assessment_section(chain: dict[str, Any]) -> str:
+    assessment = chain.get("detail_page_assessment", {}) if isinstance(chain, dict) else {}
+    if not isinstance(assessment, dict):
+        assessment = {}
+    status = str(assessment.get("status", ""))
+    if status != "assessed":
+        return "\n".join(
+            [
+                f"- **本次评估：** {md(assessment.get('assessment_basis'), '当前没有足够的可读详情页资料。')}",
+                f"- **边界：** {md(assessment.get('boundary'), '资料补齐前不推测详情页优缺点。')}",
+            ]
+        )
+    strengths = [item for item in assessment.get("strengths", []) if isinstance(item, dict)]
+    opportunities = [
+        item for item in assessment.get("improvement_opportunities", []) if isinstance(item, dict)
+    ]
+    lines = [
+        "> 评估依据：综合看了用户买这类商品时需要确认的问题，以及页面是否帮助用户认对、看懂、相信、选对和放心买。",
+        "",
+        "#### 已有优势",
+        "",
+    ]
+    if strengths:
+        for item in strengths:
+            lines.extend(
+                [
+                    f"- **{md(item.get('title'))}：** {md(item.get('why_it_helps'))}",
+                    f"  - 改版时要保留：{md(item.get('preserve_requirement'))}",
+                ]
+            )
+    else:
+        lines.append("- 当前没有足够依据确认成熟优势；不为平衡报告强行表扬。")
+    lines.extend(["", "#### 还可提升", ""])
+    if opportunities:
+        for item in opportunities:
+            lines.extend(
+                [
+                    f"- **{md(item.get('title'))}：** {md(item.get('what_is_not_yet_clear'))}",
+                    f"  - 对购买的影响：{md(item.get('purchase_impact'))}",
+                    f"  - 建议方向：{md(item.get('improvement_direction'))}",
+                    f"  - 改到什么程度：{md(item.get('acceptance_check'))}",
+                ]
+            )
+    else:
+        lines.append("- 当前没有确认需要进入优化的详情页问题；不为凑数制造改版。")
+    return "\n".join(lines)
 
 
 def rebuild_strategy_section(chain: dict[str, Any]) -> str:
@@ -346,28 +509,28 @@ def rebuild_strategy_section(chain: dict[str, Any]) -> str:
     route_text = " → ".join(str(item) for item in route if str(item).strip()) or "尚未形成新版叙事路线"
     return "\n".join(
         [
-            f"- **本轮重构目标：** {md(strategy.get('strategic_objective'), '尚未确认')}",
-            f"- **新版购买逻辑：** {md(strategy.get('proposed_purchase_logic'), '尚未确认')}",
-            f"- **新版叙事路线：** {route_text}",
+            f"- **这次优化目标：** {md(strategy.get('strategic_objective'), '尚未确认')}",
+            f"- **优化后建议这样讲：** {md(strategy.get('proposed_purchase_logic'), '尚未确认')}",
+            f"- **建议页面顺序：** {route_text}",
             "",
             "### 主图、交易区与详情页怎样分工",
             "",
             f"- 主图：{md(roles.get('main_images'), '尚未确认')}",
             f"- 交易区：{md(roles.get('transaction_panel'), '尚未确认')}",
             f"- 详情页：{md(roles.get('detail_page'), '尚未确认')}",
-            f"- 决策收口：{md(roles.get('decision_close'), '尚未确认')}",
+            f"- 页面最后确认：{md(roles.get('decision_close'), '尚未确认')}",
             "",
-            "### 重构时保留什么、降级什么",
+            "### 哪些内容继续使用，哪些内容需要调整",
             "",
             "#### 继续保留",
             "",
             bullet_lines(strategy.get("preserve", []), "尚未确认"),
             "",
-            "#### 降级、合并或删除",
+            "#### 调整层级、集中呈现或不再使用",
             "",
             bullet_lines(strategy.get("deprioritize_or_remove", []), "尚未确认"),
             "",
-            f"- 完成标准：{md(strategy.get('success_definition'), '尚未确认')}",
+            f"- 改完的标准：{md(strategy.get('success_definition'), '尚未确认')}",
         ]
     )
 
@@ -406,7 +569,7 @@ def brand_priority_table(
     if not ordered:
         return "当前没有足够依据形成可执行动作；先按资料缺口补齐最低信息。"
     rows = [
-        "| 先后 | 改版项目 | 要解决的整体问题 | 本轮目标 | 主要落点 |",
+        "| 顺序 | 改版项目 | 为什么做 | 想达到什么 | 主要改哪里 |",
         "| ---: | --- | --- | --- | --- |",
     ]
     for index, item in enumerate(ordered, start=1):
@@ -416,6 +579,182 @@ def brand_priority_table(
             f"{md(item.get('page_location'))} |"
         )
     return "\n".join(rows)
+
+
+def brand_top_root_problem(chain: dict[str, Any]) -> str:
+    """Keep only the most important root problem in the executive summary."""
+    overall = chain.get("overall_diagnosis", {}) if isinstance(chain, dict) else {}
+    roots = overall.get("root_problems", []) if isinstance(overall, dict) else []
+    first = next((item for item in roots if isinstance(item, dict)), None)
+    if not first:
+        return "当前没有需要为了凑数而新增的问题，以保留成熟内容为主。"
+    title = md(first.get("title"), "待确认的问题")
+    impact = md(first.get("purchase_consequence"), first.get("diagnosis"))
+    return f"{title}：{impact}"
+
+
+def current_page_route(chain: dict[str, Any], components: list[dict[str, Any]]) -> str:
+    """Build the current route only from observed page components, never from the rebuild route."""
+    by_id = {
+        str(item.get("component_id", "")): item
+        for item in components
+        if isinstance(item, dict) and str(item.get("component_id", "")).strip()
+    }
+    ordered_ids = [str(item) for item in chain.get("ordered_component_ids", [])]
+    ordered = [by_id[item] for item in ordered_ids if item in by_id]
+    if not ordered:
+        ordered = sorted(
+            [item for item in components if isinstance(item, dict)],
+            key=lambda item: safe_order(item.get("sequence")),
+        )
+    labels: list[str] = []
+    for item in ordered:
+        role = str(item.get("module_role", "other"))
+        label = CURRENT_ROUTE_ROLE_LABELS.get(role, "其他补充内容")
+        if not labels or labels[-1] != label:
+            labels.append(label)
+    return " → ".join(labels) or "尚未看清页面现在的讲述顺序"
+
+
+def match_is_gap(match: dict[str, Any]) -> bool:
+    return not (
+        str(match.get("coverage_status")) == "matched"
+        and str(match.get("position_status")) == "right_position"
+        and str(match.get("evidence_connection_status")) in {"connected", "not_required"}
+        and str(match.get("redundancy_status"))
+        in {"focused", "necessary_repetition", "not_applicable"}
+    )
+
+
+def dual_chain_section(
+    chain: dict[str, Any],
+    matches: list[dict[str, Any]],
+    components: list[dict[str, Any]],
+    limit: int = 3,
+) -> str:
+    """Show the key purchase gaps in brand language; keep audit enums in data/."""
+    category_chain = chain.get("category_decision_chain", {}) if isinstance(chain, dict) else {}
+    if not isinstance(category_chain, dict):
+        category_chain = {}
+    tasks = [item for item in category_chain.get("tasks", []) if isinstance(item, dict)]
+    tasks.sort(key=lambda item: safe_order(item.get("sequence")))
+    task_route = " → ".join(str(item.get("task_name", "")).strip() for item in tasks if str(item.get("task_name", "")).strip())
+    page_route = current_page_route(chain, components)
+    by_task = {
+        str(item.get("category_task_id", "")): item
+        for item in matches
+        if isinstance(item, dict) and str(item.get("category_task_id", "")).strip()
+    }
+    basis_text = {
+        "working_hypothesis": "以下问题根据当前商品和页面整理，后续可结合品牌经验和用户反馈调整。",
+        "evidence_strengthened": "以下问题同时参考了当前页面和已提供资料，后续可结合用户反馈调整。",
+        "brand_confirmed": "以下问题顺序已经品牌业务负责人确认。",
+        "user_validated": "以下问题顺序已有可回溯的用户研究或行为验证支持。",
+        "unknown": "当前资料不足，以下只列已经能够确认的买前问题。",
+    }.get(str(category_chain.get("maturity", "unknown")), "当前资料不足，以下只列已经能够确认的买前问题。")
+    lines = [
+        f"- **用户下单前，需要依次确认：** {task_route or '尚未整理出完整的买前问题'}",
+        f"- **页面现在的讲述顺序：** {page_route}",
+        "",
+        f"> {basis_text}",
+        "",
+        "| 买前要弄清楚 | 页面目前怎么讲 | 不讲清会怎样 |",
+        "| --- | --- | --- |",
+    ]
+    importance_rank = {"critical": 0, "important": 1, "supporting": 2}
+    coverage_rank = {"conflict": 0, "missing": 1, "weak": 2, "unknown": 3, "matched": 4}
+    gaps: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for task in tasks:
+        match = by_task.get(str(task.get("task_id", "")), {})
+        if match_is_gap(match):
+            gaps.append((task, match))
+    gaps.sort(
+        key=lambda pair: (
+            importance_rank.get(str(pair[0].get("importance")), 9),
+            coverage_rank.get(str(pair[1].get("coverage_status")), 9),
+            safe_order(pair[0].get("sequence")),
+        )
+    )
+    for task, match in gaps[:limit]:
+        lines.append(
+            f"| {md(task.get('user_question'), task.get('task_name'))} | "
+            f"{md(match.get('current_content_summary'), '暂未找到清楚承接')} | "
+            f"{md(match.get('user_consequence'), '用户仍需自己寻找或拼接信息')} |"
+        )
+    if not gaps:
+        lines.append("| 关键买前问题 | 页面已经在合适位置讲清 | 保留现有表达即可 |")
+    return brand_language("\n".join(lines))
+
+
+def brand_decision_table(
+    decisions: list[dict[str, Any]], actions: list[dict[str, Any]], chain: dict[str, Any]
+) -> str:
+    """Keep the five-decision audit visible, but make it optional and compact."""
+    by_name = {str(row.get("decision_name", "")): row for row in decisions}
+    overall = chain.get("overall_diagnosis", {}) if isinstance(chain, dict) else {}
+    roots = overall.get("root_problems", []) if isinstance(overall, dict) else []
+    root_decisions = {
+        str(item.get("root_problem_id", "")): {
+            str(name) for name in item.get("affected_decisions", []) if str(name).strip()
+        }
+        for item in roots if isinstance(item, dict)
+    }
+    project_by_decision: dict[str, list[str]] = {}
+    for item in sorted(actions, key=lambda row: safe_order(row.get("priority"))):
+        names = {str(item.get("decision_name", "")).strip()}
+        for root_id in item.get("root_problem_ids", []):
+            names.update(root_decisions.get(str(root_id), set()))
+        project = str(item.get("project_name") or item.get("page_location") or "本轮改版项目")
+        for name in names:
+            if name:
+                project_by_decision.setdefault(name, []).append(project)
+    rows = [
+        "| 用户买前会问 | 页面已经讲清 | 还需要补什么 | 本轮怎样安排 |",
+        "| --- | --- | --- | --- |",
+    ]
+    for name in DECISION_NAMES:
+        row = by_name.get(name, {})
+        projects = project_by_decision.get(name, [])
+        handling = "、".join(dict.fromkeys(projects)) if projects else "保持现状，不单独改"
+        rows.append(
+            f"| {DECISION_QUESTIONS[name]} | {md(row.get('explained'), '暂时无法确认')} | "
+            f"{md(row.get('not_explained'), '暂无关键缺口')} | {handling} |"
+        )
+    return "\n".join(rows)
+
+
+def brand_action_rows(
+    actions: list[dict[str, Any]], root_lookup: dict[str, str]
+) -> str:
+    """Render compact project cards; the full execution ledger stays in data/."""
+    ordered = sorted(actions, key=lambda item: safe_order(item.get("priority")))
+    if not ordered:
+        return "当前没有足够依据形成改版项目；先补齐商品、页面或必要确认信息。"
+    sections: list[str] = []
+    for item in ordered:
+        needed = "；".join(
+            value.rstrip("。；; ")
+            for value in (
+                str(item.get("material_needed", "")).strip(),
+                str(item.get("human_confirmation", "")).strip(),
+            )
+            if value
+        )
+        sections.extend(
+            [
+                f"### {md(item.get('priority'))}｜{md(item.get('project_name'), item.get('page_location'))}",
+                "",
+                f"> **要解决：** {md(item.get('gap_or_risk'), action_root_titles(item, root_lookup))}",
+                "",
+                f"- **怎么改：** {md(item.get('action_detail'))}",
+                f"- **改哪里：** {md(item.get('page_location'))}",
+                f"- **需要准备：** {md(needed, '现有页面素材即可开始')}",
+                f"- **完成标准：** {md(item.get('acceptance_check'))}",
+                f"- **保留内容：** {md(item.get('must_preserve'))}",
+                "",
+            ]
+        )
+    return "\n".join(sections).rstrip()
 
 
 def coverage_rows(coverage: list[dict[str, Any]]) -> str:
@@ -514,8 +853,12 @@ def gap_sections(gaps: list[dict[str, Any]], course: bool = False) -> str:
         lines.append(f"### {labels[target]}")
         lines.append("")
         for item in items:
-            lines.append(
-                f"- {md(item.get('missing'))}；影响：{md(item.get('impact'))}；最低需要：{md(item.get('minimum_needed'))}"
+            lines.extend(
+                [
+                    f"- **要补：** {md(item.get('missing'))}",
+                    f"  - 为什么要补：{md(item.get('impact'))}",
+                    f"  - 最少提供：{md(item.get('minimum_needed'))}",
+                ]
             )
         lines.append("")
     return "\n".join(lines).rstrip()
@@ -648,6 +991,18 @@ def routing_section(routing: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
+def diagnosis_summary(manifest: dict[str, Any], chain: dict[str, Any]) -> str:
+    """Return a client-readable summary for both combined and single-surface runs."""
+    overall = chain.get("overall_diagnosis", {}) if isinstance(chain, dict) else {}
+    judgement = str(overall.get("professional_judgement", "")).strip()
+    if judgement:
+        return judgement
+    cross_surface = str(manifest.get("cross_surface_summary", "")).strip()
+    if cross_surface and cross_surface != "not_applicable":
+        return cross_surface
+    return "当前页面最需要先讲清商品、规格与购买理由。"
+
+
 def build_course(data: dict[str, Any]) -> str:
     manifest = data["manifest"]
     actions = data["actions"]
@@ -661,13 +1016,17 @@ def build_course(data: dict[str, Any]) -> str:
         "",
         "## 一、品牌先看这一页",
         "",
-        f"> **一句话诊断：** {md(manifest.get('cross_surface_summary'), '当前页面最需要先讲清商品、规格与购买理由。')}",
+        f"> **一句话诊断：** {md(diagnosis_summary(manifest, data['chain']))}",
         "",
         analysis_target_summary(manifest, data["chain"]),
         "",
         "### 页面整体诊断",
         "",
         overall_diagnosis_section(data["chain"]),
+        "",
+        "### 用户买前要弄清楚什么",
+        "",
+        dual_chain_section(data["chain"], data["matches"], data["components"]),
         "",
         "### 整体重构思路",
         "",
@@ -683,7 +1042,7 @@ def build_course(data: dict[str, Any]) -> str:
         "",
         "> 本行动单不要求经营数据，不根据缺失数据判断页面效果，也不承诺修改后的点击、转化或销售结果。",
         "",
-        "## 三、五个购买判断分别卡在哪里",
+        "## 三、五个买前问题还有哪些没讲清",
         "",
         decision_rows(data["decisions"]),
         "",
@@ -693,11 +1052,11 @@ def build_course(data: dict[str, Any]) -> str:
         "",
         "> 依据不足时不凑满五项。只有现有页面时可以调整结构、顺序和清晰度，但不得新增资料外主张。",
         "",
-        "## 五、需要返回上一步补什么",
+        "## 五、还需要补什么资料",
         "",
         gap_sections(data["gaps"], course=True),
         "",
-        "## 六、回去以后第一步",
+        "## 六、建议先做",
         "",
     ]
     if first:
@@ -727,7 +1086,7 @@ def build_course(data: dict[str, Any]) -> str:
             "- 所有动作都是待验证建议，不代表页面组件已经有效。",
         ]
     )
-    return "\n".join(lines)
+    return brand_language("\n".join(lines))
 
 
 def build_professional_01(data: dict[str, Any]) -> str:
@@ -735,79 +1094,141 @@ def build_professional_01(data: dict[str, Any]) -> str:
     upstream = data["upstream"]
     pv = upstream.get("product_value", {})
     ve = upstream.get("value_expression", {})
+    chain = data["chain"]
+    diagnosis = chain.get("overall_diagnosis", {}) if isinstance(chain, dict) else {}
+    if not isinstance(diagnosis, dict):
+        diagnosis = {}
+    strategy = chain.get("rebuild_strategy", {}) if isinstance(chain, dict) else {}
+    if not isinstance(strategy, dict):
+        strategy = {}
+    roles = strategy.get("surface_roles", {})
+    if not isinstance(roles, dict):
+        roles = {}
+    route = strategy.get("narrative_route", [])
+    route_text = " → ".join(str(item) for item in route if str(item).strip()) or "尚未形成建议顺序"
+    strengths = diagnosis.get("strengths_to_preserve", [])
+    claims = data.get("claims", [])
+    supporting = data.get("supporting_sources", [])
+    usable_claims = [item for item in claims if item.get("evidence_status") == "usable"]
+    pending_claims = [item for item in claims if item.get("evidence_status") != "usable"]
+    cannot_prove = list(
+        dict.fromkeys(
+            str(item.get("cannot_prove", "")).strip()
+            for item in claims
+            if str(item.get("cannot_prove", "")).strip()
+        )
+    )
+    if supporting and (usable_claims or pending_claims):
+        proof_summary = (
+            f"- 补充资料已纳入判断：{len(usable_claims)} 条内容可用于当前页面，"
+            f"{len(pending_claims)} 条仍需确认或只能作为参考。"
+        )
+    elif supporting:
+        proof_summary = "- 补充资料已纳入判断；本轮未据此新增商品说法，仍按现有页面与已确认事实优化结构。"
+    else:
+        proof_summary = "- 本次建议主要依据当前页面；不新增页面之外的商品说法。"
+    first = sorted(data["actions"], key=lambda item: safe_order(item.get("priority")))[0] if data["actions"] else None
     lines = [
-        "# 商品页整体诊断与重构方案",
+        "# 商品页诊断与优化方案",
         "",
         "> 方法：by 布兰德老白 BrandBAI",
         "",
-        "## 品牌先看这一页",
+        "## 先看结论",
         "",
-        f"> **现在能不能改：** {run_decision_summary(manifest, data['actions'])}",
-        f"> **一句话诊断：** {md(manifest.get('cross_surface_summary'), '当前页面最需要先讲清商品、规格与购买理由。')}",
+        f"> **一句话判断：** {md(diagnosis_summary(manifest, chain))}",
         "",
-        "### 本次到底在分析哪个SKU",
+        f"- **本轮建议：** {run_decision_summary(manifest, data['actions'])}",
+        f"- **页面现在主要靠什么卖：** {md(diagnosis.get('current_core_purchase_reason'), diagnosis.get('current_page_strategy'))}",
+        f"- **建议先做：** {md(first.get('project_name'), first.get('page_location')) if first else '先补齐最低资料，不急着改页面'}",
+        f"- **最影响下单的问题：** {brand_top_root_problem(chain)}",
         "",
-        analysis_target_summary(manifest, data["chain"]),
+        "### 现有页面中建议继续保留",
         "",
-        "## 1｜页面整体诊断",
+        bullet_lines(strengths, "当前还没有确认可直接保留的成熟内容"),
         "",
-        overall_diagnosis_section(data["chain"]),
+        "### 详情页已有优势与提升空间",
         "",
-        "## 2｜整体优化与重构思路",
+        detail_page_assessment_section(chain),
         "",
-        rebuild_strategy_section(data["chain"]),
+        "## 1｜哪些信息还需要讲清",
         "",
-        "### 最优先的改版项目（最多三个）",
+        dual_chain_section(chain, data["matches"], data["components"]),
         "",
-        brand_priority_table(data["actions"], root_title_lookup(data["chain"])),
+        "## 2｜改版后怎么讲",
         "",
-        "### 第一步先启动哪个项目",
+        f"- **这次改版目标：** {md(strategy.get('strategic_objective'), '尚未确认')}",
+        f"- **建议的新购买顺序：** {route_text if route_text != '尚未形成建议顺序' else md(strategy.get('proposed_purchase_logic'), '尚未确认')}",
         "",
+        "### 主图、交易区和详情页怎样配合",
+        "",
+        f"- 主图先完成：{md(roles.get('main_images'), '尚未确认')}",
+        f"- 交易区负责：{md(roles.get('transaction_panel'), '尚未确认')}",
+        f"- 详情页继续讲清：{md(roles.get('detail_page'), '尚未确认')}",
+        f"- 页面最后让用户确认：{md(roles.get('decision_close'), '尚未确认')}",
+        "",
+        "### 继续使用与重点调整",
+        "",
+        "**继续保留**",
+        "",
+        bullet_lines(strategy.get("preserve", []), "尚未确认"),
+        "",
+        "**调整层级、集中呈现或不再使用**",
+        "",
+        bullet_lines(strategy.get("deprioritize_or_remove", []), "尚未确认"),
+        "",
+        f"- **改完的标准：** {md(strategy.get('success_definition'), '尚未确认')}",
+        "",
+        "## 3｜本轮改版项目",
+        "",
+        brand_action_rows(data["actions"], root_title_lookup(chain)),
+        "",
+        "## 4｜五个买前问题（需要时再看）",
+        "",
+        "> 如果只推进本轮改版，前面三部分已经够用；这里用于复核是否还有遗漏。",
+        "",
+        brand_decision_table(data["decisions"], data["actions"], chain),
+        "",
+        "## 5｜本次分析范围",
+        "",
+        brand_scope_summary(manifest, chain),
+        "",
+        f"- **已查看材料：** {readable_scope_summary(data['sources'])}",
+        f"- **页面时间：** {md(manifest.get('page_snapshot_time'), '时间未知')}",
         (
-            f"先启动 {md(sorted(data['actions'], key=lambda item: safe_order(item.get('priority')))[0].get('project_name'), sorted(data['actions'], key=lambda item: safe_order(item.get('priority')))[0].get('page_location'))}："
-            f"{md(sorted(data['actions'], key=lambda item: safe_order(item.get('priority')))[0].get('action_detail'))}"
-            if data["actions"] else "先补齐停止分析所需的最低资料，不急着改页面。"
-        ),
-        "",
-        "## 3｜五个购买判断的具体诊断",
-        "",
-        decision_rows(data["decisions"]),
-        "",
-        "## 4｜完整改版项目",
-        "",
-        action_rows(data["actions"], course=False, root_lookup=root_title_lookup(data["chain"])),
-        "",
-        "## 5｜对象、范围与证据成熟度",
-        "",
-        base_header(manifest, data["sources"], data["coverage"]),
-        "",
-        chain_summary(data["chain"]),
-        (
-            "- 品牌内部商品资料：本次已提供并完成适用范围核对，可用于当前页面建议。"
+            "- **品牌内部商品资料：** 本次已提供并完成适用范围核对，可用于当前页面建议。"
             if pv.get("usable")
-            else "- 品牌内部商品资料：本次未补充；报告只诊断页面当前表达，不把页面宣传升级为已确认商品事实。"
+            else "- **品牌内部商品资料：** 本次未补充；报告只优化页面当前表达，不新增资料之外的卖点。"
         ),
         (
-            "- 已验证卖点资产：本次已提供，并已核对与当前商品及商品页场景一致。"
+            "- **可直接使用的卖点资料：** 本次已提供，并已核对与当前商品及商品页场景一致。"
             if ve.get("usable")
-            else "- 已验证卖点资产：本次未补充；不影响现有页面诊断，但不新增页面资料之外的卖点。"
+            else "- **可直接使用的卖点资料：** 本次未补充；不影响现有页面诊断，但不新增页面资料之外的卖点。"
         ),
         "",
         *( ["## 页面共用与分版建议", "", routing_section(data["routing"]), ""]
            if manifest.get("task") == "route" else [] ),
-        "## 6｜资料缺口、待确认事项与下一步",
+        "## 6｜还需补什么与下一步",
         "",
         gap_sections(data["gaps"]),
         "",
-        "## 7｜结论边界",
+        "## 7｜使用边界",
         "",
-        bullet_lines(manifest.get("limitations", []), "未发现额外限制"),
-        "- 页面出现只证明页面这样表达，不证明组件有效。",
-        "- 评论和问答不能裁定商品事实或改变核心价值。",
-        "- 整体经营结果不能自动归因到单张主图或详情模块。",
-        "- 所有动作均为待验证建议，不承诺未来点击、转化、GMV或ROI。",
+        "### 补充资料与证明范围",
+        "",
+        proof_summary,
+        "- **当前资料不能证明：**",
+        bullet_lines(cannot_prove, "没有补充证据时，不把页面宣传语升级为已经独立验证的事实"),
+        "",
+        "### 长期边界",
+        "",
+        "- 页面公开内容可以用于调整顺序和表达；不能因此把宣传语写成已经独立验证的事实。",
+        "- 评论只作为用户语言、顾虑和场景信号，不裁定商品功效。",
+        "- 竞品页面只支持结构与表达比较，不证明本商品优势。",
+        "- 其他商品选项、变体、套组单品和品牌共性不能自动证明当前商品。",
+        "- 价格、赠品、库存和物流以发布时页面为准。",
+        "- 本报告给出静态页面改版方向，不承诺点击、转化、GMV或ROI结果。",
     ]
-    return "\n".join(lines)
+    return brand_language("\n".join(lines))
 
 
 def component_table(components: list[dict[str, Any]], scope: str) -> str:
@@ -816,7 +1237,7 @@ def component_table(components: list[dict[str, Any]], scope: str) -> str:
     if not selected:
         return "当前没有可用的该范围组件执行项。"
     rows = [
-        "| 顺序 | 页面位置 | 信息层 | SKU适用性 | 当前功能 | 推荐功能 | 动作 | 执行要求 | 所需素材 | 验收问题 |",
+        "| 顺序 | 页面位置 | 内容类型 | 适用于 | 现在在讲什么 | 调整后负责什么 | 新版怎么安排 | 执行要求 | 需要什么素材 | 怎么验收 |",
         "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in selected:
@@ -837,6 +1258,83 @@ def component_table(components: list[dict[str, Any]], scope: str) -> str:
     return "\n".join(rows)
 
 
+def detail_page_content_map(chain: dict[str, Any]) -> str:
+    """Render the future detail page by decision modules, never by old image order."""
+    plan = chain.get("detail_page_plan", {}) if isinstance(chain, dict) else {}
+    if not isinstance(plan, dict):
+        plan = {}
+    status = str(plan.get("status", "unknown"))
+    if status in {"not_in_scope", "insufficient_material", "stopped"}:
+        return "\n".join(
+            [
+                f"- **本次处理：** {md(plan.get('strategy_summary'), '当前不建立详情页改版方案。')}",
+                f"- **原因或边界：** {md(plan.get('boundary'), '需要先补齐可读详情页资料。')}",
+            ]
+        )
+
+    modules = [item for item in plan.get("modules", []) if isinstance(item, dict)]
+    modules.sort(key=lambda item: safe_order(item.get("sequence")))
+    route = " → ".join(
+        str(item).strip() for item in plan.get("narrative_route", []) if str(item).strip()
+    )
+    lines = [
+        f"- **详情页整体任务：** {md(plan.get('strategy_summary'), '尚未形成详情页整体方案')}",
+        f"- **新版讲述路线：** {route or '尚未形成新版讲述路线'}",
+        "",
+        "> 下表按用户购买问题组织内容章节，不代表一章只能做成一张长图。设计可根据阅读节奏做成连续多个画面，但每章要完成的判断必须保持完整。",
+        "",
+        "| 顺序 | 新版内容章节 | 用户此时要确认什么 | 页面必须给出的答案 | 必须包含 | 可调用现有内容 | 呈现方向 | 还需准备 | 完成标准 |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in modules:
+        lines.append(
+            "| {sequence} | {name} | {question} | {answer} | {required} | {assets} | {direction} | {material} | {acceptance} |".format(
+                sequence=md(item.get("sequence")),
+                name=md(item.get("module_name")),
+                question=md(item.get("user_question")),
+                answer=md(item.get("page_answer")),
+                required=md(item.get("required_content")),
+                assets=md(item.get("source_asset_summary"), "暂无可直接调用内容"),
+                direction=md(item.get("presentation_direction")),
+                material=md(item.get("material_needed")),
+                acceptance=md(item.get("acceptance_check")),
+            )
+        )
+    if not modules:
+        lines.append("| — | 暂未形成内容章节 | — | — | — | — | — | 先补齐详情页资料 | 暂不启动详情页改版 |")
+    return "\n".join(lines)
+
+
+def detail_asset_migration_table(chain: dict[str, Any]) -> str:
+    """Show how current detail content is reused without turning it into per-image advice."""
+    plan = chain.get("detail_page_plan", {}) if isinstance(chain, dict) else {}
+    if not isinstance(plan, dict):
+        return "当前没有可迁移的详情页内容。"
+    migrations = [item for item in plan.get("asset_migration", []) if isinstance(item, dict)]
+    if not migrations:
+        return "当前没有可迁移的详情页内容；补齐可读详情页后再建立素材去向。"
+    modules = {
+        str(item.get("module_id", "")): str(item.get("module_name", ""))
+        for item in plan.get("modules", [])
+        if isinstance(item, dict)
+    }
+    rows = [
+        "| 现有内容 | 新版怎么安排 | 放到新版哪里 | 执行说明 |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in migrations:
+        destinations = [
+            modules.get(str(module_id), str(module_id))
+            for module_id in item.get("destination_module_ids", [])
+            if str(module_id).strip()
+        ]
+        rows.append(
+            f"| {md(item.get('current_content'))} | {DETAIL_HANDLING_LABELS.get(str(item.get('handling')), md(item.get('handling')))} | "
+            f"{md(destinations, '不进入新版页面')} | {md(item.get('execution_note'))} |"
+        )
+    return "\n".join(rows)
+
+
 def validation_sections(validations: list[dict[str, Any]]) -> str:
     if not validations:
         return "当前不强行建立版本实验；先完成页面动作并保留版本。"
@@ -844,14 +1342,14 @@ def validation_sections(validations: list[dict[str, Any]]) -> str:
     for index, item in enumerate(validations, start=1):
         lines.extend(
             [
-                f"### 验证任务 {index}",
+                f"### 观察问题 {index}",
                 "",
-                f"- 比较版本：{md(item.get('version_a'))} 与 {md(item.get('version_b'))}",
-                f"- 必须保持：{md(item.get('must_keep'))}",
-                f"- 单一变量：{md(item.get('single_variable'))}",
-                f"- 需要观察：{md(item.get('observation_needed'))}",
-                f"- 可比条件：{md(item.get('comparability'))}",
-                f"- 边界：{md(item.get('boundary'))}",
+                f"- 要比较：{md(item.get('version_a'))} 与 {md(item.get('version_b'))}",
+                f"- 其他条件保持不变：{md(item.get('must_keep'))}",
+                f"- 只改变：{md(item.get('single_variable'))}",
+                f"- 重点观察：{md(item.get('observation_needed'))}",
+                f"- 怎样保证结果可比：{md(item.get('comparability'))}",
+                f"- 不能据此证明：{md(item.get('boundary'))}",
                 "",
             ]
         )
@@ -860,14 +1358,14 @@ def validation_sections(validations: list[dict[str, Any]]) -> str:
 
 def build_professional_02(data: dict[str, Any]) -> str:
     status = str(data["manifest"].get("run_status", ""))
-    title = "# 新版页面内容架构与执行页纲"
-    notice = "> 本页承接整体重构策略，把主图、交易区和详情页编成一条购买逻辑；逐模块清单只负责落地，不替代整体诊断。"
+    title = "# 商品页改版执行方案"
+    notice = "> 下面把整体方案拆成可以直接分工的主图、交易区和详情页改版项目。"
     if status == "degraded_no_product_value":
         notice = "> 本轮只使用现有页面依据：可以重排、删减、澄清和核实，但不得新增资料外卖点。"
     elif status == "stopped":
-        title = "# 新版页面内容架构与执行页纲（暂停页面动作）"
+        title = "# 商品页改版执行方案（暂不启动页面修改）"
         notice = "> 当前资料不足以继续页面工作。本页只保留停止边界和补资料方向。"
-    return "\n".join(
+    return brand_language("\n".join(
         [
             title,
             "",
@@ -875,29 +1373,33 @@ def build_professional_02(data: dict[str, Any]) -> str:
             "",
             notice,
             "",
-            "## 先看整体改版方向",
+            "## 先看这次怎么改",
             "",
-            analysis_target_summary(data["manifest"], data["chain"]),
+            brand_scope_summary(data["manifest"], data["chain"]),
             "",
             rebuild_strategy_section(data["chain"]),
             "",
-            "## 改版项目与先后顺序",
+            "## 改版项目先做什么",
             "",
             brand_priority_table(data["actions"], root_title_lookup(data["chain"])),
             "",
-            "## 1｜主图序列执行清单",
+            "## 1｜主图怎么改",
             "",
             component_table(data["components"], "main_images"),
             "",
-            "## 2｜交易区执行清单",
+            "## 2｜交易区是否需要调整",
             "",
             transaction_section(data["chain"]),
             "",
-            "## 3｜详情页模块执行清单",
+            "## 3｜详情页整体怎么改",
             "",
-            component_table(data["components"], "detail_page"),
+            detail_page_content_map(data["chain"]),
             "",
-            "## 4｜页面版本与验证",
+            "### 现有详情内容在新版中的安排",
+            "",
+            detail_asset_migration_table(data["chain"]),
+            "",
+            "## 4｜上线后怎么判断是否有效",
             "",
             validation_sections(data["validation"]),
             "",
@@ -907,59 +1409,76 @@ def build_professional_02(data: dict[str, Any]) -> str:
             "- 动态交易信息发布前必须人工复核当前有效性。",
             "- 视觉创作不得扩大功效、跨SKU或把待验证建议写成效果事实。",
         ]
-    )
+    ))
 
 
 def transaction_section(chain: dict[str, Any]) -> str:
-    current = chain.get("current_transaction", {}) if isinstance(chain, dict) else {}
-    raw_groups = current.get("raw_spec_groups", []) if isinstance(current, dict) else []
-    bundle = current.get("bundle_contents", []) if isinstance(current, dict) else []
-    return "\n".join(
-        [
-            f"- 当前成交角色：{TRANSACTION_ROLE_LABELS.get(str(current.get('transaction_role')), md(current.get('transaction_role'), 'unknown'))}",
-            f"- 当前SKU：{md(current.get('current_sku_id'), 'unknown')}",
-            f"- 当前规格／数量：{md(current.get('current_quantity_or_size'), 'unknown')}",
-            f"- 平台规格组：{md([item.get('group_name', '') for item in raw_groups if isinstance(item, dict)], '未整理')}",
-            f"- 套组实际到手：{md([item.get('item_name', '') for item in bundle if isinstance(item, dict)], '未整理')}",
-            "- 页纲要求：平台字段名不直接等于用户选择任务；先讲清真实SKU、选择顺序与实际到手。",
-        ]
+    plan = chain.get("transaction_panel_plan", {}) if isinstance(chain, dict) else {}
+    if not isinstance(plan, dict):
+        plan = {}
+    status = str(plan.get("status", "unknown"))
+    if status in {"insufficient_material", "not_in_scope", "stopped"}:
+        return "\n".join(
+            [
+                f"- **本次安排：** {md(plan.get('strategy_summary'), '当前不建立交易区改版方案。')}",
+                f"- **原因或边界：** {md(plan.get('boundary'), '需要先补齐可读交易区资料。')}",
+            ]
+        )
+
+    if status == "preserve_only":
+        return "\n".join(
+            [
+                "### 本轮保持现状",
+                "",
+                "- **判断：** 当前交易区能够支持用户完成选择，本轮不单独立项修改。",
+                f"- **建议保留：** {md(plan.get('strategy_summary'), '保持现有规格选择与到手信息结构。')}",
+                f"- **页面结构：** {md(plan.get('capability_summary'), '保持当前可实施结构。')}",
+                "",
+                "### 长期商品信息与当前优惠分开呈现",
+                "",
+                f"- **长期保持稳定：** {md(plan.get('fixed_information'), '尚未确认')}",
+                f"- **发布前更新：** {md(plan.get('dynamic_information'), '尚未确认')}",
+                f"- **执行边界：** {md(plan.get('boundary'), '价格、赠品和库存发布前复核。')}",
+            ]
+        )
+
+    route = " → ".join(
+        str(item).strip() for item in plan.get("selection_route", []) if str(item).strip()
     )
-
-
-def build_professional_03(data: dict[str, Any]) -> str:
-    claims = data.get("claims", [])
-    supporting = data.get("supporting_sources", [])
-    usable = [item for item in claims if item.get("evidence_status") == "usable"]
-    pending = [item for item in claims if item.get("evidence_status") != "usable"]
+    groups = [item for item in plan.get("field_groups", []) if isinstance(item, dict)]
+    groups.sort(key=lambda item: safe_order(item.get("sequence")))
     lines = [
-        "# 资料缺口与证据边界",
-        "",
-        "> 方法：by 布兰德老白 BrandBAI",
-        "",
-        "## 1｜本次补充资料",
-        "",
-        f"- 已登记补充资料：{len(supporting)} 份。",
-        f"- 可直接调用主张：{len(usable)} 条；待核实或仅作信号：{len(pending)} 条。",
-        "",
-        "## 2｜当前开放缺口",
-        "",
-        gap_sections(data["gaps"]),
-        "",
-        "## 3｜当前资料不能证明什么",
+        f"- **交易区要完成：** {md(plan.get('strategy_summary'), '尚未形成交易区整体方案')}",
+        f"- **页面结构：** {md(plan.get('capability_summary'), '尚未确认交易区结构')}",
+        f"- **用户在同一组选项里这样判断：** {route or '尚未形成阅读顺序'}",
         "",
     ]
-    cannot_prove = [str(item.get("cannot_prove", "")).strip() for item in claims]
-    lines.append(bullet_lines(cannot_prove, "没有新增可调用主张；继续继承页面主张不等于商品事实的边界"))
+    for item in groups:
+        lines.extend(
+            [
+                f"### 一个主要规格选择区｜{md(item.get('group_name'))}",
+                "",
+                f"- **用户要决定：** {md(item.get('user_question'))}",
+                f"- **当前页面：** {md(item.get('current_expression'))}",
+                f"- **同一组选项怎么写：** {md(item.get('recommended_structure'))}",
+                f"- **选中以后怎么显示：** {md(item.get('current_selection_display'))}",
+                f"- **到手与优惠：** {md(item.get('actual_receipt_and_offer'))}",
+                f"- **页面怎么落地：** {md(item.get('implementation_path'))}",
+                f"- **还需准备：** {md(item.get('material_needed'))}",
+                f"- **完成标准：** {md(item.get('acceptance_check'))}",
+                "",
+            ]
+        )
+    if not groups:
+        lines.append("暂未形成选择方案；先补齐交易区资料，再启动交易区改版。")
     lines.extend(
         [
             "",
-            "## 4｜永久边界",
+            "### 长期商品信息与当前优惠分开呈现",
             "",
-            "- 评论只作为用户语言、顾虑和场景信号，不裁定商品功效。",
-            "- 竞品页面只支持结构与表达比较，不证明本商品优势。",
-            "- 价格、赠品、库存、物流和权益必须带页面时间，发布前复核。",
-            "- 其他SKU、变体、套组单品和品牌共性不能自动证明当前成交单元。",
-            "- 静态诊断与改版建议不等于转化归因或经营结果保证。",
+            f"- **长期保持稳定：** {md(plan.get('fixed_information'), '尚未确认')}",
+            f"- **发布前更新：** {md(plan.get('dynamic_information'), '尚未确认')}",
+            f"- **执行边界：** {md(plan.get('boundary'), '价格、赠品和库存发布前复核。')}",
         ]
     )
     return "\n".join(lines)
@@ -975,7 +1494,6 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
         outputs = {
             PROFESSIONAL_REPORTS[0]: build_professional_01(data),
             PROFESSIONAL_REPORTS[1]: build_professional_02(data),
-            PROFESSIONAL_REPORTS[2]: build_professional_03(data),
         }
     else:
         raise ValueError("delivery_mode 必须是 course 或 professional")
@@ -983,9 +1501,10 @@ def build_delivery(delivery: Path, write: bool = True) -> dict[str, Any]:
         for name, content in outputs.items():
             write_text(delivery / name, content)
         if mode == "professional":
-            legacy = delivery / LEGACY_PROFESSIONAL_REPORT
-            if legacy.is_file() and legacy.name not in outputs:
-                legacy.unlink()
+            for name in LEGACY_PROFESSIONAL_REPORTS:
+                legacy = delivery / name
+                if legacy.is_file() and legacy.name not in outputs:
+                    legacy.unlink()
     return {
         "status": "written" if write else "dry_run",
         "delivery_mode": mode,

@@ -253,6 +253,7 @@ def component_rows(with_upstream: bool = True) -> list[dict[str, object]]:
             "page_says": "测试饮品",
             "page_shows": "商品正面包装",
             "decision_names": ["认对", "选对"],
+            "category_task_ids": ["CAT-01", "CAT-04"],
             **upstream,
             "dynamic_status": "not_dynamic",
             "content_layer": "evergreen_product",
@@ -292,6 +293,7 @@ def component_rows(with_upstream: bool = True) -> list[dict[str, object]]:
             "page_says": "随时来一瓶",
             "page_shows": "商品与背景场景",
             "decision_names": ["看懂", "相信", "放心买"],
+            "category_task_ids": ["CAT-02", "CAT-03"],
             **upstream,
             "dynamic_status": "not_dynamic",
             "content_layer": "evergreen_product",
@@ -400,6 +402,7 @@ def action_row(
         "priority": priority,
         "project_name": "购买信息主线重构" if scope == "main_images" else "详情价值叙事重构",
         "root_problem_ids": ["ROOT-001"],
+        "category_task_ids": ["CAT-01", "CAT-04"] if scope == "main_images" else ["CAT-02", "CAT-03"],
         "strategic_goal": "让页面先形成一条可复述的购买理由，再由页面位置承接。",
         "scope": scope,
         "page_location": location,
@@ -426,8 +429,130 @@ def action_row(
     }
 
 
-def page_chain(components: list[dict[str, object]], sku: str = "300毫升乘12瓶") -> dict[str, object]:
+def detail_page_plan(
+    components: list[dict[str, object]],
+    status_without_components: str = "insufficient_material",
+) -> dict[str, object]:
+    detail_components = [item for item in components if item.get("scope") == "detail_page"]
+    if not detail_components:
+        return {
+            "status": status_without_components,
+            "strategy_summary": "本次没有可读详情页，不建立详情页改版结论。",
+            "narrative_route": [],
+            "modules": [],
+            "asset_migration": [],
+            "boundary": "补齐可读详情页后再形成整页内容地图。",
+        }
+    component_ids = [str(item["component_id"]) for item in detail_components]
+    task_ids = list(dict.fromkeys(
+        str(task_id)
+        for item in detail_components
+        for task_id in item.get("category_task_ids", [])
+    ))
+    first_task = task_ids[0]
+    second_task = task_ids[-1]
+    return {
+        "status": "planned",
+        "strategy_summary": "把分散的体验表达重组为核心购买理由与事实支持两段连续内容。",
+        "narrative_route": ["先讲清核心购买理由", "再用事实和边界完成相信"],
+        "modules": [
+            {
+                "module_id": "DPM-001",
+                "sequence": 1,
+                "module_name": "核心购买理由",
+                "user_question": "这款商品为什么值得我继续了解？",
+                "page_answer": "先用一条可复述的核心体验承接当前商品。",
+                "required_content": ["用户问题", "商品作用", "主要体验"],
+                "category_task_ids": [first_task],
+                "source_component_ids": component_ids,
+                "source_asset_summary": "现有详情页首屏和体验表达",
+                "presentation_direction": "问题、商品作用和主要体验连续呈现，不先堆品牌口号。",
+                "material_needed": "现有页面素材即可重组。",
+                "acceptance_check": "用户看完能用一句话复述主要购买理由。",
+                "boundary": "不把页面体验表达扩大为所有用户的共同结果。",
+            },
+            {
+                "module_id": "DPM-002",
+                "sequence": 2,
+                "module_name": "事实支持与边界",
+                "user_question": "页面凭什么这样说？",
+                "page_answer": "把可见画面与它正在支持的体验放在一起。",
+                "required_content": ["页面主张", "可见支持", "适用边界"],
+                "category_task_ids": [second_task],
+                "source_component_ids": component_ids,
+                "source_asset_summary": "现有商品画面和页面公开表达",
+                "presentation_direction": "一项主张对应一组支持，并紧邻边界说明。",
+                "material_needed": "现有画面；精确事实仍需人工确认。",
+                "acceptance_check": "用户能说清页面展示支持什么、不能证明什么。",
+                "boundary": "页面出现不等于独立验证。",
+            },
+        ],
+        "asset_migration": [
+            {
+                "migration_id": "MIG-001",
+                "source_component_ids": component_ids,
+                "current_content": "现有详情页首屏、品牌氛围和体验表达",
+                "handling": "分别放入不同章节",
+                "destination_module_ids": ["DPM-001", "DPM-002"],
+                "execution_note": "保留商品识别，把体验结论与支持画面分别放入对应章节。",
+                "boundary": "只迁移当前可读内容，不补写页面之外的事实。",
+            }
+        ],
+        "boundary": "内容章节不是图片张数，设计可按阅读节奏做成连续多个画面。",
+    }
+
+
+def transaction_panel_plan(components: list[dict[str, object]]) -> dict[str, object]:
+    task_ids = list(dict.fromkeys(
+        str(task_id)
+        for item in components
+        for task_id in item.get("category_task_ids", [])
+    )) or ["CAT-01"]
+    return {
+        "status": "planned",
+        "selection_area_mode": "single_primary_area",
+        "platform_capability_status": "confirmed_native",
+        "capability_summary": "沿用平台现有的一个主要规格选择区。",
+        "strategy_summary": "让用户在同一组选项中确认数量、实际到手和选择理由，再看当下优惠。",
+        "selection_route": ["先选数量", "确认当前所选", "核对实际到手", "最后看当下优惠"],
+        "field_groups": [
+            {
+                "group_id": "TPG-001",
+                "sequence": 1,
+                "group_name": "数量选择",
+                "user_question": "我需要多少瓶？",
+                "current_expression": "规格：12瓶装",
+                "recommended_structure": "每个选项在同一行写清数量、稳定到手和简短选择理由，不把动态赠品写进长期规格名。",
+                "current_selection_display": "在选项上直接标明已选12瓶装，并在购买按钮上方重复一次。",
+                "actual_receipt_and_offer": "实际到手写12瓶；价格、赠品和库存另放在当前优惠区。",
+                "implementation_status": "confirmed_native",
+                "implementation_path": "沿用现有单选择区、选项缩略图和规格对应主图；切换选项时同步当前所选与价格。",
+                "fallback_path": "无需新增替代交互；保持现有单选择区。",
+                "confirmation_needed": "上线前核对各选项稳定到手与当前在售状态。",
+                "category_task_ids": [task_ids[-1]],
+                "material_needed": "现有规格与到手信息即可；发布前更新价格和库存。",
+                "acceptance_check": "用户不展开详情页也能确认选了多少、会收到什么、当前优惠是否仍有效。",
+                "boundary": "价格、赠品和库存只代表发布时点。",
+            }
+        ],
+        "fixed_information": ["商品名称", "数量规格", "实际到手", "适用范围"],
+        "dynamic_information": ["当前价格", "赠品", "库存", "物流时效"],
+        "boundary": "长期商品信息保持稳定；价格、赠品、库存和物流发布前更新。",
+    }
+
+
+def page_chain(
+    components: list[dict[str, object]],
+    sku: str = "300毫升乘12瓶",
+    detail_status_without_components: str = "insufficient_material",
+) -> dict[str, object]:
     component_ids = [str(item["component_id"]) for item in components]
+    task_sources: dict[str, list[str]] = {f"CAT-{index:02d}": [] for index in range(1, 5)}
+    for component in components:
+        for task_id in component.get("category_task_ids", []):
+            task_sources[str(task_id)] = list(
+                dict.fromkeys([*task_sources.get(str(task_id), []), *component.get("source_file_ids", [])])
+            )
     return {
         "schema_version": SCHEMA_VERSION,
         "analysis_target": {
@@ -447,11 +572,51 @@ def page_chain(components: list[dict[str, object]], sku: str = "300毫升乘12�
         "remaining_decision_tasks": ["认对", "看懂", "相信", "选对", "放心买"],
         "dominant_route": "认对当前SKU后承接核心体验，再进入证明和到手确认",
         "parallel_routes": [],
-        "category_must_answer_tasks": ["商品与规格", "核心体验", "事实支持", "实际到手"],
+        "category_decision_chain": {
+            "subcategory": "即饮测试饮品",
+            "decision_context": "用户购买当前规格时需要确认商品身份、核心体验、事实支持和实际到手。",
+            "basis_type": "category_reference_hypothesis",
+            "maturity": "working_hypothesis",
+            "tasks": [
+                {
+                    "task_id": "CAT-01", "sequence": 1, "task_name": "商品与规格",
+                    "user_question": "这是什么商品，我买的是哪一规格？",
+                    "requirement": "required", "importance": "critical",
+                    "basis_summary": "依据当前页面商品形态和可见规格形成工作假设。",
+                    "source_file_ids": task_sources["CAT-01"],
+                    "boundary": "不代表所有即饮商品用户都按同一顺序购买。",
+                },
+                {
+                    "task_id": "CAT-02", "sequence": 2, "task_name": "核心体验",
+                    "user_question": "它能带来什么具体饮用体验？",
+                    "requirement": "required", "importance": "critical",
+                    "basis_summary": "依据当前页面核心体验表达形成工作假设。",
+                    "source_file_ids": task_sources["CAT-02"],
+                    "boundary": "页面表达不等于用户普遍体验。",
+                },
+                {
+                    "task_id": "CAT-03", "sequence": 3, "task_name": "事实支持",
+                    "user_question": "页面用什么事实或画面支持这一体验？",
+                    "requirement": "required", "importance": "important",
+                    "basis_summary": "依据当前页面说法与画面关系形成工作假设。",
+                    "source_file_ids": task_sources["CAT-03"],
+                    "boundary": "只判断页面承接，不升级为独立验证结论。",
+                },
+                {
+                    "task_id": "CAT-04", "sequence": 4, "task_name": "实际到手",
+                    "user_question": "当前规格实际收到多少、怎样选择？",
+                    "requirement": "required", "importance": "critical",
+                    "basis_summary": "依据当前SKU与交易选择任务形成工作假设。",
+                    "source_file_ids": task_sources["CAT-04"],
+                    "boundary": "动态价格权益需另按页面时点确认。",
+                },
+            ],
+            "boundary": "该顺序是当前页面诊断的工作假设，需由品牌或用户研究继续校准。",
+        },
         "surface_coverage": [
             {"surface": "shelf_entry", "status": "not_provided", "source_file_ids": [], "boundary": "本轮未提供货架外显。"},
             {"surface": "main_images", "status": "observed", "source_file_ids": ["PAGE-SF-001"], "boundary": "只核对本次主图资料。"},
-            {"surface": "transaction_panel", "status": "not_provided", "source_file_ids": [], "boundary": "本轮未提供交易区。"},
+            {"surface": "transaction_panel", "status": "observed", "source_file_ids": ["PAGE-SF-001"], "boundary": "本轮已核对当前规格选择。"},
             {"surface": "detail_page", "status": "observed", "source_file_ids": ["PAGE-SF-002"], "boundary": "只核对本次详情页资料。"},
         ],
         "ordered_component_ids": component_ids,
@@ -496,6 +661,43 @@ def page_chain(components: list[dict[str, object]], sku: str = "300毫升乘12�
             "deprioritize_or_remove": ["重复表达", "没有服务购买判断的孤立信息"],
             "success_definition": "用户看完整页后能复述购买理由、选择当前SKU并知道实际到手。",
         },
+        "detail_page_plan": detail_page_plan(components, detail_status_without_components),
+        "detail_page_assessment": {
+            "status": "assessed" if any(item.get("scope") == "detail_page" for item in components) else detail_status_without_components,
+            "assessment_basis": "依据细分类目购买任务链、页面内容节点和五个买前判断综合评估。",
+            "strengths": [
+                {
+                    "assessment_id": "DPA-S-001",
+                    "title": "商品身份与核心体验已有连续承接",
+                    "why_it_helps": "帮助用户认出当前商品并理解主要体验。",
+                    "supporting_component_ids": [
+                        str(item["component_id"]) for item in components if item.get("scope") == "detail_page"
+                    ][:1],
+                    "category_task_ids": ["CAT-01"],
+                    "decision_names": ["认对", "看懂"],
+                    "preserve_requirement": "改版时保留商品身份和核心体验的直接连接。",
+                    "boundary": "只评价本次可读详情内容。",
+                }
+            ] if any(item.get("scope") == "detail_page" for item in components) else [],
+            "improvement_opportunities": [
+                {
+                    "assessment_id": "DPA-O-001",
+                    "title": "规格与实际到手还可更早讲清",
+                    "what_is_not_yet_clear": "规格和到手信息需要跨位置拼接。",
+                    "purchase_impact": "用户需要额外确认当前选择。",
+                    "supporting_component_ids": [
+                        str(item["component_id"]) for item in components if item.get("scope") == "detail_page"
+                    ][:1],
+                    "category_task_ids": ["CAT-04"],
+                    "decision_names": ["选对", "放心买"],
+                    "improvement_direction": "在购买收口前集中说明规格与实际到手。",
+                    "acceptance_check": "用户不跨页面位置也能复述当前规格和实际收到什么。",
+                    "boundary": "动态价格和赠品仍按发布时点复核。",
+                }
+            ] if any(item.get("scope") == "detail_page" for item in components) else [],
+            "boundary": "没有可读详情页时不推测；已有评估不等于上线效果验证。",
+        },
+        "transaction_panel_plan": transaction_panel_plan(components),
         "cross_surface_consistency": {
             "status": "partially_checked",
             "checked_surfaces": ["main_images", "detail_page"],
@@ -556,6 +758,47 @@ def page_chain(components: list[dict[str, object]], sku: str = "300毫升乘12�
     }
 
 
+def match_rows(components: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    task_names = {
+        "CAT-01": "商品与规格",
+        "CAT-02": "核心体验",
+        "CAT-03": "事实支持",
+        "CAT-04": "实际到手",
+    }
+    for index, (task_id, task_name) in enumerate(task_names.items(), start=1):
+        linked = [
+            item for item in components if task_id in item.get("category_task_ids", [])
+        ]
+        component_ids = [str(item.get("component_id", "")) for item in linked]
+        source_ids = list(
+            dict.fromkeys(
+                source_id
+                for item in linked
+                for source_id in item.get("source_file_ids", [])
+            )
+        )
+        missing = not linked
+        rows.append(
+            {
+                "match_id": f"MATCH-{index:03d}",
+                "category_task_id": task_id,
+                "component_ids": component_ids,
+                "source_file_ids": source_ids,
+                "coverage_status": "missing" if missing else "weak",
+                "position_status": "not_present" if missing else "scattered",
+                "evidence_connection_status": "unknown" if missing else "weak",
+                "redundancy_status": "not_applicable" if missing else "focused",
+                "current_content_summary": "页面尚未承接这一任务。" if missing else f"页面已经出现{task_name}相关内容，但没有一次讲清。",
+                "match_reason": "未找到对应内容节点。" if missing else "相关内容存在，但顺序或说明仍不完整。",
+                "user_consequence": "用户需要自行寻找或无法完成判断。" if missing else "用户仍需跨位置拼接信息。",
+                "recommended_resolution": f"补齐并在合适位置承接{task_name}。",
+                "boundary": "只判断本次可读页面，不推断未提供模块。",
+            }
+        )
+    return rows
+
+
 def populate_ready(delivery: Path) -> None:
     reviewed_sources(delivery)
     data = delivery / "data"
@@ -574,6 +817,7 @@ def populate_ready(delivery: Path) -> None:
     components = component_rows()
     write_jsonl(data / "page_component_ledger.jsonl", components)
     write_json(data / "page_chain.json", page_chain(components))
+    write_jsonl(data / "content_decision_match_ledger.jsonl", match_rows(components))
     write_jsonl(data / "decision_ledger.jsonl", decision_rows())
     write_jsonl(
         data / "action_ledger.jsonl",
@@ -604,6 +848,7 @@ def populate_degraded(delivery: Path) -> None:
     components = component_rows(with_upstream=False)
     write_jsonl(data / "page_component_ledger.jsonl", components)
     write_json(data / "page_chain.json", page_chain(components))
+    write_jsonl(data / "content_decision_match_ledger.jsonl", match_rows(components))
     write_jsonl(data / "decision_ledger.jsonl", decision_rows(with_upstream=False))
     write_jsonl(
         data / "action_ledger.jsonl",
@@ -683,6 +928,7 @@ def run_test() -> None:
         assert media_type(Path("sample.webm")) == "video"
         assert not course.exists(), "dry-run不得创建交付目录"
         assert "data/page_chain.json" in plan["will_create"], "dry-run必须完整声明page_chain交付文件"
+        assert "data/content_decision_match_ledger.jsonl" in plan["will_create"], "dry-run必须声明双链匹配账本"
         init_delivery(
             course, sources, product_value, value_expression,
             "", "", "", "", "combined", "diagnose", "course",
@@ -728,14 +974,14 @@ def run_test() -> None:
         assert "规格选择顺序：数量" in report
         assert "已核对" in report and "本次提供范围已逐张看完" in report
         assert "### 优先 1｜购买信息主线重构" in report
-        assert "页面整体诊断" in report and "整体重构思路" in report
-        assert "三个以内的整体根因" in report
+        assert "页面整体诊断" in report and "用户买前要弄清楚什么" in report and "整体重构思路" in report
+        assert "最值得先解决的问题" in report
         assert "- 现在的问题：" in report and "- 改完怎么检查：" in report
         assert "| 优先顺序 |" not in report
         assert "by 布兰德老白 BrandBAI" in report
         assert "ACT-001" not in report and "V-001" not in report
         assert "品牌先看这一页" in report
-        assert "本次真正分析的SKU" in report
+        assert "分析商品" in report
         assert "最优先的改版项目（最多三个）" in report
         assert "我买的到底是哪一款、多少、到手是什么" in report
 
@@ -758,6 +1004,31 @@ def run_test() -> None:
         write_json(chain_path, missing_overall)
         assert_error(course, "E_OVERALL_DIAGNOSIS")
         write_json(chain_path, original_chain)
+
+        matches_path = course / "data" / "content_decision_match_ledger.jsonl"
+        original_matches = read_jsonl(matches_path)
+        write_jsonl(matches_path, original_matches[:-1])
+        assert_error(course, "E_CONTENT_DECISION_MATCH")
+        write_jsonl(matches_path, original_matches)
+
+        components_path = course / "data" / "page_component_ledger.jsonl"
+        original_components = read_jsonl(components_path)
+        invalid_task_components = deepcopy(original_components)
+        invalid_task_components[0]["category_task_ids"] = ["CAT-99"]
+        write_jsonl(components_path, invalid_task_components)
+        assert_error(course, "E_CATEGORY_TASK_REF")
+        write_jsonl(components_path, original_components)
+
+        fully_aligned_matches = deepcopy(original_matches)
+        for row in fully_aligned_matches:
+            if row["category_task_id"] in {"CAT-01", "CAT-04"}:
+                row["coverage_status"] = "matched"
+                row["position_status"] = "right_position"
+                row["evidence_connection_status"] = "connected"
+                row["redundancy_status"] = "focused"
+        write_jsonl(matches_path, fully_aligned_matches)
+        assert_error(course, "E_ACTION_NOT_CATEGORY_GAP")
+        write_jsonl(matches_path, original_matches)
 
         decisions_path = course / "data" / "decision_ledger.jsonl"
         original_decisions = read_jsonl(decisions_path)
@@ -843,7 +1114,7 @@ def run_test() -> None:
             degraded_result, ensure_ascii=False, indent=2
         )
         degraded_report = (degraded / "01_商品页诊断与优化建议.md").read_text(encoding="utf-8")
-        assert "本轮可基于现有页面完成诊断" in degraded_report
+        assert "只用现有页面也可以提出优化" in degraded_report
         assert "不得新增资料外主张" in degraded_report
         assert "unreadable" not in degraded_report
 
@@ -870,17 +1141,30 @@ def run_test() -> None:
         pro_component = component_rows()[0]
         pro_component["decision_names"] = list(DECISION_NAMES)
         write_jsonl(data / "page_component_ledger.jsonl", [pro_component])
-        pro_chain = page_chain([pro_component])
+        pro_chain = page_chain([pro_component], detail_status_without_components="not_in_scope")
         pro_chain["surface_coverage"] = [
             {"surface": "shelf_entry", "status": "not_provided", "source_file_ids": [], "boundary": "本轮未提供货架外显。"},
             {"surface": "main_images", "status": "observed", "source_file_ids": ["PAGE-SF-001"], "boundary": "只核对本次主图资料。"},
             {"surface": "transaction_panel", "status": "not_provided", "source_file_ids": [], "boundary": "本轮未提供交易区。"},
             {"surface": "detail_page", "status": "not_applicable", "source_file_ids": [], "boundary": "本轮不看详情页。"},
         ]
+        pro_chain["transaction_panel_plan"] = {
+            "status": "insufficient_material",
+            "selection_area_mode": "unknown",
+            "platform_capability_status": "unknown",
+            "capability_summary": "没有可读交易区，无法核对平台字段与商家后台能力。",
+            "strategy_summary": "本轮没有可读交易区，不建立交易区改版方案。",
+            "selection_route": [],
+            "field_groups": [],
+            "fixed_information": [],
+            "dynamic_information": [],
+            "boundary": "补齐可读交易区后再形成用户选择方案。",
+        }
         pro_chain["cross_surface_sku_consistency"]["surface_checks"] = [
             {"surface": "main_images", "represented_sku_or_variant": "300毫升乘12瓶", "represented_quantity_or_size": "12瓶装", "represented_price_or_offer": "", "relationship": "matched"},
         ]
         write_json(data / "page_chain.json", pro_chain)
+        write_jsonl(data / "content_decision_match_ledger.jsonl", match_rows([pro_component]))
         pro_decisions = decision_rows()
         for row in pro_decisions:
             row["source_file_ids"] = ["PAGE-SF-001"]
@@ -892,24 +1176,58 @@ def run_test() -> None:
         )
         write_jsonl(data / "validation_ledger.jsonl", [])
         write_jsonl(data / "gap_ledger.jsonl", [])
+        (professional / "03_资料缺口与证据边界.md").write_text("旧版第三份报告", encoding="utf-8")
         build_delivery(professional, write=True)
         pro_result = validate_delivery(professional)
         assert pro_result["status"] == "passed", json.dumps(pro_result, ensure_ascii=False, indent=2)
         assert (professional / "02_主图交易区详情页优化页纲.md").is_file()
-        assert (professional / "03_资料缺口与证据边界.md").is_file()
+        assert not (professional / "03_资料缺口与证据边界.md").exists()
         professional_report = (professional / "01_商品页诊断与优化建议.md").read_text(
             encoding="utf-8"
         )
-        assert "品牌内部商品资料：本次已提供" in professional_report
-        assert "已验证卖点资产：本次已提供" in professional_report
+        assert "品牌内部商品资料：** 本次已提供" in professional_report
+        assert "可直接使用的卖点资料：** 本次已提供" in professional_report
         assert "商品价值上游" not in professional_report
         assert "卖点呈现上游" not in professional_report
-        assert "资料缺口、待确认事项与下一步" in professional_report
+        assert "## 先看结论" in professional_report
+        assert "## 1｜哪些信息还需要讲清" in professional_report
+        assert "## 2｜改版后怎么讲" in professional_report
+        assert "## 3｜本轮改版项目" in professional_report
+        assert "## 4｜五个买前问题（需要时再看）" in professional_report
+        assert "## 6｜还需补什么与下一步" in professional_report
+        assert "### 补充资料与证明范围" in professional_report
+        assert "### 长期边界" in professional_report
+        assert "当前资料不能证明" in professional_report
+        assert "**最影响下单的问题：**" in professional_report
+        assert "**用户下单前，需要依次确认：**" in professional_report
+        assert "**页面现在的讲述顺序：**" in professional_report
+        assert "**建议的新购买顺序：**" in professional_report
+        assert "本次先按这条购买顺序检查" not in professional_report
+        assert "最大购买断点" not in professional_report
+        assert "完整判断依据" not in professional_report
+        assert "这类商品，用户通常" not in professional_report
+        assert "认对当前SKU后承接核心体验，再进入证明和到手确认" not in professional_report
+        assert "当前结论" not in professional_report
+        assert "**要解决：**" in professional_report
+        assert "**怎么改：**" in professional_report
+        assert "**完成标准：**" in professional_report
+        assert "现在能否开始" not in professional_report
+        assert "上线后观察" not in professional_report
+        assert "明天先启动" not in professional_report
         page_plan = (professional / "02_主图交易区详情页优化页纲.md").read_text(
             encoding="utf-8"
         )
-        assert "当前成交角色：正装主销" in page_plan
-        assert "当前成交角色：standard" not in page_plan
+        assert "# 商品页改版执行方案" in page_plan
+        assert "## 3｜详情页整体怎么改" in page_plan
+        assert "### 现有详情内容在新版中的安排" in page_plan
+        assert "## 4｜上线后怎么判断是否有效" in page_plan
+        assert "验证任务" not in page_plan
+        assert "本轮没有可读交易区，不建立交易区改版方案" in page_plan
+        assert "#### 选择 1｜" not in page_plan
+        assert "当前购买选择：standard" not in page_plan
+        assert "已经做对" not in professional_report
+        assert "已经做对" not in page_plan
+        assert "| 现有内容 | 怎么处理 |" not in page_plan
         legacy_report = professional / "02_主图与详情页执行页.md"
         legacy_report.write_text("legacy", encoding="utf-8")
         build_delivery(professional, write=True)
@@ -987,17 +1305,30 @@ def run_test() -> None:
         version_component["source_file_ids"] = ["PAGE-SF-001", "PAGE-SF-002"]
         version_component["decision_names"] = list(DECISION_NAMES)
         write_jsonl(version_data / "page_component_ledger.jsonl", [version_component])
-        version_chain = page_chain([version_component])
+        version_chain = page_chain([version_component], detail_status_without_components="not_in_scope")
         version_chain["surface_coverage"] = [
             {"surface": "shelf_entry", "status": "not_provided", "source_file_ids": [], "boundary": "本轮未提供货架外显。"},
             {"surface": "main_images", "status": "observed", "source_file_ids": ["PAGE-SF-001", "PAGE-SF-002"], "boundary": "两版主图均已核对。"},
             {"surface": "transaction_panel", "status": "not_provided", "source_file_ids": [], "boundary": "本轮未提供交易区。"},
             {"surface": "detail_page", "status": "not_applicable", "source_file_ids": [], "boundary": "本轮不比较详情页。"},
         ]
+        version_chain["transaction_panel_plan"] = {
+            "status": "insufficient_material",
+            "selection_area_mode": "unknown",
+            "platform_capability_status": "unknown",
+            "capability_summary": "没有可读交易区，无法核对平台字段与商家后台能力。",
+            "strategy_summary": "本轮没有可读交易区，不建立交易区改版方案。",
+            "selection_route": [],
+            "field_groups": [],
+            "fixed_information": [],
+            "dynamic_information": [],
+            "boundary": "补齐可读交易区后再形成用户选择方案。",
+        }
         version_chain["cross_surface_sku_consistency"]["surface_checks"] = [
             {"surface": "main_images", "represented_sku_or_variant": "12瓶装", "represented_quantity_or_size": "12瓶装", "represented_price_or_offer": "", "relationship": "matched"},
         ]
         write_json(version_data / "page_chain.json", version_chain)
+        write_jsonl(version_data / "content_decision_match_ledger.jsonl", match_rows([version_component]))
         version_decisions = decision_rows()
         for row in version_decisions:
             row["source_file_ids"] = ["PAGE-SF-001", "PAGE-SF-002"]
@@ -1546,7 +1877,7 @@ def run_test() -> None:
 
         build_delivery(course, write=True)
         assert validate_delivery(course)["status"] == "passed"
-        assert SKILL_VERSION == "0.5.1"
+        assert SKILL_VERSION == "0.6.4"
         print("product-page synthetic tests passed")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

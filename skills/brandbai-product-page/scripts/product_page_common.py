@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "0.5.0"
-SKILL_VERSION = "0.5.1"
+SCHEMA_VERSION = "0.6.4"
+SKILL_VERSION = "0.6.4"
 
 SCOPES = {"main_images", "detail_page", "combined"}
 TASKS = {"diagnose", "design", "route", "version_review"}
@@ -121,6 +121,47 @@ INFORMATION_NODE_TYPES = {
     "other",
 }
 MATCH_STATUSES = {"matched", "partially_matched", "misplaced", "unsupported", "unknown"}
+CATEGORY_DECISION_BASIS_TYPES = {
+    "page_visible_hypothesis",
+    "category_reference_hypothesis",
+    "page_and_supporting_evidence",
+    "brand_confirmed",
+    "user_research_supported",
+    "unknown",
+}
+CATEGORY_DECISION_MATURITIES = {
+    "working_hypothesis",
+    "evidence_strengthened",
+    "brand_confirmed",
+    "user_validated",
+    "unknown",
+}
+CATEGORY_TASK_REQUIREMENTS = {"required", "conditional"}
+CATEGORY_TASK_IMPORTANCE = {"critical", "important", "supporting"}
+CONTENT_COVERAGE_STATUSES = {"matched", "weak", "missing", "conflict", "unknown"}
+CONTENT_POSITION_STATUSES = {
+    "right_position",
+    "too_early",
+    "too_late",
+    "scattered",
+    "not_present",
+    "unknown",
+}
+EVIDENCE_CONNECTION_STATUSES = {
+    "connected",
+    "weak",
+    "disconnected",
+    "not_required",
+    "unknown",
+}
+CONTENT_REDUNDANCY_STATUSES = {
+    "focused",
+    "necessary_repetition",
+    "duplicated",
+    "overloaded",
+    "not_applicable",
+    "unknown",
+}
 PACKAGE_VERSION_STATUSES = {
     "not_applicable",
     "current_confirmed",
@@ -306,7 +347,6 @@ COURSE_REPORT = "01_商品页诊断与优化建议.md"
 PROFESSIONAL_REPORTS = (
     "01_商品页诊断与优化建议.md",
     "02_主图交易区详情页优化页纲.md",
-    "03_资料缺口与证据边界.md",
 )
 DATA_FILES = (
     "page_manifest.json",
@@ -317,6 +357,7 @@ DATA_FILES = (
     "page_coverage.jsonl",
     "page_component_ledger.jsonl",
     "page_chain.json",
+    "content_decision_match_ledger.jsonl",
     "decision_ledger.jsonl",
     "action_ledger.jsonl",
     "validation_ledger.jsonl",
@@ -419,6 +460,7 @@ def delivery_paths(delivery: Path) -> dict[str, Path]:
         "coverage": data / "page_coverage.jsonl",
         "components": data / "page_component_ledger.jsonl",
         "chain": data / "page_chain.json",
+        "matches": data / "content_decision_match_ledger.jsonl",
         "decisions": data / "decision_ledger.jsonl",
         "actions": data / "action_ledger.jsonl",
         "validation": data / "validation_ledger.jsonl",
@@ -427,7 +469,6 @@ def delivery_paths(delivery: Path) -> dict[str, Path]:
         "course_report": delivery / COURSE_REPORT,
         "professional_report_01": delivery / PROFESSIONAL_REPORTS[0],
         "professional_report_02": delivery / PROFESSIONAL_REPORTS[1],
-        "professional_report_03": delivery / PROFESSIONAL_REPORTS[2],
     }
 
 
