@@ -47,6 +47,27 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                     "bio": "仅用于合成测试", "followers": None, "total_likes": 0,
                     "snapshot_at": "2026-08-01T12:00:00+08:00",
                 },
+                "commerce_anchor": {
+                    "status": "visible_direct_link", "display_name": "合成测试商品",
+                    "url": "https://haohuo.example/items/901",
+                    "observed_at": "2026-08-01T12:00:00+08:00", "source": "current_work_dom",
+                },
+                "commerce": {
+                    "status": "detail_observed", "source_work_id": "7551794579813502262",
+                    "observed_at": "2026-08-01T12:00:00+08:00",
+                    "products": [{
+                        "title": "合成测试商品完整标题", "short_title": "合成测试商品", "shop_name": "合成旗舰店",
+                        "price_texts": ["￥79.90"], "sales_texts": ["已售100+"],
+                        "delivery_texts": ["48小时内发货"], "service_texts": ["7天无理由退货"],
+                        "review_count_text": "商品评价(20)", "observed_at": "2026-08-01T12:00:00+08:00",
+                        "sku_groups": [{"name": "口味分类", "selected_value": "规格A", "options": [
+                            {"value": "规格A", "selected": True}, {"value": "规格B", "selected": False}
+                        ]}],
+                        "parameters": [{"name": "品牌", "value": "合成品牌", "scope": "page_visible"}],
+                        "images": [{"url": "https://p26-item.ecombdimg.com/test.jpg", "width": 800, "height": 800,
+                            "download": {"status": "downloaded", "file": "商品资料\\商品_01_图片_001.jpg", "bytes": 4096}}],
+                    }],
+                },
                 "title": "这是一条带标题的测试作品",
                 "publish_time": "2026-08-01T10:30:00+08:00",
                 "digg_count": 123,
@@ -62,6 +83,7 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                     "video": {"file": "video.mp4", "status": "downloaded", "bytes": 1048576},
                     "cover": {"file": "cover.jpg", "status": "downloaded", "bytes": 2048},
                     "music": {"status": "not_available"},
+                    "commerce_images": [{"status": "downloaded", "file": "商品资料\\商品_01_图片_001.jpg", "bytes": 4096}],
                 },
             }]} , ensure_ascii=False), encoding="utf-8")
             works_manifest_path.write_text(json.dumps({
@@ -69,6 +91,15 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
                 "requested_recent_non_pinned": 5,
                 "status": "complete",
                 "finished_at": "2026-08-01T12:00:00+08:00",
+                "commerce_anchor_observation": {
+                    "status": "visible_direct_link", "display_name": "合成测试商品",
+                    "url": "https://haohuo.example/items/901",
+                    "observed_at": "2026-08-01T12:00:00+08:00", "source": "current_work_dom",
+                },
+                "commerce_detail_observation": {
+                    "status": "detail_observed", "observed_at": "2026-08-01T12:00:00+08:00",
+                    "products": [{"title": "合成测试商品完整标题"}],
+                },
             }), encoding="utf-8")
 
             headers = [
@@ -137,15 +168,23 @@ class BuildFoundationWorkbooksTests(unittest.TestCase):
             self.assertTrue((qa_dir / "workbook_qa.json").is_file())
 
             works_book = load_workbook(output_dir / "01_作品清单.xlsx")
-            self.assertEqual(works_book.sheetnames, ["使用说明", "作品清单", "素材明细", "达人快照"])
+            self.assertEqual(works_book.sheetnames, ["使用说明", "作品清单", "素材明细", "达人快照", "可见小黄车", "商品概览", "商品规格", "商品参数", "商品素材"])
             self.assertEqual(works_book["作品清单"]["A2"].value, "7551794579813502262")
             self.assertEqual(works_book["作品清单"]["A2"].number_format, "@")
             self.assertTrue(works_book["作品清单"]["A2"].quotePrefix)
             self.assertEqual(works_book["作品清单"]["E2"].value.hour, 10)
             self.assertEqual(works_book["使用说明"]["B6"].value, 0)
-            self.assertEqual(works_book["使用说明"]["B11"].value, 2)
+            self.assertEqual(works_book["使用说明"]["B11"].value, 3)
             self.assertEqual(works_book["使用说明"]["B21"].value, "完成")
             self.assertIn("WorksTable", works_book["作品清单"].tables)
+            self.assertEqual(works_book["可见小黄车"]["B2"].value, "页面可见，已留存直接链接")
+            self.assertEqual(works_book["可见小黄车"]["B4"].hyperlink.target, "https://haohuo.example/items/901")
+            self.assertIn("单作品可见小黄车", (output_dir / "04_采集说明.md").read_text(encoding="utf-8"))
+            self.assertIn("当前作品商品资料", (output_dir / "04_采集说明.md").read_text(encoding="utf-8"))
+            self.assertEqual(works_book["商品概览"]["B2"].value, "合成测试商品完整标题")
+            self.assertEqual(works_book["商品规格"]["E2"].value, "规格A")
+            self.assertEqual(works_book["商品参数"]["C2"].value, "合成品牌")
+            self.assertEqual(works_book["商品素材"]["F2"].value, "商品资料\\商品_01_图片_001.jpg")
             self.assertEqual(
                 works_book["作品清单"]["M2"].hyperlink.target,
                 "https://www.douyin.com/video/7551794579813502262",

@@ -268,6 +268,196 @@ def music_urls(item: dict[str, Any]) -> list[str]:
     return unique_urls(candidates)
 
 
+def normalize_commerce_display_name(value: Any) -> str:
+    text = MULTISPACE.sub(" ", str(value or "")).strip()[:180]
+    if not text:
+        return ""
+    cleaned = re.sub(
+        r"^(?:购物(?:车)?|小黄车|商品)(?:\s*[|｜:：·•-]+\s*|\s+)(?=\S)",
+        "",
+        text,
+    ).strip()
+    return cleaned or text
+
+
+def normalize_commerce_anchor(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    display_name = normalize_commerce_display_name(
+        value.get("display_name") or value.get("displayName") or value.get("name")
+    )
+    raw_url = str(value.get("url") or "").strip()
+    direct_url = ""
+    if raw_url:
+        parsed = urllib.parse.urlparse(raw_url)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            direct_url = raw_url
+    declared = str(value.get("status") or "").strip()
+    visible = bool(display_name or direct_url or declared.startswith("visible_"))
+    status = "visible_direct_link" if direct_url else "visible_name_only" if visible else "not_observed" if declared == "not_observed" else ""
+    if not status:
+        return None
+    return {
+        "status": status,
+        "display_name": display_name,
+        "url": direct_url,
+        "observed_at": str(value.get("observed_at") or value.get("observedAt") or ""),
+        "source": str(value.get("source") or "current_work_dom"),
+    }
+
+
+def collect_visible_commerce_anchor(page: Any) -> dict[str, Any] | None:
+    """Read only the currently rendered single-work commerce anchor surface."""
+    try:
+        observed = page.evaluate(
+            r"""() => {
+              const visible = (node) => {
+                if (!(node instanceof Element)) return false;
+                const rect = node.getBoundingClientRect();
+                const style = getComputedStyle(node);
+                if (!(rect.width > 2 && rect.height > 2 && style.display !== 'none' && style.visibility !== 'hidden')) return false;
+                if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) return false;
+                const pointX = Math.min(innerWidth - 1, Math.max(0, rect.left + Math.min(rect.width / 2, 24)));
+                const pointY = Math.min(innerHeight - 1, Math.max(0, rect.top + Math.min(rect.height / 2, 18)));
+                const top = document.elementFromPoint(pointX, pointY);
+                return !top || node.contains(top) || top.contains(node);
+              };
+              const root = document.querySelector('main,[role="main"],article') || document.body;
+              const selector = [
+                '[class~="xgplayer-shop-anchor"]','[class*="shop-anchor" i]',
+                '[data-e2e*="goods" i]','[data-e2e*="product" i]','[data-e2e*="commerce" i]','[data-e2e*="shop" i]',
+                '[class*="goods" i]','[class*="product" i]','[class*="commerce" i]','[class*="shopping" i]',
+                '[aria-label*="小黄车"]','[aria-label*="商品"]','[title*="小黄车"]','[title*="商品"]',
+                'a[href*="haohuo" i]','a[href*="jinritemai" i]','a[href*="product" i]','a[href*="goods" i]'
+              ].join(',');
+              const candidates = [];
+              const seen = new Set();
+              for (const scope of (root === document ? [document] : [root, document])) {
+                for (const node of scope.querySelectorAll(selector)) {
+                  if (seen.has(node)) continue;
+                  seen.add(node);
+                  candidates.push(node);
+                }
+              }
+              for (const node of candidates) {
+                if (!visible(node) || node.closest('[id^="brandbai-"]')) continue;
+                const text = String(node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+                const hints = [node.getAttribute('data-e2e'), node.getAttribute('class'), node.getAttribute('aria-label'), node.getAttribute('title')].filter(Boolean).join(' ');
+                const structuredHints = hints.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+                const link = node.matches('a[href]') ? node : node.closest('a[href]') || node.querySelector('a[href]');
+                const rawHref = String(link?.getAttribute('href') || '').trim();
+                const hasCommerceText = /小黄车|购物车|商品|去购买|立即购买|同款|购买|(?:^|\s)购物(?:$|\s|[|｜:：·•-])/.test(`${text} ${hints}`);
+                const hasCommerceStructure = /(?:^|[\s_-])(?:goods?|product|commerce|shop|shopping|cart|ecom)(?:$|[\s_-])/.test(structuredHints);
+                const hasCommerceLink = /haohuo|jinritemai|(?:^|[\/?#&=_-])(?:goods?|product|commerce|shopping|cart|ecom)(?:$|[\/?#&=_-])/i.test(rawHref);
+                if (!hasCommerceText && !hasCommerceStructure && !hasCommerceLink) continue;
+                let url = '';
+                if (rawHref) {
+                  try {
+                    const parsed = new URL(rawHref, location.origin);
+                    if (['http:', 'https:'].includes(parsed.protocol) && parsed.pathname !== '/' && parsed.href !== location.href && !/^\/(?:video|note|user|search|discover|channel|live)(?:\/|$)/.test(parsed.pathname)) url = parsed.href;
+                  } catch (_error) {}
+                }
+                if (!text && !url) continue;
+                const displayName = text.replace(/^(?:购物(?:车)?|小黄车|商品)(?:\s*[|｜:：·•-]+\s*|\s+)(?=\S)/, '').trim() || text || '页面可见小黄车';
+                return {status: url ? 'visible_direct_link' : 'visible_name_only', display_name: displayName, url, observed_at: new Date().toISOString(), source: 'current_work_dom'};
+              }
+              return {status: 'not_observed', display_name: '', url: '', observed_at: new Date().toISOString(), source: 'current_work_dom'};
+            }"""
+        )
+    except Exception:
+        return None
+    return normalize_commerce_anchor(observed)
+
+
+def public_product_image_url(value: Any) -> str:
+    """Accept only directly observed public image URLs, never signed credentials."""
+    try:
+        raw = str(value or "").strip()
+        parsed = urllib.parse.urlsplit(raw)
+        host = (parsed.hostname or "").lower()
+        allowed = ("ecombdimg.com", "detailpage.byteimg.com")
+        if (parsed.scheme != "https" or parsed.username or parsed.password
+                or parsed.port not in (None, 443)
+                or not any(host == item or host.endswith("." + item) for item in allowed)):
+            return ""
+        # Do not retain tokens or assume stripping signatures leaves a usable URL.
+        if any(re.search(r"token|sign|auth|credential|secret|cookie|session|expire|policy|key", key, re.I)
+               for key, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)):
+            return ""
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
+    except (ValueError, TypeError):
+        return ""
+
+
+def normalize_commerce_detail(value: Any, expected_aweme_id: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("status") != "detail_observed":
+        raise WorkDownloadError("The current Douyin product panel did not yield a stable public product snapshot")
+    source_work_id = str(value.get("source_work_id") or "")
+    if source_work_id != str(expected_aweme_id):
+        raise WorkDownloadError("The Douyin work changed while product details were being collected")
+    products: list[dict[str, Any]] = []
+    for product in value.get("products") or []:
+        if not isinstance(product, dict):
+            continue
+        images = []
+        for image in product.get("images") or []:
+            if not isinstance(image, dict):
+                continue
+            raw_url = public_product_image_url(image.get("url"))
+            if not raw_url:
+                continue
+            images.append({
+                "url": raw_url,
+                "width": as_int(image.get("width")),
+                "height": as_int(image.get("height")),
+                "order": len(images) + 1,
+                "kind": "product_image",
+            })
+        products.append({
+            "title": str(product.get("title") or product.get("short_title") or "")[:300],
+            "short_title": str(product.get("short_title") or product.get("title") or "")[:180],
+            "shop_name": str(product.get("shop_name") or "")[:100],
+            "detail_url": "",
+            "product_id": str(product.get("product_id") or "") if re.fullmatch(r"\d{6,30}", str(product.get("product_id") or "")) else "",
+            "price_texts": [str(item)[:100] for item in product.get("price_texts") or []][:20],
+            "sales_texts": [str(item)[:120] for item in product.get("sales_texts") or []][:20],
+            "delivery_texts": [str(item)[:240] for item in product.get("delivery_texts") or []][:20],
+            "service_texts": [str(item)[:240] for item in product.get("service_texts") or []][:40],
+            "review_count_text": str(product.get("review_count_text") or "")[:100],
+            "sku_groups": product.get("sku_groups") if isinstance(product.get("sku_groups"), list) else [],
+            "parameters": product.get("parameters") if isinstance(product.get("parameters"), list) else [],
+            "images": images,
+            "observation_status": "detail_observed",
+            "identity_status": "page_public_id" if re.fullmatch(r"\d{6,30}", str(product.get("product_id") or "")) else "visible_panel_only",
+            "observed_at": str(product.get("observed_at") or value.get("observed_at") or ""),
+        })
+    if not products:
+        raise WorkDownloadError("No public product detail was observed in the current Douyin product panel")
+    return {
+        "status": "detail_observed",
+        "source": "explicit_current_product_panel",
+        "source_work_id": source_work_id,
+        "observed_at": str(value.get("observed_at") or utc_now()),
+        "playback_paused": bool(value.get("playback_paused")),
+        "products": products,
+        "completeness": "partial_product_identity",
+        "warnings": [
+            "Only public fields rendered in the current product panel are retained.",
+            "Hidden product IDs, commission, conversion and unrendered transaction facts are not inferred.",
+        ],
+    }
+
+
+def collect_visible_commerce_detail(page: Any, expected_aweme_id: str, timeout_ms: int = 8_000) -> dict[str, Any]:
+    """Freeze one work and read a product panel newly opened from its visible anchor."""
+    script = Path(__file__).with_name("collect_product_detail.js").read_text(encoding="utf-8")
+    observed = page.evaluate(
+        script,
+        {"expectedAwemeId": str(expected_aweme_id), "timeoutMs": int(timeout_ms)},
+    )
+    return normalize_commerce_detail(observed, str(expected_aweme_id))
+
+
 def normalize_work(item: dict[str, Any]) -> dict[str, Any]:
     aweme_id = str(item.get("aweme_id") or item.get("awemeId") or "")
     if not aweme_id:
@@ -447,7 +637,28 @@ def write_caption(folder: Path, work: dict[str, Any]) -> dict[str, Any]:
     target = folder / "发布文案.txt"
     if target.is_file() and target.stat().st_size > 0:
         return {"status": "skipped_existing", "file": target.name, "bytes": target.stat().st_size}
-    target.write_text(title + "\n", encoding="utf-8")
+    lines = [title]
+    anchor = normalize_commerce_anchor(work.get("commerce_anchor"))
+    if anchor:
+        status_labels = {
+            "visible_direct_link": "页面可见，已留存直接链接",
+            "visible_name_only": "页面可见，页面未直接提供链接",
+            "not_observed": "本次单作品页未观察到公开可见小黄车",
+        }
+        lines.extend(["", f"小黄车观察状态：{status_labels.get(anchor['status'], anchor['status'])}"])
+        if anchor.get("display_name"):
+            lines.append(f"小黄车展示名：{anchor['display_name']}")
+        if anchor.get("url"):
+            lines.append(f"小黄车页面直接链接：{anchor['url']}")
+        if anchor.get("observed_at"):
+            lines.append(f"小黄车观察时间：{anchor['observed_at']}")
+        commerce = work.get("commerce") if isinstance(work.get("commerce"), dict) else {}
+        if commerce.get("status") == "detail_observed":
+            lines.append(f"商品资料状态：已读取当前商品卡公开资料（{len(commerce.get('products') or [])} 个页面商品记录）")
+            lines.append("商品资料边界：明确请求后冻结当前作品并暂停播放，从该作品打开的公开商品卡读取；隐藏商品ID、佣金、成交和未展示事实不推断。")
+        else:
+            lines.append("小黄车采集边界：仅记录当前单作品页公开可见的展示名和页面直接链接；未点击商品、未进入详情，未推断价格、店铺、销量、佣金或隐藏商品ID。")
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"status": "created", "file": target.name, "bytes": target.stat().st_size}
 
 
@@ -481,6 +692,8 @@ def signature_kind(header: bytes) -> str:
         return "mp3"
     if header.startswith(b"\xff\xd8\xff"):
         return "jpeg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
     return "unknown"
 
 
@@ -566,6 +779,48 @@ def download_from_candidates(
     }
 
 
+def download_product_image(
+    candidates: Iterable[str], target_base: Path, referer: str, timeout_seconds: float
+) -> dict[str, Any]:
+    accepted_kinds = {"jpeg": ".jpg", "webp": ".webp", "png": ".png"}
+    for suffix in (".jpg", ".webp", ".png"):
+        existing = target_base.with_suffix(suffix)
+        if existing.is_file() and existing.stat().st_size > 0:
+            kind = file_signature_kind(existing)
+            if kind not in accepted_kinds:
+                return {"status": "failed", "file": "", "bytes": 0,
+                        "errors": ["existing_product_image_has_invalid_signature"]}
+            corrected = target_base.with_suffix(accepted_kinds[kind])
+            if corrected != existing:
+                if corrected.exists():
+                    return {"status": "failed", "file": "", "bytes": 0,
+                            "errors": ["conflicting_existing_product_image"]}
+                existing.replace(corrected)
+            return {"status": "skipped_existing", "file": corrected.name, "bytes": corrected.stat().st_size,
+                    "content_kind": kind}
+    public_candidates = [url for item in candidates if (url := public_product_image_url(item))]
+    if not public_candidates:
+        return {"status": "not_available", "file": "", "bytes": 0,
+                "reason": "no_public_unsigned_product_image"}
+    result = download_from_candidates(public_candidates, target_base.with_suffix(".jpg"), referer, timeout_seconds)
+    if result.get("status") not in {"downloaded", "skipped_existing"}:
+        return result
+    current = target_base.parent / str(result.get("file") or target_base.with_suffix(".jpg").name)
+    kind = file_signature_kind(current)
+    desired_suffix = accepted_kinds.get(kind)
+    if not desired_suffix:
+        if result.get("status") == "downloaded":
+            current.unlink(missing_ok=True)  # Only the invalid response this call just created.
+        return {"status": "failed", "file": "", "bytes": 0,
+                "errors": ["product_image_response_is_not_a_supported_image"]}
+    if desired_suffix and current.suffix.lower() != desired_suffix:
+        corrected = target_base.with_suffix(desired_suffix)
+        current.replace(corrected)
+        result["file"] = corrected.name
+    result["content_kind"] = kind
+    return result
+
+
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -587,6 +842,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--assets",
         default="primary,cover,audio,caption",
         help="Comma list: primary,cover,audio,caption; use none for metadata only",
+    )
+    parser.add_argument(
+        "--commerce-detail",
+        action="store_true",
+        help="For exactly one explicit work: pause playback, open its visible product card and collect/download public product details",
     )
     parser.add_argument("--profile-dir", required=True, help="Persistent Chrome profile outside output")
     parser.add_argument("--out", required=True, help="New or resumable output directory")
@@ -612,7 +872,171 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--zip", action="store_true", help="Create a sibling ZIP after the works task finishes")
     parser.add_argument("--zip-path", default="", help="Optional ZIP path; must be outside --out")
     parser.add_argument("--dry-run", action="store_true")
+    add_product_review_args(parser)
+    parser.add_argument("--privacy-mode", choices=("hash", "raw"), default="hash")
+    parser.add_argument("--resume", action="store_true", help="Reuse matching work assets and retry the product-review checkpoint")
     return parser.parse_args(argv)
+
+
+def add_product_review_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--product-reviews", action="store_true", help="Explicit single work only: collect its current product evaluations separately; implies --commerce-detail")
+    parser.add_argument("--max-product-reviews", type=int, default=200, help="Positive saved-review sample limit; not a full-history promise")
+    parser.add_argument("--product-review-max-scrolls", type=int, default=200)
+    parser.add_argument("--product-review-max-seconds", type=float, default=600.0)
+
+
+def validate_product_review_args(args: argparse.Namespace) -> None:
+    if not getattr(args, "product_reviews", False):
+        return
+    args.commerce_detail = True
+    if input_mode(args) not in {"explicit_works", "selection_file"}:
+        raise WorkDownloadError("--product-reviews requires exactly one explicitly selected work")
+    seeds, _ = selection_seeds(args)
+    if len(seeds) != 1:
+        raise WorkDownloadError("--product-reviews requires exactly one explicitly selected work")
+    if any(not isinstance(value, (int, float)) or not 0 < value < float("inf") for value in (
+        getattr(args, "max_product_reviews", 200), getattr(args, "product_review_max_scrolls", 200),
+        getattr(args, "product_review_max_seconds", 600.0),
+    )):
+        raise WorkDownloadError("Product-review sample, scroll and time budgets must be finite and positive")
+
+
+def product_review_output_dir(args: argparse.Namespace) -> Path:
+    return Path(getattr(args, "product_reviews_out", "") or Path(args.out) / "商品评价").expanduser().resolve()
+
+
+def product_review_identity(args: argparse.Namespace) -> dict[str, Any]:
+    return {"requested": True, "privacy_mode": getattr(args, "privacy_mode", "hash")}
+
+
+def run_product_reviews_on_page(page: Any, args: argparse.Namespace, work: dict[str, Any], product: dict[str, Any]) -> int:
+    """Run one independent evaluation collector before leaving the owned product page.
+
+    Failures are stage-local: never erase an already downloaded work or an old
+    evaluation checkpoint. The caller's final status still records partial.
+    """
+    out_dir = product_review_output_dir(args)
+    code = 3
+    failure = ""
+    try:
+        from browser_collect_product_reviews import collect_product_reviews
+        code = int(collect_product_reviews(page, str(work["aweme_id"]), product, out_dir,
+            max_reviews=getattr(args, "max_product_reviews", 200),
+            max_scrolls=getattr(args, "product_review_max_scrolls", 200),
+            max_seconds=getattr(args, "product_review_max_seconds", 600.0),
+            privacy_mode=getattr(args, "privacy_mode", "hash"), resume=bool(getattr(args, "resume", False))))
+    except Exception as exc:
+        # No exception string from a browser is copied into a public deliverable.
+        failure = type(exc).__name__
+    summary: dict[str, Any] = {"requested": True, "status": "partial", "exit_code": 3,
+        "source_work_id": str(work["aweme_id"]), "privacy_mode": getattr(args, "privacy_mode", "hash"),
+        "done_reason": "product_review_error" if failure else "end_not_confirmed", "error_type": failure}
+    manifest_path = out_dir / "product_review_manifest.json"
+    if manifest_path.is_file():
+        try:
+            saved = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+            if str(saved.get("source_work_id")) == str(work["aweme_id"]) and saved.get("privacy_mode") == summary["privacy_mode"]:
+                for key in ("status", "completeness", "done_reason", "review_count"):
+                    summary[key] = saved.get(key)
+                if failure:
+                    summary.update(status="partial", completeness="partial_current_attempt", done_reason="product_review_error")
+                elif code == 0 and saved.get("status") == "complete" and saved.get("completeness") == "complete_visible_panel_exhausted":
+                    summary["exit_code"] = 0
+        except (OSError, ValueError, AttributeError):
+            pass
+    # Pause means stop this workflow too: never navigate after a user's pause.
+    safe_end = summary["exit_code"] == 0 or summary.get("done_reason") in {
+        "run_budget",
+    }
+    summary["work_comments_safe"] = bool(safe_end and not failure)
+    if summary["work_comments_safe"]:
+        try:
+            route = "note" if work.get("type") in {"图文", "note"} else "video"
+            page.goto(f"https://www.douyin.com/{route}/{work['aweme_id']}", wait_until="domcontentloaded", timeout=60_000)
+        except Exception:
+            summary.update(status="partial", exit_code=3, done_reason="work_surface_restore_failed", work_comments_safe=False)
+    args._product_review_summary = summary
+    args._product_review_exit_code = summary["exit_code"]
+    print(json.dumps({"event": "product_reviews_stage_end", **summary}, ensure_ascii=False))
+    return int(summary["exit_code"])
+
+
+def completed_product_review_summary(args: argparse.Namespace, work: dict[str, Any]) -> dict[str, Any] | None:
+    """Reuse only an identity/count-checked finished checkpoint, without a new panel."""
+    out_dir = product_review_output_dir(args)
+    path = out_dir / "product_review_manifest.json"
+    if not path.is_file():
+        return None
+    saved = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(saved, dict) or saved.get("status") != "complete":
+        return None
+    from browser_collect_product_reviews import safe_product
+    frozen_products = (work.get("commerce") or {}).get("products") or []
+    if (saved.get("source_work_id") != str(work["aweme_id"])
+        or saved.get("privacy_mode") != getattr(args, "privacy_mode", "hash")
+        or saved.get("completeness") != "complete_visible_panel_exhausted"
+        or saved.get("done_reason") != "source_exhausted"
+        or len(frozen_products) != 1 or safe_product(frozen_products[0]) != saved.get("product")):
+        raise WorkDownloadError("Completed product-review checkpoint does not match the frozen work/product/privacy request")
+    rows_path = out_dir / "product_reviews.jsonl"
+    if not rows_path.is_file():
+        raise WorkDownloadError("Completed product-review checkpoint is missing its saved rows")
+    seen: set[str] = set()
+    for line in rows_path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if (not isinstance(row, dict) or not isinstance(row.get("review_id"), str) or not row["review_id"]
+            or row["review_id"] in seen or row.get("source_work_id") != str(work["aweme_id"])
+            or row.get("product_id") != saved["product"]["product_id"]):
+            raise WorkDownloadError("Completed product-review checkpoint has mismatching or duplicate rows")
+        seen.add(row["review_id"])
+    if type(saved.get("review_count")) is not int or saved["review_count"] != len(seen):
+        raise WorkDownloadError("Completed product-review saved count does not match its rows")
+    return {"requested": True, "status": "complete", "completeness": saved["completeness"],
+        "done_reason": "source_exhausted", "exit_code": 0, "review_count": len(seen),
+        "source_work_id": str(work["aweme_id"]), "privacy_mode": saved["privacy_mode"],
+        "work_comments_safe": True, "reused_complete": True}
+
+
+def resume_product_review_stage(context: Any, args: argparse.Namespace) -> int:
+    """Reuse complete work files, but never skip a requested partial review stage."""
+    out_dir = Path(args.out).expanduser().resolve()
+    manifest_path = out_dir / "download_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    if manifest.get("status") != "complete" or manifest.get("input_identity") != input_identity(args):
+        raise WorkDownloadError("--resume requires matching complete work assets and the same product-review/privacy request")
+    payload = json.loads((out_dir / "works.json").read_text(encoding="utf-8-sig"))
+    works = payload.get("works") if isinstance(payload, dict) else payload
+    if not isinstance(works, list) or len(works) != 1:
+        raise WorkDownloadError("Product-review resume requires one frozen source work")
+    work = works[0]
+    seeds, _ = selection_seeds(args)
+    if len(seeds) != 1 or str(work.get("aweme_id")) != str(seeds[0]["aweme_id"]):
+        raise WorkDownloadError("The resume work identity differs from the saved work")
+    page = context.pages[0] if context.pages else context.new_page()
+    try:
+        complete = completed_product_review_summary(args, work)
+        if complete:
+            route = "note" if work.get("type") in {"图文", "note"} else "video"
+            page.goto(f"https://www.douyin.com/{route}/{work['aweme_id']}", wait_until="domcontentloaded", timeout=60_000)
+            args._product_review_summary = complete
+            args._product_review_exit_code = 0
+            manifest["product_reviews"] = complete
+            write_json(manifest_path, manifest)
+            return 0
+        page.goto(seeds[0]["source_url"], wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_timeout(max(1_500, int(args.login_wait * 1000)))
+        detail = collect_visible_commerce_detail(page, str(work["aweme_id"]))
+        code = run_product_reviews_on_page(page, args, work, detail["products"][0])
+    except Exception as exc:
+        args._product_review_summary = {"requested": True, "status": "partial", "exit_code": 3,
+            "source_work_id": str(work["aweme_id"]), "privacy_mode": getattr(args, "privacy_mode", "hash"),
+            "done_reason": "product_review_resume_rejected", "error_type": type(exc).__name__, "work_comments_safe": False}
+        args._product_review_exit_code = code = 3
+    manifest["product_reviews"] = args._product_review_summary
+    write_json(manifest_path, manifest)
+    return code
 
 
 def input_mode(args: argparse.Namespace) -> str:
@@ -661,6 +1085,8 @@ def input_identity(args: argparse.Namespace) -> dict[str, Any]:
         "limit": int(getattr(args, "limit", 0) or 0),
         "selected_ids": [str(value) for value in getattr(args, "selected_id", []) or []],
         "assets": str(getattr(args, "assets", "")),
+        "commerce_detail": bool(getattr(args, "commerce_detail", False)),
+        **({"product_reviews": product_review_identity(args)} if getattr(args, "product_reviews", False) else {}),
     }
 
 
@@ -681,6 +1107,11 @@ def dry_plan(args: argparse.Namespace) -> dict[str, Any]:
         "selection": selection_description(args),
         "recent_non_pinned": args.recent,
         "assets": sorted(parse_assets(args.assets)),
+        "commerce_detail": bool(getattr(args, "commerce_detail", False)),
+        "product_reviews": ({**product_review_identity(args), "max_reviews": args.max_product_reviews,
+            "max_scrolls": args.product_review_max_scrolls, "max_seconds": args.product_review_max_seconds,
+            "resume": bool(getattr(args, "resume", False)), "control_file": "商品评价/product_review_control.json"}
+            if getattr(args, "product_reviews", False) else "not requested"),
         "browser": "one visible persistent Chrome context",
         "cookies_exported": False,
         "signature_generation": False,
@@ -830,11 +1261,15 @@ def selection_seeds(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dic
 
 def collect_seeded_works(context: Any, args: argparse.Namespace) -> tuple[list[dict[str, Any]], int, int]:
     seeds, metadata = selection_seeds(args)
+    if getattr(args, "commerce_detail", False) and len(seeds) != 1:
+        raise WorkDownloadError("--commerce-detail requires exactly one explicit selected work")
     requested_assets = parse_assets(getattr(args, "assets", "all"))
     observed: dict[str, dict[str, Any]] = {}
     response_count = 0
     page = context.pages[0] if context.pages else context.new_page()
     page.set_default_timeout(60_000)
+    single_commerce_anchor: dict[str, Any] | None = None
+    single_commerce_detail: dict[str, Any] | None = None
 
     def on_response(response: Any) -> None:
         nonlocal response_count
@@ -869,12 +1304,27 @@ def collect_seeded_works(context: Any, args: argparse.Namespace) -> tuple[list[d
                 or ("primary" in requested_assets and not primary_ready)
                 or ("cover" in requested_assets and not seed.get("_cover_urls"))
                 or ("audio" in requested_assets and not seed.get("_music_urls"))
+                or len(seeds) == 1
             )
             if not needs_enrichment:
                 continue
             page.goto(seed["source_url"], wait_until="domcontentloaded", timeout=60_000)
             wait_ms = max(1_500, int(args.login_wait * 1000)) if navigated == 0 else 1_500
             page.wait_for_timeout(wait_ms)
+            if len(seeds) == 1:
+                single_commerce_anchor = collect_visible_commerce_anchor(page)
+                if getattr(args, "commerce_detail", False):
+                    try:
+                        single_commerce_detail = collect_visible_commerce_detail(page, seed["aweme_id"])
+                        if getattr(args, "product_reviews", False):
+                            run_product_reviews_on_page(page, args, seed, single_commerce_detail["products"][0])
+                    except Exception as exc:
+                        if not getattr(args, "product_reviews", False):
+                            raise
+                        args._product_review_exit_code = 3
+                        args._product_review_summary = {"requested": True, "status": "partial", "exit_code": 3,
+                            "source_work_id": seed["aweme_id"], "privacy_mode": getattr(args, "privacy_mode", "hash"),
+                            "done_reason": "product_detail_unavailable", "error_type": type(exc).__name__, "work_comments_safe": False}
             navigated += 1
     finally:
         try:
@@ -901,6 +1351,10 @@ def collect_seeded_works(context: Any, args: argparse.Namespace) -> tuple[list[d
         if rich is None and not (requested_ready and metadata_ready):
             missing_metadata.append(seed["aweme_id"])
         merged = merge_seed_with_observed(seed, rich)
+        if len(seeds) == 1 and single_commerce_anchor:
+            merged["commerce_anchor"] = single_commerce_anchor
+        if len(seeds) == 1 and single_commerce_detail:
+            merged["commerce"] = single_commerce_detail
         merged["_metadata_observed"] = raw is not None or metadata_ready
         selected.append(merged)
     args._missing_selected_ids = []
@@ -910,12 +1364,15 @@ def collect_seeded_works(context: Any, args: argparse.Namespace) -> tuple[list[d
 
 
 def run(args: argparse.Namespace, browser_context: Any = None) -> int:
+    validate_product_review_args(args)
     if args.recent < 0:
         raise WorkDownloadError("--recent cannot be negative")
     if args.scrolls < 1:
         raise WorkDownloadError("--scrolls must be positive")
     if int(getattr(args, "limit", 0) or 0) < 0:
         raise WorkDownloadError("--limit cannot be negative")
+    if getattr(args, "commerce_detail", False) and input_mode(args) not in {"selection_file", "explicit_works"}:
+        raise WorkDownloadError("--commerce-detail is limited to exactly one explicit selected work")
     requested_assets = parse_assets(getattr(args, "assets", "all"))
     if args.dry_run:
         print(json.dumps(dry_plan(args), ensure_ascii=False, indent=2))
@@ -928,7 +1385,10 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         if args.media_dir
         else out_dir / "media"
     )
-    for target in (out_dir, media_dir):
+    targets = [out_dir, media_dir]
+    if getattr(args, "product_reviews", False):
+        targets.append(product_review_output_dir(args))
+    for target in targets:
         if target == profile_dir or target in profile_dir.parents or profile_dir in target.parents:
             raise WorkDownloadError("Keep --profile-dir and all outputs in separate directory trees")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -938,6 +1398,22 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
     )
     manifest_path = out_dir / "download_manifest.json"
     works_path = out_dir / "works.json"
+    if getattr(args, "product_reviews", False) and not getattr(args, "resume", False) and (manifest_path.exists() or works_path.exists()):
+        raise WorkDownloadError("Product-review output already exists; use matching --resume or a new output directory")
+    if getattr(args, "resume", False):
+        if not getattr(args, "product_reviews", False):
+            raise WorkDownloadError("Standalone --resume requires --product-reviews; use all --resume for work comments")
+        if browser_context is not None:
+            return resume_product_review_stage(browser_context, args)
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            context = playwright.chromium.launch_persistent_context(user_data_dir=str(profile_dir),
+                executable_path=find_chrome_path(args.chrome_path), headless=False, accept_downloads=False,
+                viewport=None, args=["--start-maximized", "--no-first-run", "--no-default-browser-check"])
+            try:
+                return resume_product_review_stage(context, args)
+            finally:
+                context.close()
     manifest: dict[str, Any] = {
         "provider": PROVIDER,
         "status": "running",
@@ -951,6 +1427,7 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         "requested_limit": int(getattr(args, "limit", 0) or 0),
         "requested_work_ids": list(getattr(args, "selected_id", []) or []),
         "requested_assets": sorted(requested_assets),
+        "commerce_detail_requested": bool(getattr(args, "commerce_detail", False)),
         "input_identity": input_identity(args),
         "zip_requested": bool(getattr(args, "zip", False)),
         "cookies_exported": False,
@@ -1096,6 +1573,29 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
             if "caption" in requested_assets
             else {"status": "not_requested", "file": "", "bytes": 0}
         )
+        commerce_image_results: list[dict[str, Any]] = []
+        commerce = work.get("commerce") if isinstance(work.get("commerce"), dict) else {}
+        for product_index, product in enumerate(commerce.get("products") or [], start=1):
+            if not isinstance(product, dict):
+                continue
+            for image_index, image in enumerate(product.get("images") or [], start=1):
+                if not isinstance(image, dict):
+                    continue
+                result = download_product_image(
+                    [str(image.get("url") or "")],
+                    folder / "商品资料" / f"商品_{product_index:02d}_图片_{image_index:03d}",
+                    work["source_url"],
+                    args.download_timeout,
+                )
+                result["product_index"] = product_index
+                result["image_index"] = image_index
+                result["source_url"] = str(image.get("url") or "")
+                if result.get("file"):
+                    result["file"] = str(Path("商品资料") / str(result["file"]))
+                image["download"] = result
+                commerce_image_results.append(result)
+        if getattr(args, "commerce_detail", False):
+            downloads["commerce_images"] = commerce_image_results
         work["downloads"] = downloads
         flat_results: list[dict[str, Any]] = []
         for value in downloads.values():
@@ -1156,6 +1656,11 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
             "works_complete": len(public_works) - len(partial),
             "works_partial": len(partial),
             "works": public_works,
+            "commerce_anchor_observation": public_works[0].get("commerce_anchor") if len(public_works) == 1 else None,
+            "commerce_detail_observation": public_works[0].get("commerce") if len(public_works) == 1 else None,
+            **({"product_reviews": getattr(args, "_product_review_summary", {"requested": True,
+                "status": "partial", "exit_code": 3, "done_reason": "not_started"})}
+                if getattr(args, "product_reviews", False) else {}),
         }
     )
     write_json(works_path, public_works)
@@ -1168,7 +1673,8 @@ def run(args: argparse.Namespace, browser_context: Any = None) -> int:
         "status", "visible_works_observed", "pinned_selected", "recent_selected",
         "works_selected", "works_complete", "works_partial",
     )}, ensure_ascii=False, indent=2))
-    return 0 if manifest["status"] == "complete" else 3
+    review_code = int(manifest.get("product_reviews", {}).get("exit_code", 3)) if getattr(args, "product_reviews", False) else 0
+    return 0 if manifest["status"] == "complete" and not review_code else 3
 
 
 def main() -> int:

@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from package_delivery import package_directory
+from download_creator_works import (add_product_review_args, validate_product_review_args,
+    product_review_identity, resume_product_review_stage, WorkDownloadError)
 
 
 AWEME_ID_RE = re.compile(r"(?:/video/|/note/)(\d{10,})")
@@ -120,6 +122,12 @@ def add_work_source_args(parser: argparse.ArgumentParser) -> None:
         default="primary,cover,audio,caption",
         help="Comma list: primary,cover,audio,caption; use none for metadata only",
     )
+    parser.add_argument(
+        "--commerce-detail",
+        action="store_true",
+        help="For exactly one explicit work: pause playback and collect/download its public product-card details",
+    )
+    add_product_review_args(parser)
 
 
 def add_package_args(parser: argparse.ArgumentParser) -> None:
@@ -141,6 +149,8 @@ def build_parser() -> argparse.ArgumentParser:
     works.add_argument("--download-timeout", type=float, default=180.0)
     works.add_argument("--media-dir", default="")
     works.add_argument("--media-label", default="")
+    works.add_argument("--privacy-mode", choices=("hash", "raw"), default="hash")
+    works.add_argument("--resume", action="store_true")
     add_package_args(works)
     add_common_browser_args(works)
 
@@ -213,6 +223,10 @@ def build_parser() -> argparse.ArgumentParser:
 def child_command(args: argparse.Namespace, scripts_dir: Path | None = None) -> list[str]:
     scripts_dir = scripts_dir or Path(__file__).resolve().parent
     if args.capability == "works":
+        try:
+            validate_product_review_args(args)
+        except WorkDownloadError as exc:
+            raise FoundationError(str(exc)) from exc
         command = [
             sys.executable,
             str(scripts_dir / "download_creator_works.py"),
@@ -225,6 +239,14 @@ def child_command(args: argparse.Namespace, scripts_dir: Path | None = None) -> 
             "--limit", str(args.limit),
             "--assets", args.assets,
         ]
+        if getattr(args, "commerce_detail", False):
+            command.append("--commerce-detail")
+        if getattr(args, "product_reviews", False):
+            command.extend(["--product-reviews", "--max-product-reviews", str(args.max_product_reviews),
+                "--product-review-max-scrolls", str(args.product_review_max_scrolls),
+                "--product-review-max-seconds", str(args.product_review_max_seconds), "--privacy-mode", args.privacy_mode])
+            if args.resume:
+                command.append("--resume")
         if args.creator:
             command.extend(["--creator", args.creator])
         elif args.source_page:
@@ -328,6 +350,8 @@ def work_input_identity(args: argparse.Namespace) -> dict[str, Any]:
         "limit": int(getattr(args, "limit", 0) or 0),
         "selected_ids": [str(value) for value in getattr(args, "selected_id", []) or []],
         "assets": str(getattr(args, "assets", "")),
+        "commerce_detail": bool(getattr(args, "commerce_detail", False)),
+        **({"product_reviews": product_review_identity(args)} if getattr(args, "product_reviews", False) else {}),
     }
 
 
@@ -337,6 +361,10 @@ def delivery_zip_path(args: argparse.Namespace) -> Path:
 
 
 def all_plan(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        validate_product_review_args(args)
+    except WorkDownloadError as exc:
+        raise FoundationError(str(exc)) from exc
     delivery_dir = Path(args.out).expanduser().resolve()
     preview_dir = (
         Path(args.preview_dir).expanduser().resolve()
@@ -350,6 +378,12 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
         "recent_non_pinned": args.recent,
         "selection": work_selection_description(args),
         "assets": args.assets,
+        "commerce_detail": bool(getattr(args, "commerce_detail", False)),
+        "product_reviews": ({**product_review_identity(args), "max_reviews": args.max_product_reviews,
+            "max_scrolls": args.product_review_max_scrolls, "max_seconds": args.product_review_max_seconds,
+            "control_file": "data/商品评价/product_review_control.json", "resume": bool(args.resume),
+            "scope": "current product and filter; bounded sample, not all historical reviews"}
+            if getattr(args, "product_reviews", False) else "not requested"),
         "comments": (
             "not requested"
             if args.skip_comments
@@ -366,8 +400,9 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
             else "one shared visible Chrome context for works and comments"
         ),
         "delivery": str(delivery_dir),
-        "ordinary_files": ["01_作品清单.xlsx", "02_评论明细.xlsx", "03_作品素材", "04_采集说明.md"],
-        "raw_data": ["data/作品采集", "data/评论采集"],
+        "ordinary_files": ["01_作品清单.xlsx", "02_评论明细.xlsx", "03_作品素材", "04_采集说明.md"]
+            + (["05_商品评价.xlsx"] if getattr(args, "product_reviews", False) else []),
+        "raw_data": ["data/作品采集", "data/评论采集"] + (["data/商品评价"] if getattr(args, "product_reviews", False) else []),
         "preview_dir": str(preview_dir),
         "runtime_trace": "data/browser_session_trace.jsonl and data/评论采集/browser_runtime_trace.jsonl",
         "analysis_included": False,
@@ -397,6 +432,8 @@ def validate_resume_works(
         if recorded_identity != expected_identity:
             raise FoundationError("--resume input selection or asset options do not match the existing works manifest")
     else:
+        if expected_identity and expected_identity.get("product_reviews"):
+            raise FoundationError("Product-review resume requires an explicit matching request and privacy identity")
         if str(manifest.get("creator") or "").strip() != str(creator or "").strip():
             raise FoundationError("--resume creator does not match the existing works manifest")
         if int(manifest.get("requested_recent_non_pinned", -1)) != int(recent):
@@ -490,6 +527,8 @@ def run_shared_browser_stages(
                         "reason": "existing_complete_manifest",
                     },
                 )
+                if getattr(works_args, "product_reviews", False):
+                    works_code = resume_product_review_stage(context, works_args)
             else:
                 append_runtime_event(
                     trace_path, {"event": "works_stage_start", "session_id": session_id}
@@ -516,11 +555,16 @@ def run_shared_browser_stages(
                 )
             if works_code not in (0, 3):
                 return works_code, comments_code
-            if skip_comments:
+            product_unsafe = bool(getattr(works_args, "product_reviews", False)
+                and not getattr(works_args, "_product_review_summary", {}).get("work_comments_safe", False))
+            if skip_comments or product_unsafe:
+                if product_unsafe:
+                    works_args._comments_skipped_reason = "product_review_requires_attention"
                 comments_code = 0
                 append_runtime_event(
                     trace_path,
-                    {"event": "comments_stage_skipped", "session_id": session_id, "reason": "not_requested"},
+                    {"event": "comments_stage_skipped", "session_id": session_id,
+                        "reason": "product_review_requires_attention" if product_unsafe else "not_requested"},
                 )
             else:
                 append_runtime_event(
@@ -573,6 +617,10 @@ def run_all(
     browser_stage_runner: Any = run_shared_browser_stages,
 ) -> int:
     configure_output()
+    try:
+        validate_product_review_args(args)
+    except WorkDownloadError as exc:
+        raise FoundationError(str(exc)) from exc
     scripts_dir = scripts_dir or Path(__file__).resolve().parent
     if args.recent < 0:
         raise FoundationError("--recent cannot be negative")
@@ -605,6 +653,14 @@ def run_all(
         limit=args.limit,
         selected_id=list(args.selected_id),
         assets=args.assets,
+        commerce_detail=bool(getattr(args, "commerce_detail", False)),
+        product_reviews=bool(getattr(args, "product_reviews", False)),
+        max_product_reviews=getattr(args, "max_product_reviews", 200),
+        product_review_max_scrolls=getattr(args, "product_review_max_scrolls", 200),
+        product_review_max_seconds=getattr(args, "product_review_max_seconds", 600.0),
+        product_reviews_out=str(delivery_dir / "data" / "商品评价"),
+        privacy_mode=args.privacy_mode,
+        resume=bool(args.resume),
         profile_dir=args.profile_dir,
         out=str(works_out),
         media_dir=str(media_dir),
@@ -683,32 +739,32 @@ def run_all(
         return int(works_code)
     if not works_json.is_file():
         raise FoundationError(f"Works stage did not create: {works_json}")
-    if args.skip_comments:
+    comments_blocked = bool(getattr(works_args, "_comments_skipped_reason", ""))
+    if args.skip_comments or comments_blocked:
         comments_out.mkdir(parents=True, exist_ok=True)
-        (comments_out / "comments.csv").write_text(
-            "aweme_id,comment_id,root_comment_id,parent_comment_id,reply_level,text,author_pseudonym,create_time,digg_count,reply_count,source_role,source_url,ip_label,is_pinned,is_creator_reply\n",
-            encoding="utf-8-sig",
-        )
-        (comments_out / "run_manifest.json").write_text(
-            json.dumps(
-                {
-                    "status": "not_requested",
+        if not (comments_out / "comments.csv").is_file():
+            (comments_out / "comments.csv").write_text(
+                "aweme_id,comment_id,root_comment_id,parent_comment_id,reply_level,text,author_pseudonym,create_time,digg_count,reply_count,source_role,source_url,ip_label,is_pinned,is_creator_reply\n",
+                encoding="utf-8-sig",
+            )
+        if not (comments_out / "run_manifest.json").is_file():
+            (comments_out / "run_manifest.json").write_text(
+                json.dumps({
+                    "status": "partial_not_started" if comments_blocked and not args.skip_comments else "not_requested",
                     "started_at": utc_now(),
                     "finished_at": utc_now(),
                     "privacy_mode": args.privacy_mode,
                     "videos": [],
                     "comments_exported": 0,
                     "replies_exported": 0,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        (comments_out / "collection_report.md").write_text(
-            "# 评论采集说明\n\n本次任务未请求评论采集。\n",
-            encoding="utf-8",
-        )
+                }, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        if not (comments_out / "collection_report.md").is_file():
+            (comments_out / "collection_report.md").write_text(
+                "# 评论采集说明\n\n" + ("商品评价阶段需要人工确认，未继续作品评论采集。\n" if comments_blocked and not args.skip_comments else "本次任务未请求评论采集。\n"),
+                encoding="utf-8",
+            )
     if comments_code not in (0, 3):
         return int(comments_code)
 
@@ -726,13 +782,31 @@ def run_all(
         "--qa-dir",
         str(preview_dir),
     ]
+    if getattr(args, "product_reviews", False):
+        workbook_command.extend(["--product-reviews-dir", str(delivery_dir / "data" / "商品评价")])
     workbook_result = runner(workbook_command, check=False)
+    if getattr(args, "product_reviews", False) and workbook_result.returncode not in (0, 3):
+        # Existing files may be from a previous attempt. Their mere existence
+        # cannot validate this failed build or authorize a new delivery ZIP.
+        (delivery_dir / "data" / "foundation_manifest.json").write_text(json.dumps({
+            "status": "partial", "error": "product_review_workbook_build_failed",
+            "workbook_exit_code": workbook_result.returncode,
+            "works_exit_code": works_code, "comments_exit_code": comments_code,
+            "product_reviews": getattr(works_args, "_product_review_summary", {"requested": True, "status": "partial"}),
+            "input_identity": work_input_identity(args), "privacy_mode": args.privacy_mode,
+            "package_status": "not_created_this_attempt", "previous_artifacts_preserved": True,
+            "finished_at": utc_now(),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("商品评价工作簿未通过本次校验，已保留原始资料；本次未创建或更新 ZIP，既有压缩包不代表本次成功。", file=sys.stderr)
+        return 3
     expected_files = [
         delivery_dir / "01_作品清单.xlsx",
         delivery_dir / "02_评论明细.xlsx",
         delivery_dir / "04_采集说明.md",
         preview_dir / "workbook_qa.json",
     ]
+    if getattr(args, "product_reviews", False):
+        expected_files.append(delivery_dir / "05_商品评价.xlsx")
     if not all(path.is_file() for path in expected_files):
         return int(workbook_result.returncode or 1)
     if workbook_result.returncode:
@@ -740,10 +814,19 @@ def run_all(
             "提示：Excel 构建程序返回了非零状态，但普通版文件与质检记录均已完整落盘。",
             file=sys.stderr,
         )
+    product_summary = getattr(works_args, "_product_review_summary", {"requested": True, "status": "partial", "exit_code": 3, "done_reason": "stage_not_confirmed"}) if getattr(args, "product_reviews", False) else {}
+    review_builder_code = workbook_result.returncode if getattr(args, "product_reviews", False) else 0
+    result_code = 3 if any(code != 0 for code in (works_code, comments_code, int(product_summary.get("exit_code", 0)), review_builder_code)) or comments_blocked else 0
+    (delivery_dir / "data" / "foundation_manifest.json").write_text(json.dumps({
+        "status": "partial" if result_code else "complete", "works_exit_code": works_code,
+        "comments_exit_code": comments_code, "comments_stage": "blocked" if comments_blocked else "not_requested" if args.skip_comments else "finished",
+        "product_reviews": product_summary or {"requested": False}, "input_identity": work_input_identity(args),
+        "privacy_mode": args.privacy_mode, "finished_at": utc_now(),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
     if args.zip:
         package_result = package_directory(delivery_dir, delivery_zip_path(args))
         print(json.dumps({"event": "delivery_packaged", **package_result}, ensure_ascii=False))
-    return 3 if 3 in (works_code, comments_code) else 0
+    return result_code
 
 
 def main(argv: list[str] | None = None) -> int:

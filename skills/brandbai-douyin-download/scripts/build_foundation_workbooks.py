@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable
@@ -124,6 +126,8 @@ def display_status(value: Any) -> str:
         "partial_source_visible": "部分完成",
         "failed": "失败",
         "running": "采集中",
+        "paused": "已暂停，已读结果已保存",
+        "partial_not_started": "未开始，前序阶段需要确认",
     }.get(raw, raw)
 
 
@@ -314,9 +318,15 @@ def build_works_book(
     asset_list = book.create_sheet("素材明细")
     workbook_properties(book, f"BrandBAI 抖音作品采集｜{creator}")
 
+    commerce_anchor = works[0].get("commerce_anchor") if len(works) == 1 else None
+    include_commerce_anchor = isinstance(commerce_anchor, dict) and bool(commerce_anchor.get("status"))
+    commerce_detail = works[0].get("commerce") if len(works) == 1 else None
+    include_commerce_detail = isinstance(commerce_detail, dict) and commerce_detail.get("status") == "detail_observed"
     headers = [
         "作品ID", "类型", "达人", "标题", "发布时间", "点赞数", "评论数", "收藏数", "分享数", "推荐数",
         "是否置顶", "入选口径", "作品链接", "素材文件夹", "下载状态", "原声状态", "发布文案状态",
+        *(["小黄车观察状态", "小黄车展示名", "小黄车页面直接链接", "小黄车观察时间"] if include_commerce_anchor else []),
+        *(["商品资料状态", "商品数量"] if include_commerce_detail else []),
     ]
     work_list.append(headers)
     for work in works:
@@ -330,10 +340,17 @@ def build_works_book(
             str(work.get("local_folder") or "").replace("media/", "03_作品素材\\").replace("media\\", "03_作品素材\\"),
             work.get("download_status") or "", asset_status((work.get("downloads") or {}).get("music")),
             asset_status((work.get("downloads") or {}).get("caption")),
+            *([
+                {"visible_direct_link": "页面可见，已留存直接链接", "visible_name_only": "页面可见，页面未直接提供链接", "not_observed": "本次未观察到"}.get(str((work.get("commerce_anchor") or {}).get("status") or ""), ""),
+                (work.get("commerce_anchor") or {}).get("display_name") or "",
+                (work.get("commerce_anchor") or {}).get("url") or "",
+                as_datetime((work.get("commerce_anchor") or {}).get("observed_at")),
+            ] if include_commerce_anchor else []),
+            *(["当前商品卡公开资料已读取", len((work.get("commerce") or {}).get("products") or [])] if include_commerce_detail else []),
         ])
     style_data_sheet(
-        work_list, 17, len(works), widths=[22, 9, 14, 54, 20, 11, 11, 11, 11, 11, 10, 12, 42, 38, 12, 16, 16],
-        wrap_columns=[4, 13, 14, 15, 16, 17], date_columns=[5], integer_columns=[6, 7, 8, 9, 10],
+        work_list, len(headers), len(works), widths=[22, 9, 14, 54, 20, 11, 11, 11, 11, 11, 10, 12, 42, 38, 12, 16, 16, *([32, 42, 56, 22] if include_commerce_anchor else []), *([32, 12] if include_commerce_detail else [])],
+        wrap_columns=[4, 13, 14, 15, 16, 17, *([18, 19, 20, 21] if include_commerce_anchor else [])], date_columns=[5, *([21] if include_commerce_anchor else [])], integer_columns=[6, 7, 8, 9, 10],
         text_columns=[1], row_height=48, table_name="WorksTable", table_style="TableStyleMedium2",
     )
     style_hyperlink_column(work_list, len(works), 13)
@@ -353,6 +370,9 @@ def build_works_book(
             item = downloads.get(key) if isinstance(downloads, dict) else None
             if isinstance(item, dict):
                 entries.append((label, 1, item))
+        commerce_images = downloads.get("commerce_images") if isinstance(downloads, dict) else None
+        if isinstance(commerce_images, list):
+            entries.extend(("商品图片", index, item) for index, item in enumerate(commerce_images, start=1) if isinstance(item, dict))
         folder = str(work.get("local_folder") or "").replace("media/", "03_作品素材\\").replace("media\\", "03_作品素材\\")
         for kind, index, item in entries:
             file_name = str(item.get("file") or "")
@@ -404,6 +424,82 @@ def build_works_book(
                 cell.hyperlink = str(cell.value)
                 cell.font = Font(name=FONT_NAME, size=10, color=LINK_BLUE, underline="single")
 
+    if include_commerce_anchor:
+        anchor_sheet = book.create_sheet("可见小黄车")
+        status_label = {
+            "visible_direct_link": "页面可见，已留存直接链接",
+            "visible_name_only": "页面可见，页面未直接提供链接",
+            "not_observed": "本次单作品页未观察到公开可见小黄车",
+        }.get(str(commerce_anchor.get("status") or ""), "")
+        anchor_rows = [
+            ["观察状态", status_label], ["页面展示名", commerce_anchor.get("display_name")],
+            ["页面直接链接", commerce_anchor.get("url")], ["观察时间", as_datetime(commerce_anchor.get("observed_at"))],
+            ["来源作品ID", works[0].get("aweme_id")], ["来源作品链接", works[0].get("source_url")],
+            ["采集边界", "仅记录当前单作品页公开可见的小黄车展示名和页面直接链接；不点击商品、不进入详情。"],
+            ["未知边界", "未观察到只表示本次页面可见范围内未发现，不代表该作品不存在挂车；不推断价格、店铺、销量、佣金或隐藏商品ID。"],
+        ]
+        anchor_sheet.append(["字段", "值"])
+        for row in anchor_rows:
+            anchor_sheet.append(row)
+        style_data_sheet(
+            anchor_sheet, 2, len(anchor_rows), widths=[24, 92], wrap_columns=[2],
+            text_columns=[1], date_columns=[2], table_name="CommerceAnchorTable", table_style="TableStyleMedium4",
+        )
+        for cell_ref in ("B4", "B7"):
+            cell = anchor_sheet[cell_ref]
+            if str(cell.value or "").startswith(("http://", "https://")):
+                cell.hyperlink = str(cell.value)
+                cell.font = Font(name=FONT_NAME, size=10, color=LINK_BLUE, underline="single")
+
+    if include_commerce_detail:
+        products = [row for row in commerce_detail.get("products") or [] if isinstance(row, dict)]
+        overview = book.create_sheet("商品概览")
+        overview.append(["商品序号", "商品标题", "商品短标题", "店铺", "价格快照", "销量快照", "评价数原文", "物流快照", "服务保障", "图片数", "观察时间"])
+        for index, product in enumerate(products, start=1):
+            overview.append([index, product.get("title"), product.get("short_title"), product.get("shop_name"),
+                "；".join(str(value) for value in product.get("price_texts") or []),
+                "；".join(str(value) for value in product.get("sales_texts") or []), product.get("review_count_text"),
+                "；".join(str(value) for value in product.get("delivery_texts") or []),
+                "；".join(str(value) for value in product.get("service_texts") or []), len(product.get("images") or []),
+                as_datetime(product.get("observed_at"))])
+        style_data_sheet(overview, 11, len(products), widths=[10, 52, 32, 24, 24, 20, 16, 42, 42, 10, 22],
+            wrap_columns=[2,3,5,6,8,9], date_columns=[11], table_name="CommerceOverviewTable", table_style="TableStyleMedium4")
+
+        sku_sheet = book.create_sheet("商品规格")
+        sku_sheet.append(["商品序号", "规格组", "选中规格", "选项顺序", "规格选项", "是否选中", "是否不可选"])
+        sku_count = 0
+        for product_index, product in enumerate(products, start=1):
+            for group in product.get("sku_groups") or []:
+                for option_index, option in enumerate(group.get("options") or [], start=1):
+                    sku_sheet.append([product_index, group.get("name"), group.get("selected_value"), option_index,
+                        option.get("value"), yes_no(option.get("selected")), yes_no(option.get("disabled"))])
+                    sku_count += 1
+        style_data_sheet(sku_sheet, 7, sku_count, widths=[10,22,34,10,56,12,12], wrap_columns=[2,3,5],
+            table_name="CommerceSkuTable", table_style="TableStyleMedium2")
+
+        parameter_sheet = book.create_sheet("商品参数")
+        parameter_sheet.append(["商品序号", "参数名", "参数值", "适用范围"])
+        parameter_count = 0
+        for product_index, product in enumerate(products, start=1):
+            for row in product.get("parameters") or []:
+                parameter_sheet.append([product_index, row.get("name"), row.get("value"), row.get("scope")])
+                parameter_count += 1
+        style_data_sheet(parameter_sheet, 4, parameter_count, widths=[10,28,64,18], wrap_columns=[2,3],
+            table_name="CommerceParameterTable", table_style="TableStyleMedium4")
+
+        product_media = book.create_sheet("商品素材")
+        product_media.append(["商品序号", "图片顺序", "宽", "高", "下载状态", "本地文件", "公开来源URL"])
+        product_media_count = 0
+        for product_index, product in enumerate(products, start=1):
+            for image_index, image in enumerate(product.get("images") or [], start=1):
+                download = image.get("download") if isinstance(image.get("download"), dict) else {}
+                product_media.append([product_index, image_index, image.get("width"), image.get("height"),
+                    asset_status(download), download.get("file"), image.get("url")])
+                product_media_count += 1
+        style_data_sheet(product_media, 7, product_media_count, widths=[10,10,10,10,16,54,70], wrap_columns=[6,7],
+            table_name="CommerceMediaTable", table_style="TableStyleMedium2")
+        style_hyperlink_column(product_media, product_media_count, 7)
+
     intro.sheet_view.showGridLines = False
     style_title(intro, f"BrandBAI 抖音作品采集｜{creator}")
     style_summary(
@@ -424,7 +520,7 @@ def build_works_book(
         "公开页面未提供或明确不可用的附件记为“源未提供”，不绕过平台限制。",
         "互动数据是采集时点快照，之后可能继续变化。",
         "单作品包可包含“达人快照”；它只记录当前作品页已展示或加载的公开作者信息，不进入主页、不下载头像。",
-        "本文件只呈现采集结果，不包含达人分析、语义标签或商业结论。",
+        "单作品默认只观察可见商品入口；只有明确启用商品资料采集时，才会冻结作品、暂停播放并读取当前作品打开的公开商品卡。隐藏商品ID、佣金、转化和未展示交易事实保持未知。",
     ])
     intro["A13"] = "本次口径与边界"
     style_metadata(intro, 20, [
@@ -665,6 +761,60 @@ def workbook_qa(paths: list[Path]) -> dict[str, Any]:
     return results
 
 
+def build_product_review_delivery(
+    raw_dir: Path, output: Path, works: list[dict[str, Any]], works_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Regenerate a separate ordinary workbook from identity-checked saved rows.
+
+    Missing stage outputs are explained as partial, never fabricated as a
+    confirmed empty evaluation list. Existing mismatching raw files are not
+    rewritten or silently included in another work's delivery.
+    """
+    from browser_collect_product_reviews import build_product_review_workbook
+
+    attempt = works_manifest.get("product_reviews") or {}
+    expected_id = str(works[0].get("aweme_id") or "") if len(works) == 1 else ""
+    privacy = (works_manifest.get("input_identity") or {}).get("product_reviews", {}).get("privacy_mode") or attempt.get("privacy_mode")
+    if not expected_id or privacy not in {"hash", "raw"}:
+        raise ValueError("Product-review delivery needs one frozen work and an explicit matching privacy mode")
+    manifest_path = raw_dir / "product_review_manifest.json"
+    rows: dict[str, Any] = {}
+    manifest: dict[str, Any] = {"source_work_id": expected_id, "privacy_mode": privacy,
+        "product": {"title": "未确认商品", "shop_name": "", "product_id": ""},
+        "status": "partial", "completeness": "partial_not_started", "done_reason": "stage_output_missing"}
+    if manifest_path.is_file():
+        saved = load_json(manifest_path)
+        if not isinstance(saved, dict) or saved.get("source_work_id") != expected_id or saved.get("privacy_mode") != privacy:
+            raise ValueError("Saved product reviews belong to a different work/privacy request; old files were not changed")
+        manifest.update(saved)
+        rows_path = raw_dir / "product_reviews.jsonl"
+        if rows_path.is_file():
+            for line in rows_path.read_text(encoding="utf-8-sig").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if not isinstance(row, dict) or row.get("source_work_id") != expected_id or row.get("product_id") != manifest["product"]["product_id"] or not row.get("review_id"):
+                    raise ValueError("Saved product-review row identity mismatch; old files were not changed")
+                rows[str(row["review_id"])] = row
+        if len(rows) != manifest.get("review_count"):
+            manifest.update(status="partial", completeness="partial_saved_rows_mismatch", done_reason="saved_rows_mismatch")
+    # A rejected retry must not turn the current attempt into an old 'complete'.
+    if attempt.get("exit_code") != 0:
+        manifest.update(status=attempt.get("status") or "partial",
+            completeness=attempt.get("completeness") if str(attempt.get("completeness", "")).startswith("partial_") else "partial_current_attempt",
+            done_reason=attempt.get("done_reason") or manifest["done_reason"])
+    temporary = output.parent / (".product-review-book-" + uuid.uuid4().hex)
+    temporary.mkdir()
+    try:
+        temporary_book = build_product_review_workbook(temporary, manifest, rows)
+        shutil.copy2(temporary_book, output)
+    finally:
+        shutil.rmtree(temporary)
+    return {"requested": True, "status": manifest["status"], "completeness": manifest["completeness"],
+        "done_reason": manifest["done_reason"], "review_count": len(rows), "privacy_mode": privacy,
+        "exit_code": 0 if manifest["status"] == "complete" and manifest["completeness"] == "complete_visible_panel_exhausted" else 3}
+
+
 def build_explanation(
     output_dir: Path,
     creator: str,
@@ -673,11 +823,50 @@ def build_explanation(
     replies: int,
     works_manifest: dict[str, Any],
     comments_manifest: dict[str, Any],
+    product_reviews: dict[str, Any] | None = None,
 ) -> None:
+    anchor = works_manifest.get("commerce_anchor_observation") if isinstance(works_manifest, dict) else None
+    commerce_detail = works_manifest.get("commerce_detail_observation") if isinstance(works_manifest, dict) else None
+    anchor_lines = ""
+    if isinstance(anchor, dict) and anchor.get("status"):
+        status_label = {
+            "visible_direct_link": "页面可见，已留存直接链接",
+            "visible_name_only": "页面可见，页面未直接提供链接",
+            "not_observed": "本次单作品页未观察到公开可见小黄车",
+        }.get(str(anchor.get("status") or ""), "")
+        anchor_lines = (
+            "\n## 单作品可见小黄车\n\n"
+            f"- 观察状态：{status_label}\n"
+            f"- 页面展示名：{anchor.get('display_name') or ''}\n"
+            f"- 页面直接链接：{anchor.get('url') or ''}\n"
+            "- 边界：只记录页面公开可见展示名和直接链接；未点击商品、未进入详情。未观察到不等于不存在，也不推断价格、店铺、销量、佣金或隐藏商品ID。\n"
+        )
+    if isinstance(commerce_detail, dict) and commerce_detail.get("status") == "detail_observed":
+        anchor_lines += (
+            "\n## 当前作品商品资料\n\n"
+            f"- 商品记录：{len(commerce_detail.get('products') or [])} 个\n"
+            f"- 观察时间：{commerce_detail.get('observed_at') or ''}\n"
+            "- 读取方式：用户明确请求后冻结当前作品、暂停播放，从该作品打开的公开商品卡读取。\n"
+            "- 边界：只保留页面公开展示的标题、店铺、价格／销量快照、物流服务、可见规格、参数与商品图片；隐藏商品ID、佣金、成交和未展示事实保持未知。\n"
+        )
+    review_lines = ""
+    if product_reviews:
+        review_lines = (
+            "\n## 独立商品评价\n\n"
+            f"- 本次状态：{display_status(product_reviews['status'])}；已保存去重评价 {product_reviews['review_count']} 条。\n"
+            f"- 停止原因：{product_reviews['done_reason']}；完整性：{product_reviews['completeness']}。\n"
+            "- `05_商品评价.xlsx` 单独阅读商品评价；`data/商品评价` 保留原始记录、真实进度和续跑身份。不会混入 `02_评论明细.xlsx`。\n"
+            "- 默认仅 200 条安全样本，受显式条数、滚动与时间预算限制。只有确认当前筛选列表末尾才标为完成，页面总评价数不是可获取全量承诺。\n"
+            "- 暂停通过本地 `product_review_control.json` 控制文件执行，不是插件侧栏按钮；续跑必须通过作品、商品、筛选和隐私校验。\n"
+            "- 评价图片／视频不下载；仅保留已验证的公开引用、数量和未导出原因。\n"
+        )
+    scope = str(works_manifest.get("selection_rule") or "")
+    if not scope:
+        scope = "单条显式选择作品" if (works_manifest.get("input_identity") or {}).get("mode") in {"explicit_works", "selection_file"} else f"全部可见置顶作品 + 最近 {int(as_number(works_manifest.get('requested_recent_non_pinned'), 0) or 0)} 条非置顶作品"
     text = (
         "# BrandBAI 抖音基础采集说明\n\n"
         f"- 达人：{creator}\n"
-        f"- 作品范围：全部可见置顶作品 + 最近 {int(as_number(works_manifest.get('requested_recent_non_pinned'), 0) or 0)} 条非置顶作品\n"
+        f"- 作品范围：{scope}\n"
         f"- 入选作品：{works_count} 条\n"
         f"- 一级评论：{top_level} 条\n"
         f"- 二级回复：{replies} 条\n"
@@ -685,6 +874,7 @@ def build_explanation(
         f"- 评论状态：{display_status(comments_manifest.get('status'))}\n\n"
         "## 文件说明\n\n"
         "- `01_作品清单.xlsx`：普通阅读版作品与素材清单。\n"
+        "  若明确读取了当前作品商品卡，工作簿同时包含商品概览、规格、参数与商品素材索引。\n"
         "- `02_评论明细.xlsx`：普通阅读版评论、DataTool 兼容视图和采集质量。\n"
         "- `03_作品素材`：视频或全部图文、封面与公开原声。\n"
         "- `data`：断点续跑和审计所需原始数据，不作为普通阅读入口。\n\n"
@@ -692,6 +882,8 @@ def build_explanation(
         "“全部”指本次普通登录页面可分页返回且收到终止信号的全部可检索数据，不代表平台内部绝对全量。"
         "页面显示评论数可能同时包含一级评论和其下回复；一级评论中的回复数字段不等于本次实际采集的回复。"
         "本交付不包含语义分析、达人画像、商品匹配或商业结论。\n"
+        f"{anchor_lines}"
+        f"{review_lines}"
     )
     (output_dir / "04_采集说明.md").write_text(text, encoding="utf-8")
 
@@ -704,6 +896,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("comments_manifest")
     parser.add_argument("output_dir")
     parser.add_argument("--qa-dir", default="")
+    parser.add_argument("--product-reviews-dir", default="")
     return parser
 
 
@@ -736,11 +929,17 @@ def main(argv: list[str] | None = None) -> int:
         works, works_manifest, works_output
     )
     top_level, replies = build_comments_book(works, comments, comments_manifest, comments_output)
+    review_summary = None
+    workbook_outputs = [works_output, comments_output]
+    if args.product_reviews_dir:
+        review_output = output_dir / "05_商品评价.xlsx"
+        review_summary = build_product_review_delivery(Path(args.product_reviews_dir).expanduser().resolve(), review_output, works, works_manifest)
+        workbook_outputs.append(review_output)
     creator = str(works[0].get("author") or "未知达人") if works else "未知达人"
     build_explanation(
-        output_dir, creator, works_count, top_level, replies, works_manifest, comments_manifest
+        output_dir, creator, works_count, top_level, replies, works_manifest, comments_manifest, review_summary
     )
-    qa = workbook_qa([works_output, comments_output])
+    qa = workbook_qa(workbook_outputs)
     (qa_dir / "workbook_qa.json").write_text(
         json.dumps(qa, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -752,10 +951,11 @@ def main(argv: list[str] | None = None) -> int:
         "comments": len(comments),
         "topLevel": top_level,
         "replies": replies,
-        "outputs": [str(works_output), str(comments_output)],
+        "outputs": [str(path) for path in workbook_outputs],
+        "productReviews": review_summary or {"requested": False},
         "qaDir": str(qa_dir),
     }, ensure_ascii=False, indent=2))
-    return 0
+    return int((review_summary or {}).get("exit_code", 0))
 
 
 if __name__ == "__main__":

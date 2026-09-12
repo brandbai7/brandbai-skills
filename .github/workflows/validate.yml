@@ -20,6 +20,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - name: Install validation dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Validate public skill tree
@@ -34,6 +37,11 @@ jobs:
         run: >-
           python -m unittest
           test_download_creator_works.py
+          test_product_detail_safety.py
+          test_browser_collect_product_reviews.py
+          test_product_review_integration.py
+          test_selection_contract.py
+          test_package_delivery.py
           test_browser_collect_comments.py
           test_run_foundation.py
           test_run_long_job.py
