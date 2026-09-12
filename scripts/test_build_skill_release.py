@@ -5,7 +5,7 @@ import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from scripts.build_skill_release import ARCHIVE_NAME, CHECKSUM_NAME, ReleaseBuildError, build_release
+from scripts.build_skill_release import ARCHIVE_NAME, CHECKSUM_NAME, ReleaseBuildError, build_release, skill_version
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,12 +39,13 @@ def workspace_temp():
 class BuildSkillReleaseTests(unittest.TestCase):
     def test_builds_skill_at_archive_root(self):
         with workspace_temp() as temp:
-            result = build_release(SKILL_DIR, temp, "brandbai-douyin-download-v0.4.1")
+            version = skill_version(SKILL_DIR / "SKILL.md")
+            result = build_release(SKILL_DIR, temp, f"brandbai-douyin-download-v{version}")
             archive_path = temp / ARCHIVE_NAME
             checksum_path = temp / CHECKSUM_NAME
             self.assertTrue(archive_path.is_file())
             self.assertTrue(checksum_path.is_file())
-            self.assertEqual(result["version"], "0.4.1")
+            self.assertEqual(result["version"], version)
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("SKILL.md", names)
@@ -53,6 +54,11 @@ class BuildSkillReleaseTests(unittest.TestCase):
                 self.assertIn("scripts/run_long_job.py", names)
                 self.assertIn("scripts/selection_contract.py", names)
                 self.assertIn("scripts/package_delivery.py", names)
+                self.assertIn("scripts/collect_product_detail.js", names)
+                self.assertIn("scripts/browser_collect_product_reviews.py", names)
+                self.assertIn("scripts/product_review_page_bridge.js", names)
+                self.assertIn("scripts/douyin_product_review_collector.js", names)
+                self.assertIn("references/product-reviews.md", names)
                 self.assertIn("references/selection-contract.md", names)
                 self.assertNotIn("scripts/build_foundation_workbooks.mjs", names)
                 self.assertFalse(any(name.startswith("brandbai-douyin-download/") for name in names))

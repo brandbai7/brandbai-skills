@@ -1,16 +1,16 @@
 ---
 name: brandbai-douyin-download
-description: Download public Douyin account, search-result, or explicitly selected works through a visible signed-in Chrome session, including video or image-post media, covers, available audio, release captions, metadata, single-work creator snapshots, and retrievable comments. Use for 抖音达人主页置顶加最近 N 条、搜索结果批量下载、插件作品清单 Excel 接力、任意作品多选、单作品作品包与当前页达人快照、批量一级评论、实验性二级回复、可选 ZIP、DataTool 类普通版导出，以及为后续分析保留可回溯原始数据。默认只完成下载、采集与质量核验，不自动进入达人主页、不下载头像、不生成语义标签或商业结论。
+description: Download public Douyin works, media, captions, metadata and work comments through visible signed-in Chrome. For one explicitly selected shoppable work, optionally collect its current product details, images and product reviews with bounded scrolling, progress and checkpoints. Use for 抖音单作品、主页或搜索选择下载、插件作品清单接力、挂车视频与关联商品资料、独立商品评价表。Only collect and verify source material; no account analysis, product matching, hidden data or platform restriction bypass.
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.4.1"
+  version: "0.6.0"
   category: content-commerce
 ---
 
-# BrandBAI 抖音批量下载
+# BrandBAI 抖音作品与商品资料采集
 
-提供一个类似 DataTool 的抖音下载总入口，把公开抖音账号或明确作品转化为可续跑、可去重、可回溯的作品、媒体和评论数据。本 Skill 的稳定边界是作品与媒体下载、一级评论下载和质量核验；语义分析、影响力对象洞察与商业结论属于后续 Skill。
+把公开抖音账号或明确作品整理为可回溯的素材、数据和作品评论；单条挂车作品可按要求连同关联商品资料与商品评价一并整理。商品评价与作品评论分开保存。这里只完成采集和质量核验，语义分析、商品匹配与商业结论属于后续任务。
 
 ## 先确认授权范围
 
@@ -22,7 +22,7 @@ metadata:
 
 1. 下载目标：达人、KOC、KOL、明星艺人等公开账号主页，或一个以上明确作品 URL。
 2. 作品范围：单作品、明确作品列表、插件作品清单、搜索页当前选择，或主页全部当前可见置顶作品加最近 N 条非置顶作品。
-3. 下载内容：作品清单与基础数据、视频或图文、封面、可用原声、发布文案、一级评论，以及明确要求时的实验性二级回复。
+3. 下载内容：作品清单与基础数据、视频或图文、封面、可用原声、发布文案；可选作品一级评论、当前商品卡公开资料与图片、独立商品评价。实验性作品二级回复须另外明确要求。
 4. 交付预设：普通下载版，或保留全部原始数据和完整性状态的分析准备版。
 
 当前统一入口提供三个运行模式：
@@ -32,6 +32,12 @@ metadata:
 - `all`：依次完成 `works`、`comments` 和普通版交付。
 
 单作品包会在 `01_作品清单.xlsx` 增加“达人快照”，仅记录当前作品页已经展示或加载的昵称、抖音号、稳定达人 ID、主页链接、简介、粉丝数和累计获赞。页面未展示的字段留空，不补 0；不为补字段自动进入达人主页，也不下载头像。
+
+同一个明确单作品任务还会观察当前详情页公开可见的小黄车入口：只通过播放器商品控件的结构识别入口，不根据视频文案、字幕或话题猜测商品；同一轮播存在前后控件时只保留当前视口最上层的一条。随后只保存该控件的页面展示名、页面直接提供的 HTTP(S) 链接、观察时间和 `visible_direct_link`／`visible_name_only`／`not_observed` 状态。它不会点击商品、进入商品详情或补取价格、店铺、销量、佣金、隐藏商品 ID；`not_observed` 只表示本次页面可见范围未发现，不得表述为作品不存在挂车。主页、搜索、批量顺序和直播识别合同不因此改变。
+
+只有用户明确要求读取商品资料时，才在“恰好一个明确作品”的命令中增加 `--commerce-detail`。该模式冻结目标作品 ID、暂停播放，从该作品的当前商品入口新打开商品面板，稳定后读取。预先打开而无法核对归属的商品面板会被拒绝，不按 URL 把旧商品重新归属。保存公开标题、店铺、价格／销量提示、公开发货服务承诺、当前可见规格、参数和商品图片；不保存私人收货地址、收件人或联系方式，不补隐藏商品 ID、佣金、成交等事实。
+
+明确要求商品评价时增加 `--product-reviews`，它同时启用商品详情；执行前阅读 [商品评价与挂车联合采集](references/product-reviews.md)。默认最多 200 条评价，按当前商品与筛选自动滚动，支持进度、暂停和受身份校验约束的续跑。它不是作品评论，也不是平台全部历史评价。读取商品期间不自动恢复播放。
 
 不要把视频、图文、评论分别拆成不同 Skill；它们共享同一登录资料夹、作品范围、断点状态和交付合同。
 
@@ -103,6 +109,35 @@ python scripts/run_foundation.py all `
 ```
 
 当最终作品包只有 1 条时，交付按单作品规则附带“达人快照”；多作品批量不把作者字段拼成达人分析表。
+
+需要同时读取该作品当前小黄车商品资料时：
+
+```powershell
+python scripts/run_foundation.py all `
+  --video "<单作品URL或带 modal_id 的链接>" `
+  --commerce-detail `
+  --profile-dir "<私有登录资料夹>" `
+  --out "<交付目录>" `
+  --zip `
+  --dry-run
+```
+
+确认 Dry Run 后去掉 `--dry-run`。这个开关不接受主页、搜索页或多作品任务；如当前作品没有可见商品入口、读取中切换了作品，或商品面板未稳定显示，任务会明确失败，不会把其他作品商品写入结果。
+
+需要同一次任务同时整理商品评价时：
+
+```powershell
+python scripts/run_foundation.py all `
+  --video "<单条挂车作品链接>" `
+  --product-reviews `
+  --skip-comments `
+  --profile-dir "<私有登录资料夹>" `
+  --out "<交付目录>" `
+  --zip `
+  --dry-run
+```
+
+`--skip-comments` 只跳过作品评论，不跳过商品评价；需要作品评论时去掉它。商品资料、商品评价都必须是用户请求范围内的内容，不因作品有小黄车就默认采集。
 
 ### 下载搜索页当前结果
 
@@ -225,11 +260,19 @@ python scripts/run_long_job.py status `
 - `04_采集说明.md`
 - `data/作品采集/` 与 `data/评论采集/`
 
+请求商品评价时另有 `05_商品评价.xlsx` 与 `data/商品评价/`。商品评价没有读全时仍交付已保存内容，并在退出码、表格和状态文件中明确标注部分完成。
+
 增加 `--zip` 时，在交付目录同级生成 ZIP64 兼容压缩包；视频、音频、图片和 Excel 不重复高强度压缩。ZIP 只包含交付目录，不得包含登录资料夹、QA 预览或任务目录。
 
 统一入口的 `all` 模式会使用随 Skill 提供的 Python 脚本直接生成两份 Excel，不依赖某个模型宿主内置的电子表格工具。也可在采集完成后单独运行 `scripts/build_foundation_workbooks.py`。生成结构必须遵守 [导出格式](references/export-format.md)。
 
 普通版只呈现作品、素材、评论和采集质量，不添加 D1、语义标签、达人画像、商品匹配或商业结论。
+
+单作品已执行小黄车观察时，`works.json`、发布文案 TXT、`01_作品清单.xlsx` 的“可见小黄车”工作表与 `04_采集说明.md` 必须使用同一观察状态。可见小黄车属于来源留存，不是商品匹配、商品事实补全或销售归因。
+
+显式执行 `--commerce-detail` 时，`01_作品清单.xlsx` 增加“商品概览”“商品规格”“商品参数”“商品素材”，下载的商品图片进入对应作品素材目录的 `商品资料/`。这些字段是采集时点的公开页面快照，不等于平台后台商品事实或销售归因。
+
+当前商品能力不包含自动遍历全部 SKU、逐 SKU 价格／库存／主图绑定、商品视频下载、评价图片 ZIP 或评价视频下载。商品图片按页面实际识别和成功保存的范围交付；未分类图片不擅自命名为主图、详情图或 SKU 图。
 
 ### 分析准备版
 
@@ -253,6 +296,7 @@ python scripts/run_long_job.py status `
 - 正数评论上限、动作预算耗尽、页面不可见、登录要求或异常停止都只能标记部分完成。
 - 请求二级回复后，只要任一显示有回复的楼层未收到终止信号，整批仍是部分完成。
 - 退出码 `3` 表示结果可保留并续跑，但不得对外写“完整下载”。
+- 请求商品评价后，仅明确的当前列表末尾或可靠空态可以确认当前可见范围完成；停滞、预算上限、解析缺口、暂停、验证或商品／筛选变化均保留部分完成。未知商品 ID 时，不把跨刷新或新会话的相似标题视为同一商品续跑证据。
 
 ## 续跑与交付
 
@@ -274,6 +318,9 @@ python scripts/run_long_job.py status `
 ```powershell
 python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
 python -m unittest test_selection_contract.py test_package_delivery.py
+python -m unittest test_product_detail_safety.py test_browser_collect_product_reviews.py test_product_review_integration.py
 ```
 
-这些测试只使用本地模拟数据，不打开抖音、不启动 Chrome，也不产生付费请求。
+默认测试只使用本地模拟数据，不打开抖音，也不产生付费请求。商品详情／评价新增链路属于测试版：本地模拟验证与插件既往页面截图不替代当前 Skill 的独立登录态端到端验收。
+
+可选真实浏览器引擎合成验收：安装 Playwright 及其 Chromium，设置 `BRANDBAI_RUN_BROWSER_TESTS=1` 后运行 `python -m unittest test_product_reviews_chromium.py`。也可用 `BRANDBAI_TEST_CHROMIUM` 指定本机 Chromium 系浏览器可执行文件。它只启动隔离的无账号实例，拦截所有页面请求，在本地模拟页面验证滚动与状态；不连接用户正在使用的浏览器，也不访问抖音。

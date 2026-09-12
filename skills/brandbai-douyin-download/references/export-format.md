@@ -19,11 +19,25 @@ Read this reference before producing an XLSX, defining a download contract, or p
 1. `使用说明`: creator, selection scope, counts, status, source, timestamps, and boundaries.
 2. `作品清单`: work ID, type, creator, title, publish time, interactions, selection reason, real URL, media folder, and download state.
 3. `素材明细`: one row per video/image/cover/audio/release-caption asset record, including status, size, and relative path. Keep `not_available` and `not_requested` records, but count only `downloaded`, `skipped_existing`, and generated caption rows with a filename as actual files in the summary.
-4. `达人快照`: only when the final delivery contains one explicit work and current-work data exposes public creator identity. Keep unknown values blank; do not fetch an avatar or navigate to the creator profile to enrich it.
+4. `达人快照`: single-work only; current work-page author snapshot with null-safe fields.
+5. `可见小黄车`: only when the single-work page observation ran; status, visible display name, page-provided direct link, observation time, source work, and explicit evidence boundary.
+6. `商品概览`, `商品规格`, `商品参数`, `商品素材`: only when the user explicitly ran `--commerce-detail` for exactly one work and a stable current-work product panel was observed.
+
+`达人快照` is included only when the final delivery contains one explicit work and current-work data exposes public creator identity. Keep unknown values blank; do not fetch an avatar or navigate to the creator profile to enrich it.
+
+Product-detail rows are observation-time public-page snapshots. Keep hidden product IDs, commission, conversion and unrendered facts blank; downloaded product images stay under that work's `商品资料/` folder.
 
 Put title and human-readable content before audit fields. Keep IDs as text and link each media row back to its work.
 
 For plugin or search selections, retain `source_page_type`, `source_keyword`, `source_rank`, `selection_reason`, and `selection_rank` in raw `works.json`. The ordinary workbook may keep the common human-readable subset, but must not discard the raw traceable fields.
+
+The default commerce-anchor snapshot is not a product-detail export. It accepts only the rendered single-work label and directly supplied link. `not_observed` is not proof that the work has no commerce attachment. Explicit `--commerce-detail` adds the separate product worksheets described above; it still does not infer unobserved facts, commission, hidden IDs or attribution.
+
+## Product-review workbook
+
+Explicit `--product-reviews` adds `05_商品评价.xlsx`, independently of `02_评论明细.xlsx`. Raw records and status stay under `data/商品评价/`. Keep product identity, source work, filter, collection status, displayed count and actual saved count together. Textless reviews with a structurally confirmed media gallery are valid records, not missing comments. Preserve public unsigned media links only; do not download review images/videos or copy signed access parameters. Missing rows or unfinished followups remain partial.
+
+All cell contents from product/review pages must be plain data, not executable Excel formulas. Store long IDs as text. Keep completed/partial state and counts consistent across JSONL, manifest, Excel and final delivery; existing records remain exportable after pause or refusal to merge a changed source.
 
 ## Comment workbook
 

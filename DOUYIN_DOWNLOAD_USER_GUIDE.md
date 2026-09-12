@@ -1,6 +1,6 @@
 # BrandBAI 抖音下载 Skill 安装与使用说明
 
-适用版本：`brandbai-douyin-download v0.3.0`
+适用版本：`brandbai-douyin-download v0.6.0`
 
 这是一个面向抖音公开账号、搜索结果和明确作品的本地采集 Skill。它通过用户可见、已经正常登录的 Chrome 页面工作，可下载作品基础数据、视频或图文、封面、公开可用原声、发布文案和页面可检索的一级评论，并生成普通用户可直接查看的 Excel 或可选 ZIP 交付。
 
@@ -15,8 +15,12 @@
 - 下载单条作品或多条作品的可检索一级评论；
 - 中断后从已有数据继续运行，避免重复下载；
 - 生成作品清单、评论明细、作品素材和采集说明，并可打包为 ZIP。
+- 对一个明确挂车作品，可在同一任务按需保存作品内容、关联商品的公开资料及商品图片；
+- 用户明确要求时，自动滚动该商品当前评价列表，显示文件进度，支持暂停、去重保存和身份核验后的续跑，并单独导出商品评价表。
 
-当前稳定能力是作品、媒体和一级评论采集。二级回复仍属于实验能力；本 Skill 也不会自动生成评论语义、达人画像、商品匹配或商业结论。
+作品、媒体和一级评论沿用既有采集路线。新增商品评价采用插件 v0.11.156 的采集模块适配，并通过离线合成回归；尚未把它表述为所有真实商品页面均已验收。二级回复仍属于实验能力；本 Skill 不会自动生成评论语义、达人画像、商品匹配或商业结论。
+
+商品资料只限本次页面可可靠识别的公开字段，不等同于全 SKU 成交矩阵、逐 SKU 主图、商品视频或商品评价媒体 ZIP。页面标注评价总数不是实际保存数。缺少公开商品 ID 时，不允许在刷新或重建页面后强行把新评价合并到旧任务。
 
 “全部评论”指采集当时页面能够分页返回并收到结束信号的全部可检索评论，不代表抖音平台内部绝对全量。
 
@@ -38,14 +42,14 @@
 
 ### 方法 A：WorkBuddy 一键安装
 
-[点击安装 BrandBAI 抖音下载 Skill v0.3.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fv0.3.0%2Fbrandbai-douyin-download.zip&channelType=github)
+[点击安装 BrandBAI 抖音下载 Skill v0.6.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-douyin-download-v0.6.0%2Fbrandbai-douyin-download.zip&channelType=github)
 
 如果点击后没有自动唤起 WorkBuddy，请使用下面的手动安装包。
 
 ### 方法 B：下载 ZIP 手动安装
 
-- [下载 v0.3.0 安装包](https://github.com/brandbai7/brandbai-skills/releases/download/v0.3.0/brandbai-douyin-download.zip)
-- [查看 Douyin Download v0.3.0 Release](https://github.com/brandbai7/brandbai-skills/releases/tag/v0.3.0)
+- [下载 v0.6.0 安装包](https://github.com/brandbai7/brandbai-skills/releases/download/brandbai-douyin-download-v0.6.0/brandbai-douyin-download.zip)
+- [查看 Douyin Download v0.6.0 Release](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-douyin-download-v0.6.0)
 
 在宿主的“自定义 Skill”“导入 Skill”或类似入口选择 ZIP。安装包根目录已经包含 `SKILL.md`，不要把压缩包里的单个脚本拆散安装。
 
@@ -55,7 +59,7 @@
 
 ```text
 请使用 $skill-installer，从下面的 GitHub 地址安装 Skill：
-https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/brandbai-douyin-download
+https://github.com/brandbai7/brandbai-skills/tree/brandbai-douyin-download-v0.6.0/skills/brandbai-douyin-download
 ```
 
 ### 方法 D：其他支持 Agent Skills 的工具
@@ -63,7 +67,7 @@ https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/brandbai-douyin-
 电脑已安装 Node.js 时，可以使用：
 
 ```text
-npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/brandbai-douyin-download -g
+npx skills add https://github.com/brandbai7/brandbai-skills/tree/brandbai-douyin-download-v0.6.0/skills/brandbai-douyin-download -g
 ```
 
 安装时选择自己正在使用的智能体宿主。宿主即使能识别 Skill，也仍需具备本地 Python、文件和 Chrome 权限才能完成采集。
@@ -85,7 +89,7 @@ npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/b
 把其中的主页链接和数字 5 换成自己的目标：
 
 ```text
-请使用 brandbai-douyin-download v0.3.0。
+请使用 brandbai-douyin-download v0.6.0。
 
 达人主页：<粘贴抖音达人主页链接>
 作品范围：全部当前可见置顶作品，加最近 5 条非置顶作品。
@@ -99,7 +103,7 @@ npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/b
 ### 只下载作品和素材
 
 ```text
-请使用 brandbai-douyin-download v0.3.0，只运行 works。
+请使用 brandbai-douyin-download v0.6.0，只运行 works。
 达人主页：<粘贴主页链接>
 范围：全部当前可见置顶作品，加最近 5 条非置顶作品。
 下载作品基础数据、视频或全部图文、封面、公开可用原声和发布文案。
@@ -109,7 +113,7 @@ npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/b
 ### 只下载单条作品评论
 
 ```text
-请使用 brandbai-douyin-download v0.3.0，只下载下面这条抖音作品的全部可检索一级评论：
+请使用 brandbai-douyin-download v0.6.0，只下载下面这条抖音作品的全部可检索一级评论：
 <粘贴作品链接>
 使用稳定化名，不采集二级回复。先做 Dry Run，等我确认后再正式运行。
 ```
@@ -119,7 +123,7 @@ npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/b
 先在 BrandBAI Chrome 插件的达人主页或搜索结果中选择作品并导出作品清单，然后发送：
 
 ```text
-请使用 brandbai-douyin-download v0.3.0，读取这份 BrandBAI 插件作品清单：
+请使用 brandbai-douyin-download v0.6.0，读取这份 BrandBAI 插件作品清单：
 <粘贴作品清单.xlsx 的本地路径>
 
 严格按清单中的作品 ID 下载主素材、封面、可用原声、发布文案和全部可检索一级评论，
@@ -129,12 +133,27 @@ npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/b
 ### 只导出搜索作品数据
 
 ```text
-请使用 brandbai-douyin-download v0.3.0，读取这份搜索结果作品清单：
+请使用 brandbai-douyin-download v0.6.0，读取这份搜索结果作品清单：
 <粘贴作品清单.xlsx 的本地路径>
 
 本次只导出作品数据，不下载素材，也不采集评论。保留作品 ID、作者、发布文案、发布时间、
 互动数据、作品链接、来源搜索词、来源排序和完整性状态。先做 Dry Run。
 ```
+
+### 同一任务采集挂车作品与商品资料、商品评价
+
+```text
+请使用 brandbai-douyin-download v0.6.0。
+目标作品：<粘贴一条挂车作品链接>
+本次保存作品视频／图文、封面、可用原声、发布文案和基础数据，
+并从这条作品的小黄车读取关联商品公开资料、可用商品图片，采集商品当前评价列表，最多 200 条。
+商品评价与作品评论分开保存；本次不需要作品评论。
+读取商品时暂停作品，不切换 SKU、不购买、不采集收货地址。
+使用稳定化名，遇到验证、身份变化或无法确认完整时保留部分结果并停止。
+先做 Dry Run，确认后执行，最后交付普通版 Excel、素材目录与 ZIP。
+```
+
+商品评价默认最多读取 200 条、滚动 200 次、运行 600 秒，达到任一预算会保留部分结果，而不是显示“全部完成”。暂停、续跑与具体参数见 [挂车联合采集说明](skills/brandbai-douyin-download/references/product-reviews.md)。
 
 ## 六、运行过程中你需要做什么
 
@@ -150,6 +169,7 @@ npx skills add https://github.com/brandbai7/brandbai-skills/tree/v0.3.0/skills/b
 - `02_评论明细.xlsx`：本次成功保存的一级评论；
 - `03_作品素材/`：视频、图文、封面、公开可用原声和发布文案；
 - `04_采集说明.md`：采集范围、时间、完成状态和数据边界；
+- `05_商品评价.xlsx`：仅在请求商品评价时生成，独立于作品评论表；商品资料与图片分别进入作品清单的商品工作表和作品素材下的 `商品资料/`；
 - `data/`：用于断点续跑和质量核验的原始数据，普通用户一般不需要打开。
 
 任务增加 ZIP 选项时，还会在交付目录同级生成 `.zip` 文件。ZIP 不包含 Chrome 登录资料夹、任务日志目录或 QA 预览。

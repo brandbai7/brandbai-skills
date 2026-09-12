@@ -3,6 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from download_creator_works import (
+    collect_visible_commerce_anchor,
+    collect_visible_commerce_detail,
     collect_seeded_works,
     collect_visible_works,
     discovery_scroll_budget,
@@ -10,6 +12,9 @@ from download_creator_works import (
     final_works_status,
     signature_kind,
     normalize_work,
+    normalize_commerce_anchor,
+    normalize_commerce_detail,
+    normalize_commerce_display_name,
     page_type,
     parse_assets,
     pick_posts,
@@ -306,6 +311,83 @@ class DownloadCreatorWorksTests(unittest.TestCase):
         self.assertEqual(work["type"], "图文")
         self.assertEqual(work["source_url"], "https://www.douyin.com/note/10000000002")
         self.assertEqual(len(work["_image_urls"]), 1)
+
+    def test_visible_single_work_commerce_anchor_is_bounded(self):
+        evaluated_scripts = []
+
+        class FakePage:
+            @staticmethod
+            def evaluate(script):
+                evaluated_scripts.append(script)
+                return {
+                    "status": "visible_direct_link",
+                    "display_name": "合成测试商品",
+                    "url": "https://haohuo.example/items/901",
+                    "observed_at": "2026-08-27T00:00:00Z",
+                    "source": "current_work_dom",
+                }
+
+        anchor = collect_visible_commerce_anchor(FakePage())
+        self.assertEqual(anchor["status"], "visible_direct_link")
+        self.assertEqual(anchor["display_name"], "合成测试商品")
+        self.assertIn('[class~="xgplayer-shop-anchor"]', evaluated_scripts[0])
+        self.assertNotIn("createTreeWalker", evaluated_scripts[0])
+        self.assertEqual(
+            normalize_commerce_display_name("购物 | 仙女都喝苹果黄芪茶"),
+            "仙女都喝苹果黄芪茶",
+        )
+        self.assertEqual(
+            normalize_commerce_anchor({"status": "visible_name_only", "display_name": "购物｜仙女都喝苹果黄芪茶"})["display_name"],
+            "仙女都喝苹果黄芪茶",
+        )
+        unsafe = normalize_commerce_anchor({
+            "status": "visible_direct_link", "display_name": "异常链接", "url": "javascript:alert(1)"
+        })
+        self.assertEqual(unsafe["status"], "visible_name_only")
+        self.assertEqual(unsafe["url"], "")
+
+    def test_commerce_detail_freezes_work_and_reads_document_portal(self):
+        evaluated = []
+
+        class FakePage:
+            @staticmethod
+            def evaluate(script, argument):
+                evaluated.append((script, argument))
+                return {
+                    "status": "detail_observed",
+                    "source_work_id": argument["expectedAwemeId"],
+                    "observed_at": "2026-09-07T00:00:00Z",
+                    "playback_paused": True,
+                    "products": [{
+                        "title": "合成测试商品",
+                        "short_title": "测试商品",
+                        "shop_name": "合成旗舰店",
+                        "images": [
+                            {"url": "https://p26-item.ecombdimg.com/test.jpg", "width": 800, "height": 800},
+                            {"url": "https://p26-item.ecombdimg.com.evil.example/bad.jpg", "width": 800, "height": 800},
+                        ],
+                    }],
+                }
+
+        detail = collect_visible_commerce_detail(FakePage(), "7634833140476822778")
+        self.assertEqual(detail["source_work_id"], "7634833140476822778")
+        self.assertTrue(detail["playback_paused"])
+        self.assertEqual(len(detail["products"][0]["images"]), 1)
+        script, argument = evaluated[0]
+        self.assertEqual(argument["expectedAwemeId"], "7634833140476822778")
+        self.assertIn("video.pause()", script)
+        self.assertIn("commerce", script.lower())
+        self.assertIn("product_panel_already_open_close_and_retry", script)
+        self.assertIn("stable >= 3", script)
+        self.assertIn("work_changed_during_product_collection", script)
+
+    def test_commerce_detail_rejects_cross_work_data(self):
+        with self.assertRaisesRegex(Exception, "work changed"):
+            normalize_commerce_detail({
+                "status": "detail_observed",
+                "source_work_id": "other",
+                "products": [{"title": "wrong"}],
+            }, "expected")
 
     def test_select_all_pinned_plus_recent_without_overlap(self):
         items = [

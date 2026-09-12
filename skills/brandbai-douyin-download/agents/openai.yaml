@@ -1,4 +1,4 @@
 interface:
-  display_name: "BrandBAI 抖音批量下载"
-  short_description: "下载抖音单篇、主页、搜索或自选作品与评论，生成 ZIP"
-  default_prompt: "Use $brandbai-douyin-download to download selected Douyin creator or search-result works, media, release captions, metadata, and retrievable comments, then create the traceable BrandBAI delivery without analysis."
+  display_name: "BrandBAI 抖音作品与商品采集"
+  short_description: "采集抖音作品与评论，按需保存单条挂车作品的商品资料和商品评价"
+  default_prompt: "Use $brandbai-douyin-download to collect the requested public Douyin works, media, captions, metadata and work comments; only when explicitly requested for one selected work, also collect its visible linked product details and product reviews into separate traceable files, without analysis or purchasing."
