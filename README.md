@@ -9,6 +9,16 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 
 同一份 Skill 可以被支持 Agent Skills 的模型或本地智能体安装，不绑定某一个大模型厂商。具体发现路径和授权方式由宿主工具决定。
 
+## Chrome 扩展：电商采集大师 · BrandBAI
+
+原“BrandBAI 采集大师／BrandBAI 下载助手”，现以“电商采集大师”为界面主标题，BrandBAI 以浅色副标题保留。最新扩展安装包为 **v0.11.160**；扩展版本与下方各个 Skill 的版本独立。
+
+- [GitHub 发布与安装包](https://github.com/brandbai7/brandbai-skills/releases/tag/chrome-extension-v0.11.160)
+- [产品说明与使用边界](https://brandbai7.github.io/brandbai-skills/douyin-extension/)
+- [隐私政策](https://brandbai7.github.io/brandbai-skills/douyin-extension/privacy.html) · [支持与联系](https://brandbai7.github.io/brandbai-skills/douyin-extension/support.html)
+
+本次同步不修改其他 Skill 版本，也不代表 Chrome Web Store 已审核或发布更新。扩展只按需整理有权访问、页面实际提供的公开资料，不承诺全量获取；小红书采用手动浏览、按需保存。
+
 ## Skill catalog
 
 | Skill | Version | What it does | Status |
