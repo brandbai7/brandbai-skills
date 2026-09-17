@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BrandBAI 直播录屏</title>
+    <link rel="stylesheet" href="design-tokens.css">
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <div class="app-chrome">
+    <header class="app-header">
+      <div class="brand-row">
+        <div class="brand-identity">
+          <img class="brand-mark" src="assets/brandbai-logo.png" alt="BrandBAI" width="42" height="42">
+          <div class="brand-copy">
+            <h1>直播录屏助手</h1>
+            <p class="brand-subtitle">BrandBAI · 直播与商品采集</p>
+          </div>
+        </div>
+        <span id="service-badge" class="badge pending">正在准备</span>
+      </div>
+      <div id="connection-panel" class="connection-panel" hidden>
+        <p id="connection-status" class="muted">正在准备录制功能……</p>
+        <div class="connection-actions">
+          <a
+            id="launch-assistant"
+            class="text-button"
+            href="brandbai-recorder://start"
+            target="_blank"
+            rel="noopener"
+            hidden
+          >启动录屏助手</a>
+          <button id="pair" class="text-button" type="button" hidden>重新检测</button>
+        </div>
+        <p id="install-hint" class="connection-hint" hidden>
+          点击下方“开始录制”会自动启动助手。首次使用时，Chrome 会询问是否打开 BrandBAI 直播录屏助手；可勾选“始终允许”。打开后会自动返回直播间并开始录制；取消时不会创建录制任务。
+        </p>
+      </div>
+    </header>
+
+    <nav class="workspace-tabs" aria-label="功能选择">
+      <button id="recording-view" type="button" aria-pressed="true">直播录制</button>
+      <button id="product-view" type="button" aria-pressed="false">商品资料</button>
+    </nav>
+    <p id="workspace-title" class="app-subtitle">录制当前公开直播间</p>
+    </div>
+
+    <main>
+      <section id="room-access-notice" class="card room-access-notice" hidden aria-label="直播页面识别">
+        <h2 id="room-access-title">需要允许读取当前页面</h2>
+        <p id="room-access-message" class="muted" role="status" aria-live="polite"></p>
+        <button id="allow-room-access" type="button" class="product-primary" hidden>允许识别抖音直播</button>
+        <button id="retry-room-access" type="button" class="product-secondary">重新识别</button>
+        <p id="room-access-scope" class="product-action-help" hidden>可选授权覆盖抖音站点；插件只在明确打开的直播页提供功能，不会自动录制或下载。不授权也可在当前直播页点击工具栏插件图标，临时使用。</p>
+      </section>
+      <section id="product-workspace" hidden>
+        <p id="product-recording-status" class="product-recording-status" hidden></p>
+        <section id="catalog-card" class="card catalog-card">
+          <h2>本场商品概览</h2>
+          <p class="muted">查看“1 号链接、2 号链接”分别是什么。</p>
+          <button id="download-product-catalog" type="button" class="product-primary">下载商品目录</button>
+          <div id="catalog-feedback"></div>
+          <div id="catalog-recent-result" hidden></div>
+          <details id="catalog-overview" class="catalog-overview" hidden>
+            <summary id="catalog-overview-title">已读取的商品</summary>
+            <p id="catalog-observed-note" class="muted"></p>
+            <div id="catalog-rows" class="catalog-rows" role="list" aria-label="本次读取的商品编号目录"></div>
+          </details>
+        </section>
+        <section id="single-product-card" class="card product-intro">
+          <div class="section-title"><h2>当前商品</h2><button id="refresh-product" type="button" class="text-button">重新识别</button></div>
+          <div id="product-preview" class="product-preview" aria-live="polite"><p>请先打开一个商品详情。</p></div>
+          <h3>图片与规格</h3>
+          <button id="download-current-product" type="button" class="product-secondary" disabled>下载图片与规格</button>
+          <div id="product-feedback">
+            <p id="product-message" class="product-message" role="status" aria-live="polite"></p>
+            <section id="product-download-result" class="product-result" hidden aria-live="polite" aria-label="商品下载进度"></section>
+          </div>
+        <section id="review-card" class="product-review-section">
+          <h3>买家评价</h3>
+          <div id="review-preview" class="product-action-help" aria-live="polite">请在上方商品中打开“商品评价”。</div>
+          <label id="review-limit-field" class="review-limit-field" for="review-limit"><span>目标评价数</span><select id="review-limit"><option value="50">50 条</option><option value="200" selected>200 条（推荐）</option><option value="500">500 条</option></select></label>
+          <button id="review-start" type="button" class="product-secondary">下载评价</button>
+          <p id="review-message" class="product-message" role="status" aria-live="polite"></p>
+          <section id="review-result" class="product-result" hidden aria-live="polite">
+            <h3 id="review-result-title"></h3><p id="review-result-product"></p><strong id="review-count"></strong>
+            <progress id="review-progress" max="200" value="0" aria-label="已读取评价占目标条数"></progress>
+            <p id="review-result-note"></p>
+            <div id="review-delivery" class="inline-delivery" hidden></div>
+            <button id="review-stop" type="button" class="product-secondary">停止读取并保存</button>
+            <button id="review-continue" type="button" class="product-primary" hidden>继续读取</button>
+            <button id="review-copy" type="button" class="product-secondary" hidden>复制评价资料位置</button>
+          </section>
+        </section>
+        </section>
+        <details id="product-history" class="card product-boundary" hidden>
+          <summary><strong>其他商品的下载记录</strong><span aria-hidden="true">展开</span></summary>
+          <div id="product-recent-result" hidden></div>
+          <div id="review-history-result"></div>
+        </details>
+      </section>
+      <section class="card record-card">
+        <div class="room-summary">
+          <div class="room-heading">
+            <p class="section-kicker">当前直播间</p>
+            <span id="room-state" class="room-state pending">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="room-state-label">正在识别</span>
+            </span>
+          </div>
+          <h2 id="room-name">正在读取当前页面</h2>
+          <p id="page-status" class="muted">请稍候……</p>
+        </div>
+
+        <div class="settings-divider" aria-hidden="true"></div>
+
+        <div class="setup-block">
+          <div class="section-title">
+            <div>
+              <h2>录制设置</h2>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              <span>总录制时长</span>
+              <select id="recording-preset">
+                <option value="60">1 分钟</option>
+                <option value="300">5 分钟</option>
+                <option value="600">10 分钟</option>
+                <option value="1800" selected>30 分钟（默认）</option>
+                <option value="3600">60 分钟</option>
+                <option value="7200">120 分钟</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+
+            <label>
+              <span>画质</span>
+              <select id="quality">
+                <option value="SD" selected>标清（推荐）</option>
+                <option value="HD">高清</option>
+                <option value="OD">原画</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="custom-recording-duration" class="custom-duration" hidden>
+            <label>
+              <span>自定义数值</span>
+              <input id="recording-value" type="number" inputmode="numeric" step="1" min="1" max="1440" value="30">
+            </label>
+            <label>
+              <span>单位</span>
+              <select id="recording-unit">
+                <option value="minutes" selected>分钟（1—1440）</option>
+                <option value="seconds">秒（60—86400）</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="check split-toggle">
+            <input id="split-enabled" type="checkbox">
+            <span>
+              <strong>拆分成多个视频</strong>
+            </span>
+          </label>
+
+          <div id="segment-options" class="segment-options" hidden>
+            <label>
+              <span>每个视频时长</span>
+              <select id="segment-preset">
+                <option value="300">5 分钟</option>
+                <option value="600" selected>10 分钟（默认）</option>
+                <option value="1800">30 分钟</option>
+                <option value="3600">60 分钟</option>
+                <option value="7200">120 分钟</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+
+            <div id="custom-segment-duration" class="custom-duration" hidden>
+              <label>
+                <span>自定义数值</span>
+                <input id="segment-value" type="number" inputmode="numeric" step="1" min="1" max="360" value="10">
+              </label>
+              <label>
+                <span>单位</span>
+                <select id="segment-unit">
+                  <option value="minutes" selected>分钟（1—360）</option>
+                  <option value="seconds">秒（60—21600）</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="room-switch-notice" class="card room-switch-notice" hidden>
+        <strong>另一个直播间正在录制</strong>
+        <p>录屏仍在后台继续；当前页面不会开始新的录制，也不会混入当前页评论或商品卡。原任务结束并保存后，这里会自动恢复，无需切回原直播间。</p>
+      </section>
+
+      <details id="storage-settings" class="card storage-card">
+        <summary>
+          <span>
+            <strong id="storage-title">下载记录</strong>
+            <em id="storage-required-note" class="storage-required-note" hidden></em>
+            <small id="storage-summary">文件存到浏览器的下载文件夹</small>
+          </span>
+          <span class="summary-mark" aria-hidden="true">展开</span>
+        </summary>
+        <div class="storage-body">
+          <p id="storage-help" class="muted">每次下载一个压缩包。保存位置跟随浏览器设置。</p>
+          <div class="storage-actions" hidden>
+            <button id="use-default-location" type="button">使用默认位置</button>
+            <button id="choose-location" type="button">选择其他位置</button>
+          </div>
+          <div id="browser-delivery-list" aria-live="polite"><p class="muted">任务完成后在这里查看 ZIP 下载进度。</p></div>
+          <p id="browser-delivery-message" role="status"></p>
+        </div>
+      </details>
+
+      <section class="card collector-card">
+        <label class="check collector-master">
+          <input id="collect-page-data" type="checkbox">
+          <span>
+            <strong>同步记录直播信息 <em>可选</em></strong>
+            <small>评论、弹窗商品和人数，随视频一起保存。</small>
+          </span>
+        </label>
+        <div id="collector-options" class="collector-options" hidden>
+          <p class="interaction-safety-note">建议保持直播页在前台；同一账号不要在其他地方进入直播间，以免漏记评论。</p>
+          <label class="check">
+            <input id="collect-comments" type="checkbox" checked>
+            <span>直播评论</span>
+          </label>
+          <label class="check">
+            <input id="collect-product-cards" type="checkbox" checked>
+            <span>弹窗商品与可见资料</span>
+          </label>
+          <label class="check">
+            <input id="collect-room-metrics" type="checkbox" checked>
+            <span>在线人数、点赞和榜单</span>
+          </label>
+          <p id="product-upgrade-note" class="muted collector-note" hidden>商品资料下载需更新并重新启动录屏助手；视频和原有互动记录仍可用。</p>
+        </div>
+      </section>
+
+      <section id="playback-pause-notice" class="card playback-pause-notice" hidden>
+        <strong>正在恢复直播页面</strong>
+        <p>录屏仍在后台继续；插件会在当前页面内恢复播放，不会切换标签页。若提示持续不消失，请手动点击“继续播放”。</p>
+      </section>
+
+      <section class="card results-card">
+        <div class="section-title">
+          <div>
+            <h2>录制状态</h2>
+          </div>
+        </div>
+        <div id="task-list" class="task-list" aria-live="polite">
+          <p class="muted">正在读取录制状态……</p>
+        </div>
+      </section>
+
+      <details id="help-contact" class="card help-hub">
+        <summary><strong>帮助与联系</strong><span class="summary-mark" aria-hidden="true">展开</span></summary>
+        <div class="help-hub-body">
+          <details class="help-topic">
+            <summary>商品资料与评价怎么保存？</summary>
+            <p>先看整场商品，再点开感兴趣的商品。图片、规格和评价对应同一商品，可分别下载，无需录屏。</p>
+            <p><strong>商品目录：</strong>自动展开“全部商品”，保存编号、名称、展示价格和 1 张缩略图，每次最多新增 100 条。若已打开单个商品，请先关闭详情。不会逐个打开商品；编号与讲解标注只代表读取时的页面。</p>
+            <p><strong>图片与规格：</strong>在“商品详情”中下载主图、详情图、规格参数和公开价格。依次确认全部可选规格（最多 40 个组合）及对应图片，结束后恢复原选择，详情图只保存一份。读取期间请勿手动换规格；不会购买、抽奖或读取收货信息。无法确认的项目会单独标明；图片文字未转写，不含商品视频。</p>
+            <p><strong>买家评价：</strong>打开同一商品的“商品评价”，按当前筛选与排序读取。保存正文、时间、所购规格、可见追评和商家回复，买家化名处理；所购规格可能是历史款。附图只计数，不下载图片或视频，不切换筛选。</p>
+            <p id="review-budget-note">请保持商品评价页打开。切走后会等待，返回后继续；本次最多 10 分钟。</p>
+            <p>两个资料包都附商品身份文件；真实商品 ID 一致时可跨次关联，未取得 ID 时只绑定当前页面，不凭名称合并。</p>
+          </details>
+          <details class="help-topic">
+            <summary>录制和互动需要注意什么？</summary>
+            <p>默认录制一个视频，开启“拆分成多个视频”后按所选时长分段。录制期间会自动保持当前直播页面播放；互动记录需主动开启，评论、弹窗商品和人数会分区保存。</p>
+            <p>建议保持直播页在前台，不要用同一账号在其他地方进入另一个直播间。切换标签或应用不会主动停止录屏，但页面评论可能暂停更新；休眠、关闭或未更新期间的评论无法补采。</p>
+            <p>录制中可以下载商品资料和评价，视频继续录制。商品面板遮住直播画面时可能漏记商品弹窗；评论和人数也取决于直播页面是否继续更新。被动互动记录只保存实际看到的资料，不自动打开、翻页或购买商品。</p>
+          </details>
+          <details class="help-topic">
+            <summary>文件保存在哪，下载后怎么用？</summary>
+            <p>每次任务生成一个压缩包，保存到浏览器默认下载位置。需要更换位置，请在浏览器下载设置中修改。文件是否下载完成可在“下载记录”查看；已保存的文件不会被新任务覆盖。</p>
+            <p>资料可继续交给 BrandBAI Skills 或你的提示词做直播复盘、商品研究和评价分析。本插件只负责采集与整理，不自动生成分析结论。</p>
+          </details>
+          <section class="help-contact-card" aria-labelledby="contact-title">
+            <h3 id="contact-title">使用反馈与合作交流</h3>
+            <p class="muted">联系 BrandBAI，获取使用指南与版本更新。</p>
+            <button id="copy-official-account" class="contact-copy" type="button" aria-describedby="contact-status"><span>公众号</span><strong>布兰德老白BrandBai</strong><small>复制</small></button>
+            <button id="copy-support-email" class="contact-copy" type="button" aria-describedby="contact-status"><span>邮箱</span><strong>brandlaobai@163.com</strong><small>复制</small></button>
+            <p id="contact-status" class="contact-status" role="status" aria-live="polite" hidden></p>
+          </section>
+        </div>
+      </details>
+      <footer>仅处理当前公开直播间 · 文件保存在本机</footer>
+    </main>
+
+    <div class="action-dock">
+      <p id="config-summary" class="config-summary">预计 1 个视频 · 30 分钟 · 标清</p>
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+      <button id="start" class="primary" type="button">开始录制</button>
+      <button id="stop-recording" class="task-stop" type="button" hidden>停止录制并保存</button>
+    </div>
+    <script src="ui-shell.js"></script>
+    <script src="task-view.js"></script>
+    <script src="popup.js"></script>
+    <script src="product-identity.js"></script>
+    <script src="product-panel.js"></script>
+    <script src="review-panel.js"></script>
+    <script src="download-panel.js"></script>
+    <script src="help-panel.js"></script>
+  </body>
+</html>

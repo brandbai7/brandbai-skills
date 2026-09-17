@@ -9,3 +9,5 @@ BrandBAI Skills uses the following third-party packages. Each package remains su
 | PyYAML | Repository metadata validation | MIT License | <https://github.com/yaml/pyyaml> |
 
 The packages are not redistributed in this repository. They are installed separately from their normal package sources. Their copyright notices and full license texts are available from the linked upstream projects and installed package distributions.
+
+The live-recorder Skill also uses separately installed StreamGet 4.0.10 and external FFmpeg / FFprobe executables for public live-stream resolution and local recording. Their distributions and license notices remain separate; neither dependency binaries nor downloaded live media are bundled in the Skill or repository. The BrandBAI license does not replace their upstream terms.

@@ -1,0 +1,35 @@
+/* BrandBAI family tokens, aligned with Ecommerce Collector 0.11.160. */
+:root {
+  color-scheme: light;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  font-synthesis: none;
+  --brand-blue: #176ff2;
+  --brand-blue-dark: #0f5fd4;
+  --brand-teal: #12b7a6;
+  --ink: #182235;
+  --muted: #66758a;
+  --muted-soft: #8a96a8;
+  --line: #e1e7ef;
+  --line-strong: #d5dee9;
+  --canvas: #f4f7fb;
+  --surface: #ffffff;
+  --surface-soft: #f8fafc;
+  --success: #17815f;
+  --warning: #a56414;
+  --danger: #b33c4a;
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --shadow-card: 0 1px 2px rgba(24,34,53,.035), 0 6px 18px rgba(24,34,53,.045);
+  --shadow-float: 0 8px 24px rgba(24,34,53,.09);
+  --blue-ink: #145fae;
+  --blue-soft: #f4f8fd;
+  --blue-line: #cfe0f4;
+  --success-soft: #e7f7ef;
+  --warning-soft: #fff7e9;
+  --warning-line: #ebd4ae;
+  --danger-soft: #fdebed;
+  --danger-line: #edc5cb;
+  --accent: var(--brand-blue);
+  --accent-dark: var(--brand-blue-dark);
+  --error: var(--danger);
+}

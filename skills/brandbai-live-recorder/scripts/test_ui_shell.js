@@ -1,0 +1,20 @@
+/* Synthetic layout observer test. No extension, browser or network required. */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const source = fs.readFileSync(path.join(__dirname, '../assets/chrome-extension/ui-shell.js'), 'utf8');
+const style = {setProperty(name, value) { this[name] = value; }};
+let dockHeight = 112, headerHeight = 144, callback;
+const dock = {getBoundingClientRect:()=>({height:dockHeight})};
+const header = {getBoundingClientRect:()=>({height:headerHeight})};
+const observed = [];
+const document = {documentElement:{style},querySelector:s=>s==='.action-dock'?dock:header};
+vm.runInNewContext(source,{document,ResizeObserver:class {constructor(fn) {callback=fn;} observe(el) {observed.push(el);}}});
+assert.equal(observed.length,2);
+callback(); assert.equal(style['--action-dock-height'],'112px'); assert.equal(style.scrollPaddingTop,'156px');
+dockHeight=219.2; callback(); assert.equal(style['--action-dock-height'],'220px');
+dockHeight=0; callback(); assert.equal(style['--action-dock-height'],'0px');
+headerHeight=198.8; callback(); assert.equal(style.scrollPaddingTop,'211px');
+assert.doesNotThrow(()=>vm.runInNewContext(source,{document}));
+console.log('UI shell: dock growth, hidden state, header resize and fallback passed.');

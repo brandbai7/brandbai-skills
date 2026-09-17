@@ -61,3 +61,27 @@ python -X utf8 -B test_product_page_modes_v040.py
 ```
 
 Update the commands when a new skill adds its own tests.
+
+For the live-recorder Skill (no real live-room access in these tests):
+
+```bash
+python -B -m unittest scripts/test_build_live_recorder_customer_release.py
+cd skills/brandbai-live-recorder/scripts
+python -B -m unittest discover -p "test_*.py"
+node test_assistant_launch.js
+node test_background_tab_close.js
+node test_browser_delivery.js
+node test_catalog_numbers.js
+node test_content_comment_reuse.js
+node test_content_playback_recovery.js
+node test_help_panel.js
+node test_review_background.js
+node test_review_target.js
+node test_review_visibility.js
+node test_room_access.js
+node test_room_context.js
+node test_service_connection.js
+node test_ui_shell.js
+```
+
+Real-page tests remain separate and require explicit scope; isolated Chromium tests are opt-in.

@@ -23,6 +23,7 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
+| [`brandbai-live-recorder`](skills/brandbai-live-recorder/) | 0.22.10 | 公开直播单房／多房录制与人数快照；配套 Chrome 按需记录互动、下载商品目录、单商品图片规格与买家评价；独立资料包和商品身份关联，完整性如实说明 | Prototype · Noncommercial |
 | [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.6.0 | 单篇、主页、搜索或插件自选作品的媒体、文案、数据和一级评论；单条挂车作品可按需采集关联商品公开资料与商品评价，独立导出、进度与暂停、身份核验续跑；不承诺全 SKU 或平台全量 | Community beta · Noncommercial |
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.3.2 | 天猫／淘宝参数、主图、图文详情和视频按模块读取，分开当前规格与页面参数，并输出结构化价格、素材双序号及内容／经营两层状态；评价和问大家保持独立下载 | Prototype · Noncommercial |
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.3 | 单篇完整笔记、当前页达人快照与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
@@ -34,6 +35,13 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 | [`brandbai-product-page`](skills/brandbai-product-page/) | 0.6.4 | 以一核、两链、五问诊断商品页；主图逐张安排任务，交易区必查但只在影响选择时提出平台可实施方案，详情页按整页内容地图形成可执行改版建议；专业模式交付两份品牌可读文档 | Release candidate · Noncommercial |
 
 首发采集脚本已在 Windows Chrome 完成真实页面验证；macOS 和 Linux 需要显式提供 Chrome 可执行文件路径，目前列为待扩大验证范围。Skill 格式本身可跨模型安装，不等于所有宿主都具备本地浏览器、终端或文件权限。
+
+### 直播录屏与商品资料
+
+- [直播录屏 Skill 0.22.10 发布与下载](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-live-recorder-v0.22.10)
+- [客户能力说明](skills/brandbai-live-recorder/assets/customer/02_Skill能力说明.md) · [安装与快速使用](skills/brandbai-live-recorder/assets/customer/01_安装与快速使用.md)
+
+直播录屏助手与上面的电商采集大师是独立插件，并未合并。媒体录制可不打开浏览器；商品、评价和可见直播互动需配套 Chrome 与本机助手。浏览器版每次任务一个 ZIP，使用浏览器默认下载位置；无浏览器模式按独立目录保存。商品视频、评价图片与视频目前不下载，不承诺评论全量、目标条数读满或经营归因。
 
 ## Install
 

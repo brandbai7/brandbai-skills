@@ -42,6 +42,9 @@ jobs:
             --skill-dir "skills/${SKILL_NAME}" \
             --dist dist \
             --tag "${GITHUB_REF_NAME}"
+      - name: Build live-recorder customer package
+        if: env.SKILL_NAME == 'brandbai-live-recorder'
+        run: python scripts/build_live_recorder_customer_release.py --dist dist
       - name: Publish GitHub Release
         shell: bash
         run: bash scripts/publish_skill_release.sh
