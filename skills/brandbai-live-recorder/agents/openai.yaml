@@ -1,0 +1,4 @@
+interface:
+  display_name: "BrandBAI 直播录屏"
+  short_description: "录制公开直播；配合浏览器保存互动、人数、商品目录、图片规格及评价"
+  default_prompt: "Use $brandbai-live-recorder to handle my selected Douyin live-room recording, product catalog, product materials, or buyer-review task. Route browser-free recording separately from visible-page collection with the Chrome extension and local helper. Collect only the requested scope, preserve product identity and partial results, and do not start transcription or analysis unless I ask."

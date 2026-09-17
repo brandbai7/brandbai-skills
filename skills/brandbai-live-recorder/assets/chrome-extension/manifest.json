@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "BrandBAI 直播录屏助手",
+  "version": "0.22.10",
+  "minimum_chrome_version": "114",
+  "description": "在侧边栏录制公开抖音直播，可选记录互动；也可独立下载当前商品的图片、规格参数与资料包，无需先录屏。",
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "sidePanel",
+    "scripting",
+    "downloads",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://127.0.0.1:18765/*",
+    "http://127.0.0.1:28765/*",
+    "https://live.douyin.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://www.douyin.com/*",
+    "https://douyin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://live.douyin.com/*"
+      ],
+      "js": [
+        "douyin-commerce-dom.js",
+        "product-identity.js",
+        "live-products.js",
+        "page-materials.js",
+        "product-review-collector.js",
+        "review-page.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "BrandBAI 直播录屏助手",
+    "default_icon": {"16": "assets/icon-16.png", "32": "assets/icon-32.png", "48": "assets/icon-48.png"}
+  }
+}

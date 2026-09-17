@@ -56,7 +56,7 @@ def release_files(skill_dir: Path) -> list[Path]:
         if not path.is_file():
             continue
         relative = path.relative_to(skill_dir)
-        if any(part in FORBIDDEN_PARTS for part in relative.parts):
+        if any(part in FORBIDDEN_PARTS or part.startswith(".") for part in relative.parts):
             continue
         if path.suffix.lower() in FORBIDDEN_SUFFIXES:
             continue

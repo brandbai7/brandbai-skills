@@ -64,3 +64,15 @@ jobs:
       - name: Run Product Page synthetic tests
         working-directory: skills/brandbai-product-page/scripts
         run: python -B test_product_page_delivery.py && python -B test_product_page_modes_v040.py
+      - name: Test live-recorder customer package
+        run: python -B -m unittest scripts/test_build_live_recorder_customer_release.py
+      - name: Test live-recorder contracts and local state
+        working-directory: skills/brandbai-live-recorder/scripts
+        run: python -B -m unittest discover -p "test_*.py"
+      - name: Test live-recorder browser logic without live pages
+        working-directory: skills/brandbai-live-recorder/scripts
+        shell: bash
+        run: |
+          for test in test_*.js; do
+            node "$test"
+          done
