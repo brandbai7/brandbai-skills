@@ -195,6 +195,7 @@ progress::-webkit-progress-value { background: var(--brand-blue); border-radius:
 .inline-delivery > strong { display: block; font-size: 13px; color: var(--blue-ink); }
 .inline-delivery > p { margin: 6px 0; color: var(--muted); font-size: 12px; }
 .inline-delivery > button { margin-top: 8px; }
+#review-pause, #review-continue, #review-stop { width: 100%; min-height: 44px; margin-top: 12px; white-space: normal; }
 
 @media (max-width: 360px) {
   .app-header { padding: 12px; }

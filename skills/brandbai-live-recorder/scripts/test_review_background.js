@@ -24,5 +24,12 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,'../assets/chrome-extension/
   await context.invoke({...batch,body:{lease:{...lease,extra:'not allowed'}}},sender);assert.equal(calls.length,1);
   await context.invoke({...batch,action:'arbitrary',path:'/v1/tasks'},sender);assert.equal(calls.length,1);
   await context.invoke(batch,sender);assert.equal(calls.length,2);assert.equal(calls[1].url,`/v1/product-reviews/${id}/events`);
+  for(const action of ['resume','status']){
+    const before=calls.length;
+    await context.invoke({...batch,action},{...sender,documentId:'other'});assert.equal(calls.length,before);
+    await context.invoke({...batch,action,body:{lease:{...lease,filterKey:'other'}}},sender);assert.equal(calls.length,before);
+    await context.invoke({...batch,action},sender);assert.equal(calls.length,before+1);
+    assert.equal(calls.at(-1).url,`/v1/product-reviews/${id}${action==='resume'?'/resume':''}`);
+  }
   console.log('Review bridge: room, extension, document, tab, lease and fixed-route checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1});

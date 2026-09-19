@@ -73,7 +73,7 @@
         const before = document.defaultView.getComputedStyle(n, '::before').content.replace(/["']/g, '');
         if (/^[¥￥]$/.test(before) && /^\d/.test(value)) value = before + value;
         const rest = value.replace(/[¥￥]\d+(?:\.\d+)?(?:元|起)?/g, '');
-        return /[¥￥]\d/.test(value) && /^(?:(?:优惠前|券后价?|到手价?|原价|现价|售价|价格|活动价|平台补贴后|起|元|[:：·|｜]))*$/.test(rest) ? value : null;
+        return /[¥￥]\d/.test(value) && /^(?:(?:优惠前|券后价?|到手价?|原价|现价|预售价|售价|价格|活动价|大促价|平台补贴后|起|元|[:：·|｜]))*$/.test(rest) ? value : null;
       }).filter(Boolean);
       return unique(candidates.filter((v) => !candidates.some((other) => other !== v && other.includes(v))), 12);
     }

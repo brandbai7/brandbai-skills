@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -8,6 +9,37 @@ import recorder_assistant
 
 
 class RecorderAssistantTests(unittest.TestCase):
+    def test_rename_preserves_protocol_and_private_directory(self) -> None:
+        self.assertEqual(recorder_assistant.SERVICE_NAME, "brandbai-live-recorder")
+        self.assertEqual(recorder_assistant.CUSTOM_PROTOCOL_URL, "brandbai-recorder://start")
+        with mock.patch.dict("os.environ", {"LOCALAPPDATA": "C:/synthetic"}):
+            self.assertEqual(recorder_assistant.default_private_root(), Path("C:/synthetic/BrandBAI/LiveRecorder"))
+
+    def test_owned_legacy_shortcut_is_replaced_and_new_one_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict("os.environ", {"APPDATA": root}):
+            programs = Path(root) / "Microsoft/Windows/Start Menu/Programs"
+            programs.mkdir(parents=True)
+            legacy = programs / recorder_assistant.LEGACY_START_MENU_NAME
+            legacy.write_text("[InternetShortcut]\nURL=brandbai-recorder://start\n", encoding="utf-8-sig")
+            current = recorder_assistant._write_start_menu_shortcut()
+            self.assertEqual(current.name, recorder_assistant.START_MENU_NAME)
+            self.assertTrue(recorder_assistant._is_owned_shortcut(current))
+            self.assertFalse(legacy.exists())
+            self.assertEqual(recorder_assistant._write_start_menu_shortcut(), current)
+
+    def test_rename_preserves_user_modified_shortcut_and_rejects_name_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict("os.environ", {"APPDATA": root}):
+            current = recorder_assistant._write_start_menu_shortcut()
+            legacy = current.with_name(recorder_assistant.LEGACY_START_MENU_NAME)
+            other = "[InternetShortcut]\nURL=https://example.invalid/\n"
+            legacy.write_text(other, encoding="utf-8")
+            recorder_assistant._write_start_menu_shortcut()
+            self.assertEqual(legacy.read_text(encoding="utf-8"), other)
+            current.write_text(other, encoding="utf-8")
+            with self.assertRaises(OSError):
+                recorder_assistant._write_start_menu_shortcut()
+            self.assertEqual(current.read_text(encoding="utf-8"), other)
+
     def test_protocol_can_only_request_service_start(self) -> None:
         self.assertTrue(recorder_assistant._valid_protocol_request(None))
         self.assertTrue(
@@ -20,7 +52,7 @@ class RecorderAssistantTests(unittest.TestCase):
         )
 
     def test_protocol_command_uses_only_the_branded_launcher(self) -> None:
-        launcher = Path("C:/BrandBAI/BrandBAI直播录屏助手.exe")
+        launcher = Path("C:/BrandBAI/BrandBAI直播采集助手.exe")
         command = recorder_assistant._protocol_command(launcher)
         self.assertEqual(command, f'"{launcher}" "%1"')
         self.assertNotIn("python", command.lower())
@@ -34,7 +66,7 @@ class RecorderAssistantTests(unittest.TestCase):
             / "windows-assistant"
             / "BrandBAIRecorderLauncher.cs"
         ).read_text(encoding="utf-8")
-        self.assertIn('AssemblyProduct("BrandBAI 直播录屏助手")', source)
+        self.assertIn('AssemblyProduct("BrandBAI 直播采集助手")', source)
         self.assertIn('AllowedRequest = "brandbai-recorder://start"', source)
         self.assertNotIn("live.douyin.com", source)
         self.assertNotIn("room_url", source)

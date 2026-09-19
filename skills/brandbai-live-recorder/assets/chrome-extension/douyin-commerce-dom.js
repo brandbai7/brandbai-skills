@@ -93,10 +93,10 @@
         // unrelated sibling or a guessed currency for a naked number.
         const before = clean(window.getComputedStyle(node, "::before").content).replace(/^["']|["']$/g, "");
         if (/^[￥¥]$/.test(before) && /^\d/.test(value)) value = before + value;
-        const money = /(?:优惠前|券后|到手价?|原价|现价|预售价|售价|价格|活动价|平台补贴后)?[￥¥]\d+(?:\.\d+)?(?:元|起)?/g;
+        const money = /(?:优惠前|券后价?|到手价?|原价|现价|预售价|售价|价格|活动价|大促价|平台补贴后)?[￥¥]\d+(?:\.\d+)?(?:元|起)?/g;
         const matches = value.match(money) || [];
         const remainder = value.replace(money, "");
-        if (!matches.length || !/^(?:(?:优惠前|券后|到手价?|原价|现价|预售价|售价|价格|活动价|平台补贴后|起|元|[:：·|｜]))*$/.test(remainder)) continue;
+        if (!matches.length || !/^(?:(?:优惠前|券后价?|到手价?|原价|现价|预售价|售价|价格|活动价|大促价|平台补贴后|起|元|[:：·|｜]))*$/.test(remainder)) continue;
         matches.forEach((price) => values.add(price));
       }
       const monetaryValue = (price) => price.match(/[￥¥]\d+(?:\.\d+)?/)?.[0];
@@ -269,6 +269,45 @@
       const combined = [...local, ...groups];
       return combined.filter((g) => combined.filter((other) => other.name === g.name).length === 1);
     }
+    function parameterGroup(panel) {
+      // These are parameter/bundle tabs, NOT orderable SKU controls. Keep
+      // them separate; never infer a price, SKU id or gallery association.
+      const sections=all(panel,'.rTo7umLC').filter(n=>rendered(n)
+        && !n.closest('.PEzhiR4O,[data-role="product-reviews"],[data-role="checkout"]')
+        && Array.from(n.children).some(c=>text(c)==='产品参数'));
+      if(sections.length!==1)return null;
+      const scope=sections[0], lists=Array.from(scope.children).filter(n=>n.matches('.D_7wQB6X')&&rendered(n));
+      const contents=Array.from(scope.children).filter(n=>n.matches('.uSceXBcd')&&rendered(n));
+      if(lists.length!==1||contents.length!==1)return null;
+      const options=Array.from(lists[0].children).filter(rendered);
+      if(!options.length||options.some(n=>!n.matches('.__vtisZP')||!text(n)||text(n).length>280
+        ||all(n,'a,button,input,select').length)||new Set(options.map(text)).size!==options.length)return null;
+      return {scope,content:contents[0],options:options.map(node=>({node,value:text(node)}))};
+    }
+    function parameterSelected(node) {
+      return Boolean(node?.matches('.__vtisZP.pC3RZNs3')&&node.parentElement?.matches('.D_7wQB6X'));
+    }
+    function parameterContent(group) {
+      if(!group?.content?.isConnected)return null;
+      const cards=Array.from(group.content.children).filter(rendered);
+      if(!cards.length||cards.length>20||cards.some(n=>!n.matches('.ftRMs5mA')))return null;
+      const result=[];
+      for(const card of cards){
+        const header=Array.from(card.children).find(n=>n.matches('.Ri9v30c9'));
+        const parts=header?Array.from(header.children).filter(rendered):[];
+        const params=Array.from(card.children).find(n=>n.matches('.PKh2krtF'));
+        if(parts.length!==2||!text(parts[0])||text(parts[0]).length>300||!/^x\s*\d{1,6}$/i.test(text(parts[1]))||!params)return null;
+        const rows=Array.from(params.children).filter(rendered), parameters=[];
+        if(rows.length>40)return null;
+        for(const row of rows){
+          const pair=Array.from(row.children).filter(rendered);
+          if(pair.length!==2||!text(pair[0])||text(pair[0]).length>40||!text(pair[1])||text(pair[1]).length>300)return null;
+          parameters.push({name:text(pair[0]),value:text(pair[1])});
+        }
+        result.push({name:text(parts[0]),quantity_text:text(parts[1]),parameters});
+      }
+      return result;
+    }
     function optionSelected(node) {
       // Confirmed live SKU card states, scoped by groupBlocks; never infer
       // selection from colour alone or treat every visible option as selected.
@@ -314,7 +353,7 @@
       }
       return [];
     }
-    return Object.freeze({ inspect, header, purchaseScope, skuGroups, localSkuGroups: groupBlocks, liveSkuGroups, optionSelected, optionDisabled, skuPrices, parameterLines, diagnose });
+    return Object.freeze({ inspect, header, purchaseScope, skuGroups, localSkuGroups: groupBlocks, liveSkuGroups, optionSelected, optionDisabled, skuPrices, parameterLines, parameterGroup, parameterSelected, parameterContent, diagnose });
   }
   return Object.freeze({ createInspector, mediaKey, visibleWithinViewport });
 });

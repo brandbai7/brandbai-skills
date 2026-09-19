@@ -151,11 +151,13 @@ def build_product_package(root, events, *, stop, progress=lambda state: None, fe
     urls = list(dict.fromkeys(img['url'] for img in references))
     coverage = products[0]['payload'].get('image_coverage') if standalone and products else None
     skus = products[0]['payload'].get('sku_materials') if standalone and products else None
+    parameters = products[0]['payload'].get('parameter_materials') if standalone and products else None
     state = dict(state='running', image_total=len(urls), image_saved=0, image_failed=0, image_skipped=0,
                  observation_count=len(catalog['rows']) if catalog else len(products), observation_limited=observation_limited, downloaded_bytes=0,
                  phase='downloading', material_kind='catalog' if catalog else 'product')
     if coverage: state['image_coverage'] = coverage
     if skus: state['sku_materials'] = skus
+    if parameters: state['parameter_materials'] = parameters
     if catalog: state.update(catalog_complete=catalog['complete'], catalog_stop_reason=catalog['stop_reason'])
     progress(dict(state))
     media = []
@@ -195,7 +197,8 @@ def build_product_package(root, events, *, stop, progress=lambda state: None, fe
         write_json(folder / '下载清单.json', dict(state, started_at=started, assets=media))
     incomplete = coverage and (not coverage['main_complete'] or not coverage['detail_complete'] or coverage['stop_reason']) or catalog and not catalog['complete']
     sku_incomplete = skus and skus['status'] != 'complete_all_visible_skus'
-    state['state'] = 'partial' if incomplete or sku_incomplete or observation_limited or any(e['payload'].get('fields_limited') for e in products) or state['image_failed'] or state['image_skipped'] else 'complete_observed'
+    parameter_incomplete = parameters and parameters['status'] != 'complete_visible_options'
+    state['state'] = 'partial' if incomplete or sku_incomplete or parameter_incomplete or observation_limited or any(e['payload'].get('fields_limited') for e in products) or state['image_failed'] or state['image_skipped'] else 'complete_observed'
     if stop.is_set(): state['state'] = 'partial'
     state['image_total'] = len(urls)
     state['phase'] = 'packaging'
@@ -236,15 +239,18 @@ def build_product_package(root, events, *, stop, progress=lambda state: None, fe
             price_texts=r['price_texts'],observed_at_epoch_ms=r['observed_at_epoch_ms'],
             images=[dict(url=u,file=next((a.get('file') for a in media if a['url']==u),None),
                          status=next((a['status'] for a in media if a['url']==u),'missing')) for u in r['image_urls']]) for r in skus['variants']]
+    if parameters:
+        material['parameter_materials']=parameters
+        material['coverage']['parameter_options']=parameters['status']
     write_json(folder / '商品资料.json', material)
     def shown(value):
         return str(value or '暂未取得').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('[', '\\[').replace(']', '\\]').replace('`', '\\`')
     by_url = {row['url']: row for row in media}
     lines = ['# 商品资料' if standalone else '# 本场商品资料下载', '', f"已保存 {state['image_saved']} 张图片；失败 {state['image_failed']} 张；未下载 {state['image_skipped']} 张。", '',
-             ('已在同一商品内补齐图片，并按页面公开选项依次确认规格；是否完成和恢复原选择见下方。未购买、领券或参与抽奖。' if skus else '已在用户选定的同一商品中翻图、滚动补齐主图与详情图；范围和缺失情况见下方。未切换规格、商品或遍历 SKU。' if coverage else '图片是页面实际提供且成功取得的文件，不保证原始分辨率或商品全量。没有自动翻页、补齐未打开的详情或遍历 SKU。') + '价格和规格按各自观察时间保存，不代表成交事实。', '']
+             ('已读取同一商品的公开图片与规格信息；实际取得范围、缺口及恢复状态见下方。未购买、领券或参与抽奖。' if skus else '已在用户选定的同一商品中读取主图与详情图；范围和缺失情况见下方。未切换规格、商品或遍历 SKU。' if coverage else '图片是页面实际提供且成功取得的文件，不保证原始分辨率或商品全量。没有自动翻页、补齐未打开的详情或遍历 SKU。') + '价格和规格按各自观察时间保存，不代表成交事实。', '']
     if identity: lines += [identity_note(identity)]
     if skus and not skus['variants']:
-        lines += ['## 规格与图片对应', '', '未识别到可遍历的规格选项，不能据此判断只有一个 SKU；没有逐项读取或切换规格。', '']
+        lines += ['## 规格与图片对应', '', ('套餐参数已单独记录在下方；未取得可核验的购买规格、各档价格和专属图片，不用商品统一展示价或主图替代。' if parameters else '未识别到可遍历的规格选项，不能据此判断只有一个 SKU；没有逐项读取或切换规格。'), '']
     elif skus:
         lines += ['## 规格与图片对应', '', '规格读取：' + ('全部页面可选规格已确认。' if not sku_incomplete else '部分规格未确认，见各项说明。'), '',
             '原选择：'+' / '.join(shown(r['value']) for r in skus['initial_selection'])+'；恢复：'+('已确认' if skus['selection_restored'] else '未确认')+'。', '',
@@ -254,7 +260,21 @@ def build_product_package(root, events, *, stop, progress=lambda state: None, fe
             lines += ['### '+' / '.join(shown(s['value']) for s in row['selection']), '', state_label+'；价格：'+shown(' / '.join(row['price_texts']))+'。', '']
             if row['reason']: lines += ['该项未完全确认：'+shown(row['reason'])+'。', '']
             lines += [f"[对应图片]({i['file']})" if i['file'] else '对应图片未下载成功。' for i in row['images']]+['']
+    if parameters:
+        lines += ['## 套餐内容与参数', '',
+            f"已读取 {sum(r['state']=='observed' for r in parameters['variants'])} / {parameters['option_count']} 个页面套餐选项。"+
+            ('原选择已恢复。' if parameters['selection_restored'] else '原选择未确认恢复，请检查页面。'), '',
+            '以下是产品参数区逐项展示的套餐组成，不等于已核实可购买 SKU；不推算价格、专属图片或规格 ID。', '']
+        reason_labels={'selection_unconfirmed':'未确认选中','content_unconfirmed':'切换后的内容未确认','content_limit':'内容超过本次保存上限','option_disabled':'页面不可选，未点击'}
+        for row in parameters['variants']:
+            lines += ['### '+shown(row['label']), '']
+            if row['reason']:lines += [reason_labels[row['reason']]+'。','']
+            for component in row['components']:
+                lines += [shown(component['name'])+' · '+shown(component['quantity_text']), '']
+                lines += ['- '+shown(p['name'])+'：'+shown(p['value']) for p in component['parameters']]+['']
     if coverage:
+        if coverage.get('main_video_observed'):
+            lines += [f"另识别到 {coverage['main_video_observed']} 个商品视频位置；视频文件未下载，不计入主图缺失。轮播位置数不等于图片张数。", '']
         lines += [f"主图：已识别 {coverage['main_observed']} / {coverage['main_expected'] or '总数未知'}；详情图：已识别 {coverage['detail_observed']} 张。", '',
             '图片覆盖：' + ('已核对主图数量和详情末端；下载失败项另见清单。' if not incomplete else '尚未确认收齐；已保留取得的图片，请勿按整页完整资料使用。'), '',
             f"商品字段观察时间（毫秒）：{coverage['fields_observed_at_epoch_ms']}。图片采集发生在其后的同一商品观察窗口。", '']

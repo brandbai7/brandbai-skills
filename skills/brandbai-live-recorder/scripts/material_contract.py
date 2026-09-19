@@ -37,8 +37,18 @@ def timestamp(value):
 def validate_coverage(value, images):
     fields = {'mode', 'main_expected', 'main_observed', 'detail_observed', 'main_complete',
               'detail_complete', 'detail_end_evidence', 'stop_reason', 'fields_observed_at_epoch_ms'}
-    if not isinstance(value, dict) or set(value) != fields or value['mode'] != 'single_product_full':
+    media_fields = {'main_media_expected', 'main_video_observed', 'main_video_downloaded'}
+    if not isinstance(value, dict) or not fields <= set(value) or set(value)-fields-media_fields or value['mode'] != 'single_product_full':
         raise ValueError('invalid material coverage')
+    if media_fields & set(value):
+        if not media_fields <= set(value): raise ValueError('incomplete media counts')
+        total, videos = value['main_media_expected'], value['main_video_observed']
+        if total is not None and (type(total) is not int or not 1 <= total <= 200): raise ValueError('invalid media count')
+        if type(videos) is not int or not 0 <= videos <= 200 or total is not None and videos > total:
+            raise ValueError('invalid video count')
+        if value['main_video_downloaded'] is not False: raise ValueError('video download unsupported')
+        if total is not None and value['main_expected'] is not None and value['main_expected'] + videos > total:
+            raise ValueError('media coverage mismatch')
     for field in ('main_expected', 'main_observed', 'detail_observed'):
         n = value[field]
         if field == 'main_expected' and n is None: continue
@@ -115,7 +125,7 @@ def validate_sku_materials(value, images):
     fields={'mode','status','initial_selection','selection_restored','variants','stop_reason'}
     if not isinstance(value,dict) or set(value)!=fields or value['mode']!='all_visible': raise ValueError('invalid SKU collection')
     states={'complete_all_visible_skus','partial_all_visible_skus','not_observed'}
-    reasons={None,'sku_not_observed','selection_unconfirmed','sku_limit','restore_unconfirmed','sku_coverage_unconfirmed'} | STOP_REASONS
+    reasons={None,'sku_not_observed','selection_unconfirmed','sku_limit','restore_unconfirmed','sku_coverage_unconfirmed','sku_inventory_changed'} | STOP_REASONS
     if value['status'] not in states or value['stop_reason'] not in reasons or type(value['selection_restored']) is not bool: raise ValueError('invalid SKU coverage')
     def selection(rows):
         if not isinstance(rows,list) or len(rows)>12: raise ValueError('invalid SKU selection')
@@ -157,3 +167,54 @@ def validate_sku_materials(value, images):
         or not any(r['state']=='observed' for r in clean) or any(r['state']!='unavailable' and (r['state']!='observed' or r['reason'] or not r['main_complete'] or not r['price_texts']) for r in clean)):
         raise ValueError('SKU coverage unproven')
     return dict(mode='all_visible',status=value['status'],initial_selection=initial,selection_restored=value['selection_restored'],variants=clean,stop_reason=value['stop_reason'])
+
+
+def validate_parameter_materials(value):
+    """Public bundle composition tabs, deliberately separate from transactional SKUs."""
+    from product_evidence import clean_text
+    fields={'source','status','option_count','initial_selection','selection_restored','variants','stop_reason'}
+    if not isinstance(value,dict) or set(value)!=fields or value['source']!='product_parameter_tabs':
+        raise ValueError('invalid parameter collection')
+    reasons={None,'selection_unconfirmed','option_limit','options_changed','restore_unconfirmed','content_unconfirmed'}|STOP_REASONS
+    if value['status'] not in {'complete_visible_options','partial_visible_options'} or value['stop_reason'] not in reasons:
+        raise ValueError('invalid parameter status')
+    count=value['option_count']
+    if type(count) is not int or not 1<=count<=1000 or type(value['selection_restored']) is not bool:
+        raise ValueError('invalid parameter count')
+    initial=clean_text(value['initial_selection'],280)
+    variants=value['variants']
+    if not isinstance(variants,list) or len(variants)>min(40,count):raise ValueError('parameter option limit')
+    clean=[];seen=set()
+    for row in variants:
+        if not isinstance(row,dict) or set(row)!={'label','state','reason','components','observed_at_epoch_ms'}:
+            raise ValueError('invalid parameter option')
+        label=clean_text(row['label'],280)
+        if not label or label in seen:raise ValueError('duplicate parameter option')
+        seen.add(label)
+        if row['state'] not in {'observed','failed','unavailable'}:raise ValueError('invalid parameter state')
+        expected={ 'observed':{None}, 'failed':{'selection_unconfirmed','content_unconfirmed','content_limit'}, 'unavailable':{'option_disabled'} }
+        if row['reason'] not in expected[row['state']]:raise ValueError('parameter reason mismatch')
+        components=row['components']
+        if not isinstance(components,list) or len(components)>20 or bool(components)!=(row['state']=='observed'):
+            raise ValueError('unproven parameter content')
+        entries=[]
+        for component in components:
+            if not isinstance(component,dict) or set(component)!={'name','quantity_text','parameters'}:raise ValueError('invalid parameter component')
+            name=clean_text(component['name'],300);quantity=clean_text(component['quantity_text'],20)
+            if not name or not quantity or not re.fullmatch(r'x\s*\d{1,6}',quantity,re.I):raise ValueError('invalid parameter component label')
+            parameters=component['parameters']
+            if not isinstance(parameters,list) or len(parameters)>40:raise ValueError('parameter field limit')
+            pairs=[]
+            for pair in parameters:
+                if not isinstance(pair,dict) or set(pair)!={'name','value'}:raise ValueError('invalid parameter field')
+                key,val=clean_text(pair['name'],40),clean_text(pair['value'],300)
+                if not key or not val:raise ValueError('empty parameter field')
+                pairs.append(dict(name=key,value=val))
+            entries.append(dict(name=name,quantity_text=quantity,parameters=pairs))
+        clean.append(dict(label=label,state=row['state'],reason=row['reason'],components=entries,observed_at_epoch_ms=timestamp(row['observed_at_epoch_ms'])))
+    if value['status']=='complete_visible_options' and (not initial or initial not in seen or len(clean)!=count
+        or not value['selection_restored'] or value['stop_reason'] or not any(r['state']=='observed' for r in clean)
+        or any(r['state']=='failed' for r in clean)):raise ValueError('parameter coverage unproven')
+    result=dict(value,initial_selection=initial,variants=clean)
+    if len(json.dumps(result,ensure_ascii=False))>85000:raise ValueError('parameter byte limit')
+    return result

@@ -15,11 +15,11 @@
     async sendMessage(id,m){audit.requests.push(m);
       if(m.type==='brandbai-product-preview')return audit.mode==='empty'?{status:'none'}:audit.product;
       if(m.type==='brandbai-review-preview')return {ready:audit.mode==='review',product_identity:identity,product:review.product,lease:{id:'synthetic-lease'},filter_label:'全部 · 综合',loaded_count:20,declared_count_text:'8.9万',resumable_job_id:review.can_continue?review.id:null};
-      if(m.type==='brandbai-review-start'){Object.assign(review,{id:m.request_id,runId:m.request_id,state:'collecting',limit:m.limit,reviewCount:100});return {job:review};}
+      if(m.type==='brandbai-review-start'){Object.assign(review,{id:m.request_id,runId:m.request_id,state:'collecting',limit:m.limit,collection_mode:m.collection_mode,reviewCount:100});return {job:review};}
       if(m.type==='brandbai-review-stop'){Object.assign(review,{state:'saved',doneReason:'user_paused',can_continue:true,output_dir:'synthetic',delivery});audit.deliveries=[delivery];return {job:review};}
       return {ok:true,room_url:room,roomUrl:room,playbackPaused:false};}},
     scripting:{async executeScript(){return []}},storage:{session:{async get(keys){return !keys?{...stored}:Object.fromEntries((Array.isArray(keys)?keys:[keys]).filter(k=>k in stored).map(k=>[k,stored[k]]))},async set(v){Object.assign(stored,structuredClone(v))},async remove(k){delete stored[k]}}}};
-  const health={service:'brandbai-live-recorder',status:'ready',version:'0.22.7',automatic_pairing:true,one_click_pairing:true,product_downloads:true,product_catalog:true,product_snapshots:true,independent_product_reviews:true,shared_product_identity:true,review_stop_save:true,browser_zip_delivery:true,review_target_continuation:true,review_visibility_wait:true};
+  const health={service:'brandbai-live-recorder',status:'ready',version:'0.22.14',automatic_pairing:true,one_click_pairing:true,product_downloads:true,product_catalog:true,product_snapshots:true,independent_product_reviews:true,shared_product_identity:true,review_stop_save:true,browser_zip_delivery:true,review_target_continuation:true,review_visibility_wait:true,review_structure_recovery:true,review_automatic_pause_resume:true,product_media_classification:true,product_parameter_options:true};
   window.fetch=async(url,opts={})=>{
     const path=new URL(url).pathname;audit.requests.push({path,method:opts.method||'GET'});
     let data;

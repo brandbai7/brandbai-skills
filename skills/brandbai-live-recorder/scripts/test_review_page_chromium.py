@@ -41,6 +41,8 @@ class ReviewPageTests(unittest.TestCase):
         def bridge(message):
             self.messages.append(message)
             if message['action']=='start':return {'task':self.jobs.start(message['body'],self.root)}
+            if message['action']=='status':return {'task':self.jobs.status(message['request_id'])}
+            if message['action']=='resume':return {'task':self.jobs.resume(message['request_id'],message['body'])}
             return {'task':self.jobs.accept(message['request_id'],message['body'])}
         self.page.expose_function('bridge',bridge)
         # Exercise the real extension background route, not just the parser.
@@ -52,7 +54,7 @@ class ReviewPageTests(unittest.TestCase):
             tabs:{onRemoved:event},storage:{session:{async get(k){return sorted({[k]:stored[k]})},async set(v){Object.assign(stored,sorted(v))},async remove(k){delete stored[k]}}}};
         '''+(EXT/'background.js').read_text(encoding='utf-8')+'''
           api=async(path,opts)=>window.bridge(path==='/v1/product-reviews'?{action:'start',body:opts.body}:
-            {action:'event',request_id:path.split('/')[3],body:opts.body});
+            {action:!opts?'status':path.endsWith('/resume')?'resume':'event',request_id:path.split('/')[3],body:opts?.body});
           window.reviewSend=message=>handleMessage(message,{id:chrome.runtime.id,tab:{id:1,url:window.room},url:window.room,documentId:'synthetic-document'});
         })();''')
         for filename in ('douyin-commerce-dom.js','product-identity.js','live-products.js','product-review-collector.js','review-page.js','page-materials.js'):
@@ -81,6 +83,39 @@ class ReviewPageTests(unittest.TestCase):
         p=self.page.evaluate('reviews.preview()');self.assertFalse(p['ready'])
         self.assertEqual(self.page.evaluate('window.tabClicks'),0);self.assertEqual(self.messages,[])
         self.open();p=self.page.evaluate('reviews.preview()');self.assertTrue(p['ready']);self.assertEqual(p['declared_count_text'],'22.9万')
+
+    def test_empty_initial_review_keeps_desktop_followup_and_its_own_images(self):
+        self.open()
+        self.page.evaluate('''()=>{
+          const c=list.children[1];c.querySelector('.AdYl5cnz').remove();
+          c.querySelector('.mgNuPdjB').insertAdjacentHTML('afterend',
+            '<div class="Ph0q9TF6"><div class="mVx_hWUO"><span class="g8rRVL3d">用户当天追评：</span><span>合成追评内容</span></div>'+
+            '<div class="DWWbmQI5"><img src="https://p3.byteimg.com/test-a.jpg?signature=NEVER_EXPORT"><img src="https://p3.byteimg.com/test-b.jpg"></div></div>');
+        }''')
+        self.start();job=self.finish()
+        self.assertEqual(job['reviewCount'],9,job);self.assertEqual(job['doneReason'],'source_exhausted')
+        rows=[json.loads(r) for r in (Path(job['output_dir'])/'商品评价.jsonl').read_text(encoding='utf-8').splitlines()]
+        found=[r for r in rows if r['content_status']=='followup_only'];self.assertEqual(len(found),1)
+        self.assertEqual(found[0]['content'],'');self.assertEqual(found[0]['image_count'],0)
+        self.assertEqual(found[0]['followups'],[dict(content='合成追评内容',date_text='用户当天追评',image_count=2)])
+        self.assertNotIn('NEVER_EXPORT',json.dumps(self.messages));self.assertEqual(job['unparsed_count'],0)
+
+    def test_one_unknown_card_does_not_stop_later_pages_or_claim_complete(self):
+        self.open()
+        self.page.evaluate("footer.insertAdjacentHTML('beforebegin','<div class=unsupported>合成未支持条目</div>')")
+        self.start();job=self.finish()
+        self.assertEqual(job['reviewCount'],9,job)
+        self.assertEqual(job['doneReason'],'selector_drift');self.assertEqual(job['unparsed_count'],1)
+        self.assertEqual(job['completeness'],'partial_selector_drift')
+        self.assertGreater(self.page.evaluate('scrollEvents'),0)
+
+    def test_temporarily_incomplete_card_is_retried_without_lasting_gap(self):
+        self.open()
+        self.page.evaluate('''()=>{const body=list.children[0].querySelector('.mgNuPdjB');
+          const content=body.textContent;body.textContent='';setTimeout(()=>body.textContent=content,600);}''')
+        self.start();job=self.finish()
+        self.assertEqual(job['reviewCount'],9,job);self.assertEqual(job['unparsed_count'],0)
+        self.assertEqual(job['doneReason'],'source_exhausted')
 
     def test_rehashed_tab_content_sibling_and_unprefixed_sku(self):
         self.open()
@@ -241,7 +276,7 @@ class ReviewPageTests(unittest.TestCase):
         self.sidebar();self.page.click('#review-start');self.page.wait_for_function('backendJob?.state==="collecting"')
         self.page.evaluate("backendJob={...backendJob,phase:'waiting_page',reviewCount:60}")
         self.page.wait_for_function("document.querySelector('#review-result-title').textContent==='等待返回评价页'")
-        self.assertIn('已读取 60 / 200 条',self.page.text_content('#review-count'))
+        self.assertIn('已读取 60 条',self.page.text_content('#review-count'))
         self.assertFalse(self.page.is_disabled('#review-stop'))
         self.assertTrue(self.page.is_hidden('#review-copy'))
         if os.getenv('BRANDBAI_WAIT_PREVIEW'):self.page.locator('#review-card').screenshot(path=os.environ['BRANDBAI_WAIT_PREVIEW'])
@@ -279,11 +314,13 @@ class ReviewPageTests(unittest.TestCase):
           window.identity={platform:'douyin',product_id:'123456789012345',product_ref:'douyin:product:123456789012345',identity_status:'verified'};
           window.currentProduct={panel_key:'synthetic:1',snapshot:{product_title:'合成商品 <img onerror=alert(1)>',product_identity:identity}};
           window.BrandbaiCurrentProduct={get:()=>currentProduct,inspect:async()=>currentProduct,hold:p=>{currentProduct=p}};
-          window.api=async path=>path==='/v1/health'?{independent_product_reviews:true,shared_product_identity:true,review_stop_save:true,browser_zip_delivery:true,review_target_continuation:true,review_visibility_wait:true}:{task:backendJob};
+          window.api=async path=>path==='/v1/health'?{independent_product_reviews:true,shared_product_identity:true,review_stop_save:true,browser_zip_delivery:true,review_target_continuation:true,review_visibility_wait:true,review_structure_recovery:true,review_automatic_pause_resume:true}:{task:backendJob};
           window.chrome={storage:{session:{async get(){return {}},async set(){},async remove(){}}},tabs:{
             async query(){return [{id:1,url:'https://live.douyin.com/123456'}]},async sendMessage(id,m){
-              if(m.type==='brandbai-review-preview')return {ready:true,product_identity:identity,product:{title:'合成商品 <img onerror=alert(1)>',shop_name:'合成店',product_id:'123456789012345'},lease:{id:'synthetic'},filter_label:'全部 · 综合',declared_count_text:'22.9万',loaded_count:20};
-              if(m.type==='brandbai-review-start'){backendJob={id:m.request_id,runId:m.request_id,state:'collecting',product:m.expected.product,filter_label:'全部 · 综合',reviewCount:3,limit:m.limit,elapsed_seconds:5};return {job:backendJob};}
+              if(m.type==='brandbai-review-preview')return {ready:true,product_identity:identity,product:{title:'合成商品 <img onerror=alert(1)>',shop_name:'合成店',product_id:'123456789012345'},lease:{id:'synthetic'},filter_label:'全部 · 综合',declared_count_text:'22.9万',loaded_count:20,resumable_job_id:backendJob?.can_continue?backendJob.id:null};
+              if(m.type==='brandbai-review-start'){backendJob={id:m.request_id,runId:m.request_id,state:'collecting',product:m.expected.product,filter_label:'全部 · 综合',reviewCount:3,limit:m.limit,collection_mode:m.collection_mode,product_identity:identity,elapsed_seconds:5};return {job:backendJob};}
+              if(m.type==='brandbai-review-pause'){backendJob={...backendJob,state:'paused',doneReason:'user_paused',can_continue:true};return {job:backendJob};}
+              if(m.type==='brandbai-review-resume'){backendJob={...backendJob,state:'collecting',runId:crypto.randomUUID(),can_continue:false,doneReason:'in_progress'};return {job:backendJob};}
               if(m.type==='brandbai-review-stop'){backendJob={...backendJob,state:'saved',doneReason:'user_paused',completeness:'partial_user_paused',output_dir:'synthetic'};return {job:backendJob};}
             }}};
         }''')
@@ -302,12 +339,12 @@ class ReviewPageTests(unittest.TestCase):
         self.assertEqual(self.page.locator('#review-refresh').count(),0)
         self.page.click('#refresh-product');self.page.wait_for_function("document.querySelector('#review-preview').textContent.includes('评价已识别')")
         self.assertEqual(self.page.locator('#review-preview img').count(),0)
-        self.page.click('#review-start');self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 /')")
-        self.assertTrue(self.page.is_disabled('#review-start'));self.assertTrue(self.page.is_disabled('#review-limit'))
+        self.page.click('#review-start');self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 条')")
+        self.assertTrue(self.page.is_disabled('#review-start'));self.assertEqual(self.page.locator('#review-limit').count(),0)
         self.assertTrue(self.page.is_hidden('#review-preview'));self.assertTrue(self.page.is_hidden('#review-start'))
-        self.assertTrue(self.page.is_hidden('#review-limit-field'))
+        self.assertEqual(self.page.locator('#review-limit-field').count(),0)
         self.page.evaluate('backendJob.reviewCount=40')
-        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 40 /')")
+        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 40 条')")
         self.page.click('#review-stop');self.page.wait_for_function("!document.querySelector('#review-copy').hidden")
         self.assertIn('不代表全部历史评价',self.page.text_content('#review-result-note'));self.assertFalse(self.page.is_disabled('#review-start'))
         if os.getenv('BRANDBAI_UI_PREVIEW'):self.page.locator('#review-card').screenshot(path=os.environ['BRANDBAI_UI_PREVIEW'])
@@ -317,19 +354,19 @@ class ReviewPageTests(unittest.TestCase):
           const api=window.api;window.stopCalls=0;window.api=async(path,opts)=>{
             if(path.endsWith('/stop')){stopCalls++;backendJob={...backendJob,state:'saved',doneReason:'user_paused',completeness:'partial_user_paused',output_dir:'synthetic'};return {task:backendJob};}return api(path,opts);
           };}''')
-        self.page.click('#review-start');self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 /')")
+        self.page.click('#review-start');self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 条')")
         self.page.click('#review-stop');self.assertTrue(self.page.is_disabled('#review-stop'))
-        self.assertIn('正在停止',self.page.text_content('#review-stop'))
+        self.assertIn('正在结束',self.page.text_content('#review-stop'))
         self.page.wait_for_function("!document.querySelector('#review-copy').hidden",timeout=7000)
         self.assertEqual(self.page.evaluate('stopCalls'),1)
-        self.assertIn('已读取 3 /',self.page.text_content('#review-count'))
+        self.assertIn('已读取 3 条',self.page.text_content('#review-count'))
     def test_sidebar_stop_failure_releases_retry_button_and_keeps_job(self):
         self.sidebar()
         self.page.evaluate('''()=>{const send=chrome.tabs.sendMessage;chrome.tabs.sendMessage=(id,m)=>m.type==='brandbai-review-stop'?Promise.reject(Error('disconnected')):send(id,m);
           const api=window.api;window.api=async(path,opts)=>{if(path.endsWith('/stop'))throw Error('synthetic save failure');return api(path,opts)};
         }''')
-        self.page.click('#review-start');self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 /')")
-        self.page.click('#review-stop');self.page.wait_for_function("document.querySelector('#review-stop').textContent==='重试停止并保存'")
+        self.page.click('#review-start');self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 条')")
+        self.page.click('#review-stop');self.page.wait_for_function("document.querySelector('#review-stop').textContent==='重试结束并下载'")
         self.assertFalse(self.page.is_disabled('#review-stop'));self.assertTrue(self.page.is_disabled('#review-start'))
         self.assertTrue(self.page.is_hidden('#review-copy'))
         self.assertIn('尚未确认',self.page.text_content('#review-message'))
@@ -338,11 +375,10 @@ class ReviewPageTests(unittest.TestCase):
         for width in (320,380,480):
             self.page.set_viewport_size({'width':width,'height':900})
             sizes=self.page.evaluate('''()=>{
-              const rect=id=>document.getElementById(id).getBoundingClientRect(),label=document.querySelector('.review-limit-field span').getBoundingClientRect();
-              return {overflow:document.documentElement.scrollWidth>innerWidth,gap:Math.max(rect('review-limit').top-label.bottom,rect('review-limit').left-label.right),
-                button:rect('review-start').height,select:rect('review-limit').height};}''')
-            self.assertFalse(sizes['overflow'],sizes);self.assertGreaterEqual(sizes['gap'],8)
-            self.assertGreaterEqual(sizes['button'],44);self.assertGreaterEqual(sizes['select'],40)
+              const rect=id=>document.getElementById(id).getBoundingClientRect();
+              return {overflow:document.documentElement.scrollWidth>innerWidth,button:rect('review-start').height};}''')
+            self.assertFalse(sizes['overflow'],sizes)
+            self.assertGreaterEqual(sizes['button'],44)
 
     def test_shared_help_is_last_collapsed_and_contacts_fit_both_workspaces(self):
         self.sidebar()
@@ -372,27 +408,27 @@ class ReviewPageTests(unittest.TestCase):
 
     def test_sidebar_status_warning_clears_when_progress_recovers_without_restart(self):
         self.sidebar();self.page.click('#review-start')
-        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 /')")
+        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 3 条')")
         original=self.page.evaluate('backendJob.id')
         self.page.evaluate("()=>{window.realStatusApi=window.api;window.api=async()=>{throw Error('synthetic reconnect')}}")
         self.page.wait_for_function("document.querySelector('#review-result-title').textContent==='正在恢复进度连接'")
         self.assertTrue(self.page.is_hidden('#review-message'))
         self.assertFalse(self.page.locator('#review-message').evaluate("el=>el.classList.contains('error')"))
-        self.assertIn('上次确认 3 /',self.page.text_content('#review-count'))
+        self.assertIn('上次确认 3 条',self.page.text_content('#review-count'))
         self.assertIn('暂时无法确认是否仍在读取',self.page.text_content('#review-result-note'))
         self.assertTrue(self.page.is_hidden('#review-progress'))
         self.assertFalse(self.page.is_disabled('#review-stop'))
         self.page.evaluate('()=>{backendJob.reviewCount=140;window.api=realStatusApi}')
-        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 140 /')")
+        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 140 条')")
         self.assertEqual(self.page.text_content('#review-message'),'')
-        self.assertEqual(self.page.text_content('#review-result-title'),'正在读取并保存')
+        self.assertEqual(self.page.text_content('#review-result-title'),'正在读取评价')
         self.assertEqual(self.page.evaluate('backendJob.id'),original)
         self.assertEqual(self.page.evaluate('recordingStarts'),0)
 
     def test_reopened_sidebar_restores_task_before_connection_without_duplicate_start(self):
         self.sidebar(restore=True)
         self.page.wait_for_function("document.querySelector('#review-result-title').textContent==='正在恢复进度连接'")
-        self.assertIn('上次确认 100 /',self.page.text_content('#review-count'))
+        self.assertIn('上次确认 100 条',self.page.text_content('#review-count'))
         self.assertTrue(self.page.is_hidden('#review-start'))
         self.page.evaluate('()=>{backendJob.reviewCount=160;statusConnected=true}')
         self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 160 /')")
@@ -407,20 +443,85 @@ class ReviewPageTests(unittest.TestCase):
         self.page.evaluate('''()=>{const send=chrome.tabs.sendMessage;window.continuedFrom=null;
           chrome.tabs.sendMessage=async(id,m)=>{
             if(m.type==='brandbai-review-preview')return {...await send(id,m),resumable_job_id:backendJob?.can_continue?backendJob.id:null};
-            if(m.type==='brandbai-review-start'&&m.resume_from){continuedFrom=m.resume_from;backendJob={...backendJob,id:m.request_id,runId:m.request_id,state:'collecting',doneReason:'in_progress',reviewCount:61,baseline_count:60,resume_from:m.resume_from,can_continue:false,time_limit_seconds:600};return {job:backendJob};}
+            if(m.type==='brandbai-review-resume'){continuedFrom=m.request_id;backendJob={...backendJob,runId:crypto.randomUUID(),state:'collecting',doneReason:'in_progress',reviewCount:61,can_continue:false,time_limit_seconds:600};return {job:backendJob};}
             return send(id,m);
           };}''')
         self.page.click('#review-start');self.page.wait_for_function('backendJob?.state==="collecting"')
         original=self.page.evaluate('backendJob.id')
-        self.page.evaluate("backendJob={...backendJob,state:'saved',reviewCount:60,doneReason:'time_limit',completeness:'partial_time_limit',can_continue:true,delivery:{id:'synthetic'},time_limit_seconds:600,elapsed_seconds:600}")
+        self.page.evaluate("backendJob={...backendJob,state:'paused',reviewCount:60,doneReason:'time_limit',completeness:'partial_time_limit',can_continue:true,delivery:{id:'synthetic'},time_limit_seconds:600,elapsed_seconds:600}")
         self.page.wait_for_function("!document.querySelector('#review-continue').disabled")
-        self.assertIn('已保存部分评价',self.page.text_content('#review-result-title'))
-        self.assertIn('本轮时间上限',self.page.text_content('#review-result-note'))
+        self.assertIn('已暂停',self.page.text_content('#review-result-title'))
+        self.assertIn('连续读取',self.page.text_content('#review-result-note'))
+        self.assertTrue(self.page.is_hidden('#review-delivery'))
         self.assertTrue(self.page.is_hidden('#review-preview'))
         self.page.click('#review-continue')
-        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 61 /')")
+        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 61 条')")
         self.assertEqual(self.page.evaluate('continuedFrom'),original)
         self.assertTrue(self.page.is_hidden('#review-preview'));self.assertTrue(self.page.is_hidden('#review-start'))
-        self.assertIn('原有 60 条及本轮新增 1 条',self.page.text_content('#review-result-note'))
+        self.assertEqual(self.page.evaluate('backendJob.id'),original)
+        self.assertEqual(self.page.locator('#review-limit').count(),0)
         if os.getenv('BRANDBAI_UI_PREVIEW'):
             self.page.locator('#review-card').screenshot(path=os.environ['BRANDBAI_UI_PREVIEW'])
+
+    def auto_start(self):
+        return self.page.evaluate("reviews.start({expected:reviews.preview(),collection_mode:'automatic',limit:null,request_id:crypto.randomUUID()})")
+
+    def test_automatic_folded_footer_finishes_without_waiting_for_declared_total(self):
+        self.open()
+        self.page.evaluate("()=>{const scroll=panel.onscroll;panel.onscroll=()=>{scroll();if(appended)footer.textContent='已折叠307条对你帮助不大的评论';};}")
+        self.auto_start();job=self.finish()
+        self.assertEqual(job['reviewCount'],9);self.assertEqual(job['state'],'saved')
+        self.assertEqual(job['doneReason'],'source_folded');self.assertIsNone(job['limit'])
+        self.assertEqual(job['unparsed_count'],0);self.assertEqual(self.page.evaluate('pauseCalls'),0)
+
+    def test_automatic_true_pause_resume_preserves_same_job_and_no_zip_until_end(self):
+        self.open();self.page.evaluate('panel.onscroll=()=>{scrollEvents++}')
+        original=self.auto_start()['job']['id']
+        self.page.wait_for_function('reviews.status().job.reviewCount===6')
+        self.page.evaluate('reviews.pause({request_id:reviews.status().job.id,run_id:reviews.status().job.runId})')
+        paused=self.finish();self.assertEqual(paused['state'],'paused');self.assertIsNone(paused['zip_path'])
+        before=self.page.evaluate('scrollEvents');self.page.wait_for_timeout(1700)
+        self.assertEqual(self.page.evaluate('scrollEvents'),before)
+        self.page.evaluate("()=>{footer.remove();addReview(7);footer.textContent='已折叠307条对你帮助不大的评论';list.append(footer)}")
+        self.page.evaluate('reviews.resume({request_id:reviews.status().job.id,expected:reviews.preview()})')
+        final=self.finish();self.assertEqual(final['id'],original);self.assertNotEqual(final['runId'],paused['runId'])
+        self.assertEqual(final['reviewCount'],7);self.assertEqual(final['doneReason'],'source_folded')
+        self.assertTrue(Path(final['zip_path']).is_file())
+
+    def test_automatic_changed_filter_cannot_resume(self):
+        self.open();self.page.evaluate('panel.onscroll=()=>{scrollEvents++}')
+        self.auto_start();self.page.wait_for_function('reviews.status().job.reviewCount===6')
+        self.page.evaluate('reviews.pause({request_id:reviews.status().job.id})');paused=self.finish()
+        self.page.evaluate("document.querySelector('.YLWPPuPR').textContent='好评'")
+        result=self.page.evaluate("async()=>{try{await reviews.resume({request_id:reviews.status().job.id,expected:reviews.preview()});return 'bad'}catch(e){return e.message}}")
+        self.assertNotEqual(result,'bad');self.assertEqual(self.jobs.status(paused['id'])['state'],'paused')
+
+    def test_automatic_hidden_page_can_end_and_download_without_return(self):
+        self.open();self.page.evaluate('panel.onscroll=()=>{scrollEvents++}')
+        self.auto_start();self.page.wait_for_function('reviews.status().job.reviewCount===6')
+        self.page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'})")
+        self.page.wait_for_function("reviews.status().job.phase==='waiting_page'")
+        self.page.evaluate('reviews.stop({request_id:reviews.status().job.id,run_id:reviews.status().job.runId})')
+        final=self.finish();self.assertEqual(final['doneReason'],'user_finished');self.assertEqual(final['state'],'saved')
+
+    def test_sidebar_pause_resume_and_download_are_separate(self):
+        self.sidebar();self.page.click('#review-start')
+        self.page.wait_for_function('backendJob?.state==="collecting"')
+        original=self.page.evaluate('backendJob.id');self.page.click('#review-pause')
+        self.page.wait_for_function("!document.querySelector('#review-continue').disabled")
+        self.assertEqual(self.page.evaluate('backendJob.state'),'paused')
+        self.assertTrue(self.page.is_hidden('#review-start'));self.assertTrue(self.page.is_hidden('#review-progress'))
+        self.assertTrue(self.page.is_hidden('#review-delivery'))
+        self.page.click('#review-continue');self.page.wait_for_function('backendJob.state==="collecting"')
+        self.assertEqual(self.page.evaluate('backendJob.id'),original)
+        self.page.click('#review-stop');self.page.wait_for_function('backendJob.state==="saved"')
+
+    def test_sidebar_running_actions_fit_narrow_width(self):
+        self.sidebar();self.page.click('#review-start');self.page.wait_for_function('backendJob?.state==="collecting"')
+        for width in (320,380,480):
+            self.page.set_viewport_size({'width':width,'height':900})
+            self.assertFalse(self.page.evaluate('document.documentElement.scrollWidth>innerWidth'))
+            self.assertGreaterEqual(self.page.locator('#review-pause').bounding_box()['height'],44)
+            self.assertGreaterEqual(self.page.locator('#review-stop').bounding_box()['height'],44)
+        if os.getenv('BRANDBAI_AUTO_PREVIEW'):
+            self.page.locator('#review-card').screenshot(path=os.environ['BRANDBAI_AUTO_PREVIEW'])

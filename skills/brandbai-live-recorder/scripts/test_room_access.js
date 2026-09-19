@@ -40,6 +40,9 @@ async function run() {
   assert.equal(c.classifyRoomTab({url:'https://example.test'}),'not_live');
   assert.equal(c.classifyRoomTab({url:'https://www.douyin.com/search/synthetic?type=video'}),'not_live');
   assert.equal(c.classifyRoomTab({url:tabA.url+'&live_web_rid=99'}),'entry_unconfirmed');
+  assert.equal(c.classifyRoomTab({url:tabA.url.replace('type=live','type=general')}),'recognized');
+  assert.equal(c.classifyRoomTab({url:'https://www.douyin.com/search/synthetic?type=general'}),'not_live');
+  assert.equal(c.classifyRoomTab({url:tabA.url.replace('type=live','type=general')+'&live_web_rid=99'}),'entry_unconfirmed');
   await c.readCurrentTab();
   assert.equal(c.currentRoomUrl,roomA);assert.equal(e.roomName.textContent,'合成直播 A');
   assert.equal(e.roomAccessNotice.hidden,true);assert.equal(e.start.disabled,false);

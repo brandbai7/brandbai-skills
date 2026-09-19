@@ -4,13 +4,13 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 
-[assembly: AssemblyTitle("BrandBAI 直播录屏助手")]
+[assembly: AssemblyTitle("BrandBAI 直播采集助手")]
 [assembly: AssemblyDescription("启动 BrandBAI 本机直播录屏服务")]
 [assembly: AssemblyCompany("BrandBAI")]
-[assembly: AssemblyProduct("BrandBAI 直播录屏助手")]
+[assembly: AssemblyProduct("BrandBAI 直播采集助手")]
 [assembly: AssemblyCopyright("Copyright BrandBAI")]
-[assembly: AssemblyVersion("0.22.7.0")]
-[assembly: AssemblyFileVersion("0.22.7.0")]
+[assembly: AssemblyVersion("0.22.16.0")]
+[assembly: AssemblyFileVersion("0.22.16.0")]
 
 internal static class Program
 {

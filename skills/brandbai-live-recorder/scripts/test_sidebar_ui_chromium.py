@@ -56,11 +56,11 @@ class SidebarUiTests(unittest.TestCase):
         self.page.click('#product-view')
         self.page.wait_for_function("!document.querySelector('#review-start').disabled")
         self.page.click('#review-start')
-        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 100 /')")
+        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 100 条')")
 
     def saved_review(self):
         self.reviews()
-        self.page.evaluate("Object.assign(audit.review,{state:'saved',doneReason:'target_reached',reviewCount:200,delivery:audit.delivery})")
+        self.page.evaluate("Object.assign(audit.review,{state:'saved',doneReason:'source_exhausted',completeness:'complete_visible_panel_exhausted',reviewCount:200,delivery:audit.delivery})")
         self.page.wait_for_selector('#review-delivery:visible')
 
     def preview(self,name):
@@ -103,7 +103,7 @@ class SidebarUiTests(unittest.TestCase):
         self.assertIn('上次确认 100',self.page.text_content('#review-count'))
         self.preview('review-reconnecting')
         self.page.evaluate('audit.failedStatus=false;audit.review.reviewCount=140')
-        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 140 /')")
+        self.page.wait_for_function("document.querySelector('#review-count').textContent.includes('已读取 140 条')")
         self.assertEqual(self.page.evaluate('audit.review.id'),original)
         self.assertEqual(self.page.evaluate("audit.requests.filter(x=>x.type==='brandbai-review-start').length"),1)
 
@@ -117,6 +117,7 @@ class SidebarUiTests(unittest.TestCase):
         self.assertEqual(self.page.evaluate("audit.requests.filter(x=>x.type==='brandbai-delivery'&&x.action==='show').map(x=>x.id)"),['synthetic-delivery'])
         self.preview('review-downloaded')
         self.page.evaluate('async()=>{audit.failedDelivery=true;await BrandbaiDownloads.refresh()}')
+        self.page.wait_for_function("document.querySelector('#review-delivery').textContent.includes('文件状态暂未更新')")
         self.assertIn('文件状态暂未更新',self.page.text_content('#review-delivery'))
         self.assertNotIn('文件已下载',self.page.text_content('#review-delivery'))
 

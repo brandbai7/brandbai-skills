@@ -43,15 +43,15 @@ class LiveRecorderCustomerReleaseTests(unittest.TestCase):
             result = build_customer_release(repo_root, temporary)
             archive_path = Path(str(result["archive"]))
             self.assertTrue(archive_path.is_file())
-            self.assertEqual(result["version"], "0.22.10")
+            self.assertEqual(result["version"], "0.22.16")
 
             expected = {
                 "01_安装与快速使用.md",
                 "02_Skill能力说明.md",
-                "02_安装录屏助手.cmd",
-                "03_卸载录屏助手.cmd",
-                "BrandBAI直播录屏Skill_0.22.10.zip",
-                "BrandBAI直播录屏浏览器插件_0.22.10.zip",
+                "02_安装采集助手.cmd",
+                "03_卸载采集助手.cmd",
+                "BrandBAI直播采集助手Skill_0.22.16.zip",
+                "BrandBAI直播采集助手浏览器插件_0.22.16.zip",
                 "SHA256SUMS.txt",
             }
             with zipfile.ZipFile(archive_path) as outer:
@@ -66,8 +66,8 @@ class LiveRecorderCustomerReleaseTests(unittest.TestCase):
                 with workspace_temp(artifact_root) as nested_root:
                     skill_zip = nested_root / "skill.zip"
                     extension_zip = nested_root / "extension.zip"
-                    skill_zip.write_bytes(outer.read("BrandBAI直播录屏Skill_0.22.10.zip"))
-                    extension_zip.write_bytes(outer.read("BrandBAI直播录屏浏览器插件_0.22.10.zip"))
+                    skill_zip.write_bytes(outer.read("BrandBAI直播采集助手Skill_0.22.16.zip"))
+                    extension_zip.write_bytes(outer.read("BrandBAI直播采集助手浏览器插件_0.22.16.zip"))
 
                     with zipfile.ZipFile(skill_zip) as skill:
                         self.assertIn("SKILL.md", skill.namelist())
@@ -84,14 +84,14 @@ class LiveRecorderCustomerReleaseTests(unittest.TestCase):
                         self.assertIn("references/product-identity-contract.md", skill.namelist())
                         self.assertIn("references/product-review-contract.md", skill.namelist())
                         self.assertIn(
-                            "assets/windows-assistant/安装 BrandBAI 直播录屏助手.cmd",
+                            "assets/windows-assistant/安装 BrandBAI 直播采集助手.cmd",
                             skill.namelist(),
                         )
                         self.assertIsNone(skill.testzip())
 
                     with zipfile.ZipFile(extension_zip) as extension:
                         self.assertIn(
-                            "BrandBAI直播录屏浏览器插件/manifest.json",
+                            "BrandBAI直播采集助手浏览器插件/manifest.json",
                             extension.namelist(),
                         )
                         self.assertTrue(
@@ -99,7 +99,7 @@ class LiveRecorderCustomerReleaseTests(unittest.TestCase):
                         )
                         self.assertIsNone(extension.testzip())
                         for file in ('product-identity.js','review-panel.js','review-page.js','product-review-collector.js', 'design-tokens.css', 'browser-delivery.js', 'download-panel.js', 'ui-shell.js', 'assets/brandbai-logo.png'):
-                            self.assertIn('BrandBAI直播录屏浏览器插件/'+file, extension.namelist())
+                            self.assertIn('BrandBAI直播采集助手浏览器插件/'+file, extension.namelist())
 
 
 if __name__ == "__main__":

@@ -301,7 +301,7 @@ async function launchAssistantOnce() {
     setMessage(
       hadPendingRecording
         ? "录制未开始。请回到已识别的抖音直播间后重试。"
-        : "请先回到已识别的抖音直播间，再启动录屏助手。",
+        : "请先回到已识别的抖音直播间，再启动采集助手。",
       true
     );
     updateStartAvailability();
@@ -508,7 +508,7 @@ function canonicalRoomUrl(rawUrl) {
     if (!["www.douyin.com", "douyin.com"].includes(parsed.hostname) || !/^\/(?:jingxuan\/)?search\/[^/]+\/?$/.test(parsed.pathname)) return null;
     const ids = parsed.searchParams.getAll("live_web_rid");
     const types = parsed.searchParams.getAll("type");
-    return ids.length === 1 && /^\d{1,30}$/.test(ids[0]) && types.length === 1 && types[0] === "live"
+    return ids.length === 1 && /^\d{1,30}$/.test(ids[0]) && types.length === 1 && ["live", "general"].includes(types[0])
       ? `https://live.douyin.com/${ids[0]}` : null;
   } catch (_error) {
     return null;
@@ -565,9 +565,9 @@ function friendlyErrorMessage(message) {
   if (
     normalized.includes("本机服务") ||
     normalized.includes("录制功能") ||
-    normalized.includes("录屏助手")
+    (normalized.includes("录屏助手") || normalized.includes("采集助手"))
   ) {
-    return "录屏助手尚未启动，请点击“启动录屏助手”。";
+    return "采集助手尚未启动，请点击“启动采集助手”。";
   }
   if (
     normalized.includes("network") ||
@@ -995,7 +995,7 @@ async function discoverService() {
       // Offline, occupied, or unresponsive candidates are skipped automatically.
     }
   }
-  throw new Error("录屏助手尚未启动。 ");
+  throw new Error("采集助手尚未启动。 ");
 }
 
 async function api(path, {method = "GET", body = null, auth = true, extraHeaders = {}} = {}) {
@@ -1772,7 +1772,7 @@ async function startTask() {
     setMessage(
       sessionToken
         ? "正在确认录制功能，准备好后会自动开始录制。 "
-        : "正在启动录屏助手，准备好后会自动开始录制。 "
+        : "正在启动采集助手，准备好后会自动开始录制。 "
     );
     const connected = await connectService({retry: true});
     if (!connected && pendingRecordingRequest && !pairing) {

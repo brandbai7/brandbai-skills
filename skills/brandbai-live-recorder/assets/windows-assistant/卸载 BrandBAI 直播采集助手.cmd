@@ -18,5 +18,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo 已有录屏文件不会被删除。
+echo 已有文件不会被删除。
 pause

@@ -15,14 +15,16 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 
-ASSISTANT_VERSION = "0.22.7"
+ASSISTANT_VERSION = "0.22.16"
 SERVICE_NAME = "brandbai-live-recorder"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 SERVICE_PORTS = (8765, 18765, 28765)
 CUSTOM_PROTOCOL = "brandbai-recorder"
 CUSTOM_PROTOCOL_URL = f"{CUSTOM_PROTOCOL}://start"
-BRANDED_LAUNCHER_NAME = "BrandBAI直播录屏助手.exe"
+BRANDED_LAUNCHER_NAME = "BrandBAI直播采集助手.exe"
+START_MENU_NAME = "BrandBAI 直播采集助手.url"
+LEGACY_START_MENU_NAME = "BrandBAI 直播录屏助手.url"
 LAUNCHER_CONFIG_NAME = "launcher.cfg"
 
 
@@ -79,7 +81,7 @@ def build_service_command(
 ) -> list[str]:
     service_script = app_root / "scripts" / "run_local_service.py"
     if not service_script.is_file():
-        raise FileNotFoundError("录屏助手文件不完整")
+        raise FileNotFoundError("采集助手文件不完整")
     return [
         sys.executable,
         "-B",
@@ -231,7 +233,7 @@ def _compile_branded_launcher(installed_root: Path) -> Path:
     source = assets / "BrandBAIRecorderLauncher.cs"
     compiler = assets / "compile_launcher.ps1"
     if not source.is_file() or not compiler.is_file():
-        raise FileNotFoundError("录屏助手安装文件不完整")
+        raise FileNotFoundError("采集助手安装文件不完整")
 
     launcher = installed_root / BRANDED_LAUNCHER_NAME
     staged = installed_root / f".{Path(BRANDED_LAUNCHER_NAME).stem}.new.exe"
@@ -293,17 +295,31 @@ def _copy_application(source_root: Path, destination_root: Path) -> Path:
     return destination
 
 
+def _is_owned_shortcut(shortcut: Path) -> bool:
+    try:
+        lines = shortcut.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError):
+        return False
+    urls = [line.strip()[4:] for line in lines if line.strip().startswith("URL=")]
+    return urls == [CUSTOM_PROTOCOL_URL] and "[InternetShortcut]" in lines
+
+
 def _write_start_menu_shortcut() -> Path | None:
     appdata = os.environ.get("APPDATA")
     if not appdata:
         return None
     programs = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
     programs.mkdir(parents=True, exist_ok=True)
-    shortcut = programs / "BrandBAI 直播录屏助手.url"
+    shortcut = programs / START_MENU_NAME
+    if shortcut.exists() and not _is_owned_shortcut(shortcut):
+        raise OSError("The assistant shortcut name is already in use")
     shortcut.write_text(
         f"[InternetShortcut]\nURL={CUSTOM_PROTOCOL_URL}\n",
         encoding="utf-8-sig",
     )
+    legacy = programs / LEGACY_START_MENU_NAME
+    if _is_owned_shortcut(legacy):
+        legacy.unlink()
     return shortcut
 
 
@@ -322,7 +338,7 @@ def install_windows_assistant() -> dict[str, object]:
 
         base_key = rf"Software\Classes\{CUSTOM_PROTOCOL}"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base_key) as key:
-            winreg.SetValueEx(key, None, 0, winreg.REG_SZ, "URL:BrandBAI 直播录屏助手")
+            winreg.SetValueEx(key, None, 0, winreg.REG_SZ, "URL:BrandBAI 直播采集助手")
             winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base_key + r"\DefaultIcon") as key:
             winreg.SetValueEx(key, None, 0, winreg.REG_SZ, f'"{launcher}",0')
@@ -375,16 +391,17 @@ def uninstall_windows_assistant() -> dict[str, object]:
     )
     appdata = os.environ.get("APPDATA")
     if appdata:
-        shortcut = (
+        programs = (
             Path(appdata)
             / "Microsoft"
             / "Windows"
             / "Start Menu"
             / "Programs"
-            / "BrandBAI 直播录屏助手.url"
         )
-        if shortcut.is_file():
-            shortcut.unlink()
+        for name in (START_MENU_NAME, LEGACY_START_MENU_NAME):
+            shortcut = programs / name
+            if _is_owned_shortcut(shortcut):
+                shortcut.unlink()
     return {"status": "uninstalled", "recordings_preserved": True}
 
 
@@ -395,10 +412,10 @@ def _valid_protocol_request(value: str | None) -> bool:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="BrandBAI 直播录屏助手")
+    parser = argparse.ArgumentParser(description="BrandBAI 直播采集助手")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    start = subparsers.add_parser("start", help="启动录屏助手")
+    start = subparsers.add_parser("start", help="启动采集助手")
     start.add_argument("--quiet", action="store_true")
     start.add_argument("--json", action="store_true")
     start.add_argument("--state-dir", type=Path)
@@ -408,12 +425,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--wait-seconds", default=20.0, type=float)
     start.add_argument("request_uri", nargs="?")
 
-    status = subparsers.add_parser("status", help="检查录屏助手")
+    status = subparsers.add_parser("status", help="检查采集助手")
     status.add_argument("--json", action="store_true")
     status.add_argument("--host", default=DEFAULT_HOST)
     status.add_argument("--port", type=int)
 
-    install = subparsers.add_parser("install-windows", help="首次安装 Windows 录屏助手")
+    install = subparsers.add_parser("install-windows", help="首次安装 Windows 采集助手")
     install.add_argument("--json", action="store_true")
 
     uninstall = subparsers.add_parser("uninstall-windows", help="移除 Windows 启动入口")
@@ -424,20 +441,20 @@ def build_parser() -> argparse.ArgumentParser:
 def _customer_message(result: dict[str, object]) -> str:
     status = result.get("status")
     if status == "ready":
-        return "录屏助手已准备好，请返回浏览器开始录制。"
+        return "采集助手已准备好，请返回浏览器选择录制或资料采集。"
     if status == "starting":
-        return "录屏助手正在启动，请返回浏览器稍候。"
+        return "采集助手正在启动，请返回浏览器稍候。"
     if status == "installed":
         if result.get("restart_applies_update"):
-            return "安装完成。当前录屏助手仍可使用，更新将在下次启动时生效。"
-        return "安装完成，录屏助手已准备好。"
+            return "安装完成。当前采集助手仍可使用，更新将在下次启动时生效。"
+        return "安装完成，采集助手已准备好。"
     if status == "uninstalled":
-        return "启动入口已移除，已有录屏文件不会被删除。"
+        return "启动入口已移除，已有文件不会被删除。"
     if status == "offline":
-        return "录屏助手尚未启动。"
+        return "采集助手尚未启动。"
     if status == "unsupported":
         return "当前安装入口仅支持 Windows。"
-    return "录屏助手暂时无法启动，请重新运行安装程序。"
+    return "采集助手暂时无法启动，请重新运行安装程序。"
 
 
 def _emit(result: dict[str, object], *, as_json: bool, quiet: bool = False) -> None:

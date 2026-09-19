@@ -25,6 +25,27 @@ def row():
                 content_status='text_observed',image_count=2,helpful_count=None,followups=[],followup_status='not_observed',merchant_reply='')
 
 class ReviewTests(unittest.TestCase):
+    def test_followup_only_is_valid_but_empty_and_misclassified_payloads_are_not(self):
+        from product_reviews import validate_row
+        data=row()|dict(content='',image_count=0,content_status='followup_only',followup_status='observed',
+                        followups=[dict(content='合成追评',date_text='用户当天追评',image_count=3)])
+        self.assertEqual(validate_row(data),data)
+        for patch in (dict(followups=[]),dict(content='不应混为初评'),dict(followup_status='unparsed'),dict(image_count=3)):
+            with self.subTest(patch=patch),self.assertRaises(ValueError):validate_row(data|patch)
+
+    def test_gaps_are_written_and_exhaustion_cannot_hide_them(self):
+        self.jobs.accept(self.id,self.event(unparsed_count=1))
+        final=self.jobs.accept(self.id,self.event('finish',2,done_reason='source_exhausted',exhausted=True,unparsed_count=1))
+        self.assertEqual(final['completeness'],'partial_selector_drift')
+        with zipfile.ZipFile(final['zip_path']) as archive:
+            self.assertEqual(json.loads(archive.read('完整性.json'))['unparsed_count'],1)
+            self.assertIn('1 个未能确认',archive.read('阅读说明.md').decode())
+
+    def test_gap_counts_are_bounded_and_do_not_relax_the_lease(self):
+        for count in (-1,True,10001,'1'):
+            with self.subTest(count=count),self.assertRaises(ValueError):self.jobs.accept(self.id,self.event(unparsed_count=count))
+        event=self.event(unparsed_count=1);event['lease']={**event['lease'],'filterKey':'other'}
+        with self.assertRaises(ValueError):self.jobs.accept(self.id,event)
     def setUp(self):
         self.tmp=scratch_dir();self.root=self.tmp.__enter__();self.clock=1789460000
         self.jobs=ProductReviewJobs(now=lambda:self.clock);self.request=request();self.id=self.request['request_id']

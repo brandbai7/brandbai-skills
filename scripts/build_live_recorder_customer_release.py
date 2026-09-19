@@ -61,7 +61,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-call "%STAGE%\\assets\\windows-assistant\\安装 BrandBAI 直播录屏助手.cmd"
+call "%STAGE%\\assets\\windows-assistant\\安装 BrandBAI 直播采集助手.cmd"
 """
     return text.replace("\n", "\r\n").encode("utf-8-sig")
 
@@ -73,7 +73,7 @@ chcp 65001 >nul
 set "ASSISTANT_SCRIPT=%LOCALAPPDATA%\\BrandBAI\\LiveRecorder\\app\\scripts\\recorder_assistant.py"
 
 if not exist "%ASSISTANT_SCRIPT%" (
-  echo 当前电脑没有找到已安装的 BrandBAI 直播录屏助手。
+  echo 当前电脑没有找到已安装的 BrandBAI 直播采集助手。
   pause
   exit /b 0
 )
@@ -93,7 +93,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo 已有录屏文件不会被删除。
+echo 已有文件不会被删除。
 pause
 """
     return text.replace("\n", "\r\n").encode("utf-8-sig")
@@ -115,9 +115,9 @@ def build_customer_release(repo_root: Path, dist_dir: Path) -> dict[str, object]
     if manifest.get("version") != version:
         raise CustomerReleaseError("Skill and Chrome extension versions do not match")
 
-    skill_customer_name = f"BrandBAI直播录屏Skill_{version}.zip"
-    extension_customer_name = f"BrandBAI直播录屏浏览器插件_{version}.zip"
-    outer_name = f"BrandBAI直播录屏_客户版_{version}.zip"
+    skill_customer_name = f"BrandBAI直播采集助手Skill_{version}.zip"
+    extension_customer_name = f"BrandBAI直播采集助手浏览器插件_{version}.zip"
+    outer_name = f"BrandBAI直播采集助手_客户版_{version}.zip"
 
     dist_dir.mkdir(parents=True, exist_ok=True)
     temporary_dir = dist_dir / f".brandbai-live-recorder-{uuid.uuid4().hex}"
@@ -138,7 +138,7 @@ def build_customer_release(repo_root: Path, dist_dir: Path) -> dict[str, object]
             relative = path.relative_to(extension_dir).as_posix()
             if "__pycache__" in path.parts or path.suffix.lower() in {".pyc", ".pyo"}:
                 continue
-            extension_files.append((f"BrandBAI直播录屏浏览器插件/{relative}", path.read_bytes()))
+            extension_files.append((f"BrandBAI直播采集助手浏览器插件/{relative}", path.read_bytes()))
         _write_zip(extension_archive, extension_files)
 
         skill_payload = skill_archive.read_bytes()
@@ -154,8 +154,8 @@ def build_customer_release(repo_root: Path, dist_dir: Path) -> dict[str, object]
             [
                 ("01_安装与快速使用.md", guide_path.read_bytes()),
                 ("02_Skill能力说明.md", capabilities_path.read_bytes()),
-                ("02_安装录屏助手.cmd", _customer_installer(version, skill_customer_name)),
-                ("03_卸载录屏助手.cmd", _customer_uninstaller()),
+                ("02_安装采集助手.cmd", _customer_installer(version, skill_customer_name)),
+                ("03_卸载采集助手.cmd", _customer_uninstaller()),
                 (skill_customer_name, skill_payload),
                 (extension_customer_name, extension_payload),
                 ("SHA256SUMS.txt", checksums),
