@@ -61,7 +61,7 @@ function canonicalRoomUrl(rawUrl) {
     if (!["www.douyin.com", "douyin.com"].includes(parsed.hostname) || !/^\/(?:jingxuan\/)?search\/[^/]+\/?$/.test(parsed.pathname)) return null;
     const ids = parsed.searchParams.getAll("live_web_rid");
     const types = parsed.searchParams.getAll("type");
-    return ids.length === 1 && /^\d{1,30}$/.test(ids[0]) && types.length === 1 && types[0] === "live"
+    return ids.length === 1 && /^\d{1,30}$/.test(ids[0]) && types.length === 1 && ["live", "general"].includes(types[0])
       ? `https://live.douyin.com/${ids[0]}` : null;
   } catch (_error) {
     return null;
@@ -121,7 +121,7 @@ async function discoverServiceBase() {
       // Offline, occupied, or unresponsive candidates are skipped automatically.
     }
   }
-  throw new Error("本机录屏服务尚未启动");
+  throw new Error("本机采集助手尚未启动");
 }
 
 async function pairService() {
@@ -145,7 +145,7 @@ async function pairService() {
     );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || typeof payload.session_token !== "string") {
-      throw new Error(payload.message || "本机录屏服务自动连接失败");
+      throw new Error(payload.message || "本机采集助手自动连接失败");
     }
     const seconds = Number(payload.expires_in_seconds || 900);
     const session = {
@@ -353,8 +353,10 @@ async function handleMessage(message, sender) {
       await chrome.storage.session.set({[key]:bindings});return response;
     }
     const binding=bindings[message.request_id];
-    if(message.action!=='event' || !binding || binding.tab!==sender.tab.id || binding.document!==sender.documentId
+    if(!['event','resume','status'].includes(message.action) || !binding || binding.tab!==sender.tab.id || binding.document!==sender.documentId
       || binding.room!==requestedRoom || !sameReviewLease(binding.lease,message.body?.lease)) return {ok:false};
+    if(message.action==='status')return await api(`/v1/product-reviews/${message.request_id}`);
+    if(message.action==='resume')return await api(`/v1/product-reviews/${message.request_id}/resume`,{method:'POST',body:message.body});
     return await api(`/v1/product-reviews/${message.request_id}/events`,{method:'POST',body:message.body});
   }
   if (message.type === "brandbai-collector-probe") {

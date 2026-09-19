@@ -76,6 +76,7 @@ node test_content_comment_reuse.js
 node test_content_playback_recovery.js
 node test_help_panel.js
 node test_review_background.js
+node test_review_structure_recovery.js
 node test_review_target.js
 node test_review_visibility.js
 node test_room_access.js

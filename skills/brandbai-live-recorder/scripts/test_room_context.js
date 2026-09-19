@@ -16,6 +16,7 @@ const directSearch=search.replace('/jingxuan/search/','/search/');
 const accepted=[live,live+'/?from=synthetic',search,search+'&tracking=DO_NOT_EXPORT',search.replace('synthetic','%E5%90%88%E6%88%90'),
   directSearch,directSearch+'&tracking=DO_NOT_EXPORT',directSearch.replace('synthetic','%E5%90%88%E6%88%90')];
 accepted.push(...accepted.filter(url=>url.includes('www.douyin.com')).map(url=>url.replace('www.douyin.com','douyin.com')));
+accepted.push(...accepted.filter(url=>url.includes('type=live')).map(url=>url.replace('type=live','type=general')));
 const rejected=['', 'https://live.douyin.com/',live+'/other','https://live.douyin.com/abc',live.replace('https:','http:'),
   'https://user:pass@live.douyin.com/123456','https://live.douyin.com:1234/123456',live.replace('douyin.com','douyin.com.evil.test'),
   search.replace('www.douyin.com','www.douyin.com.evil.test'),search.replace('www.douyin.com','user@www.douyin.com'),
@@ -27,6 +28,9 @@ const rejected=['', 'https://live.douyin.com/',live+'/other','https://live.douyi
 rejected.push(...rejected.filter(url=>url.includes('/jingxuan/search/')).map(url=>url.replace('/jingxuan/search/','/search/')),
   directSearch.replace('/synthetic?', '/synthetic/other?'),directSearch.replace('/search/', '/research/'));
 rejected.push(...rejected.filter(url=>url.includes('www.douyin.com')).map(url=>url.replace('www.douyin.com','douyin.com')));
+rejected.push(...rejected.filter(url=>url.includes('type=live')).map(url=>url.replace('type=live','type=general')),
+  directSearch.replace('type=live','type=general')+'&type=live',
+  directSearch.replace('type=live','type=general')+'&live_web_rid=654321');
 for(const file of ['popup.js','content.js','background.js']) {
   const context=vm.createContext({URL});vm.runInContext(code(file,'canonicalRoomUrl'),context);
   for(const input of accepted) assert.equal(context.canonicalRoomUrl(input),live,`${file}: ${input}`);
@@ -48,6 +52,9 @@ async function access({url=search,id=12,permission=true,already=false}={}) {
   result=await access({url:directSearch});assert.equal(result.ok,true);assert.equal(result.calls.length,1);
   assert.equal(result.calls[0].target.tabId,12);
   assert.equal((await access({url:directSearch,permission:false})).ok,false);
+  result=await access({url:directSearch.replace('type=live','type=general')});
+  assert.equal(result.ok,true);assert.equal(result.calls[0].target.tabId,12);
+  assert.equal((await access({url:directSearch.replace('type=live','type=general'),permission:false})).ok,false);
   assert.equal((await access({permission:false})).ok,false);
   assert.equal((await access({already:true})).calls.length,0);
   for(const options of [{url:'https://example.test'},{url:search.replace('123456','999999')},{id:99}]) {

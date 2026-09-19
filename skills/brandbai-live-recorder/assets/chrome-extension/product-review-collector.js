@@ -93,7 +93,7 @@
     // unrelated next siblings cannot establish a media-only review.
     const structuralMediaOnly = header === children[0] && structuralStats && sku === header.nextElementSibling
       && body === sku?.nextElementSibling && gallery === body.nextElementSibling && dateText;
-    if (!content && !(reviewerName && images.length && (explicitStructure && gallery === knownGallery || structuralMediaOnly))) return null;
+    const primaryMediaOnly = reviewerName && images.length && (explicitStructure && gallery === knownGallery || structuralMediaOnly);
     const stats = first(card, ".swfDpKGt,[data-e2e='review-stats'],[data-role='review-stats']")
       || children.find((node) => node !== header && node !== body && /(?:浏览|有用)/.test(text(node)));
     const helpfulMatch = text(stats).match(/(?:有用\s*([\d,]+)|([\d,]+)\s*(?:人觉得)?有用)/);
@@ -110,22 +110,31 @@
     let merchantReply = "";
     for (const node of extraRows) {
       const value = text(node);
-      if (/^(?:\d+\s*天后)?追评/.test(value)) {
+      if (/^(?:用户(?:当天|\d+\s*天后)追评|(?:\d+\s*天后)?追评)/.test(value)) {
         const followupBody = first(node, "[data-e2e='review-content'],[data-role='review-content'],.mgNuPdjB");
-        if (followupBody && text(followupBody)) {
-          followups.push({ content: text(followupBody), dateText: value.match(/^(?:\d+\s*天后)?追评/)?.[0] || "追评", images: galleryImages(first(node, "[data-role='review-images'],.AdYl5cnz")) });
+        // Desktop followups have a separate label/body row and gallery. An
+        // empty initial review must not discard an explicitly owned followup.
+        const line = node.children?.[0], parts = Array.from(line?.children || []);
+        const labeled = parts.length === 2 && /^(?:用户(?:当天|\d+\s*天后)追评|(?:\d+\s*天后)?追评)\s*[:：]?$/.test(text(parts[0]));
+        const followupText = followupBody ? text(followupBody) : labeled ? text(parts[1]) : "";
+        const followupGallery = first(node, "[data-role='review-images'],.AdYl5cnz")
+          || (labeled && line.nextElementSibling?.matches('.DWWbmQI5') ? line.nextElementSibling : null);
+        const followupImages = galleryImages(followupGallery);
+        if (followupText || labeled && followupImages.length) {
+          followups.push({ content: followupText, dateText: labeled ? text(parts[0]).replace(/[:：]\s*$/, '') : value.match(/^(?:\d+\s*天后)?追评/)?.[0] || "追评", images: followupImages });
         } else hasUnparsedFollowup = true;
       } else if (/^商家回复\s*[:：]/.test(value)) {
         merchantReply = value.replace(/^商家回复\s*[:：]\s*/, "");
       }
     }
+    if (!content && !primaryMediaOnly && !(explicitStructure && reviewerName && followups.length)) return null;
     return {
       reviewId: clean(card.getAttribute?.("data-review-id") || card.getAttribute?.("data-comment-id")),
       reviewerName,
       dateText,
       purchasedSku: text(sku),
       content,
-      contentStatus: content ? "text_observed" : "media_only",
+      contentStatus: content ? "text_observed" : primaryMediaOnly ? "media_only" : "followup_only",
       images,
       helpfulCount,
       followups,
@@ -143,7 +152,7 @@
     const now = adapters.now || Date.now;
     const wait = adapters.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const bounds = {
-      maxRows: Math.max(1, Math.min(2000, Number(adapters.limits?.maxRows) || 2000)),
+      maxRows: Math.max(1, Math.min(10000, Number(adapters.limits?.maxRows) || 2000)),
       maxScrolls: Math.max(1, Math.min(600, Number(adapters.limits?.maxScrolls) || 200)),
       maxMs: Math.max(1000, Math.min(600000, Number(adapters.limits?.maxMs) || 600000)),
       delayMs: Math.max(1000, Number(adapters.limits?.delayMs) || 1100),
@@ -314,12 +323,13 @@
     function reviewRows(list) {
       const children = Array.from(list?.children || []).filter((node) => rendered(node) && !owned(node));
       const rows = [];
+      const parsedNodes = [], unparsedNodes = [];
       let unparsed = 0;
       const footerTexts = [];
       for (const child of children) {
         const row = readReviewCard(child);
-        if (row) rows.push(row);
-        else if (/^(?:加载中[.。…]*|正在加载[.。…]*|暂无更多(?:商品)?评价|没有更多(?:商品)?评价|已展示全部评价|全部评价已加载|暂无评价|还没有评价|暂无相关评价|暂无评论|没有更多了|暂无更多了)$/.test(text(child))) {
+        if (row) { rows.push(row); parsedNodes.push(child); }
+        else if (/^(?:加载中[.。…]*|正在加载[.。…]*|暂无更多(?:商品)?评价|没有更多(?:商品)?评价|已展示全部评价|全部评价已加载|暂无评价|还没有评价|暂无相关评价|暂无评论|没有更多了|暂无更多了|已折叠\s*[\d,.]+\s*条对你帮助不大的评论)$/.test(text(child))) {
           // A pre-rendered terminal node below the viewport is not yet a
           // witnessed bottom. Scroll the bound panel until it is visible.
           let statusVisible = visible(child);
@@ -333,11 +343,12 @@
           }
           if (statusVisible) footerTexts.push(text(child));
         }
-        else if (text(child) || all(child, "img").length) unparsed += 1;
+        else if (text(child) || all(child, "img").length) { unparsed += 1; unparsedNodes.push(child); }
       }
       const explicitEnd = footerTexts.some((value) => /^(?:暂无更多(?:商品)?评价|没有更多(?:商品)?评价|已展示全部评价|全部评价已加载|没有更多了|暂无更多了)$/.test(value));
       const emptyConfirmed = !rows.length && footerTexts.some((value) => /^(?:暂无评价|还没有评价|暂无相关评价|暂无评论)$/.test(value));
-      return { rows, unparsed, explicitEnd, emptyConfirmed, loading: footerTexts.some((value) => /加载中|正在加载/.test(value)) };
+      const foldedEnd = footerTexts.some(value => /^已折叠\s*[\d,.]+\s*条对你帮助不大的评论$/.test(value));
+      return { rows, unparsed, parsedNodes, unparsedNodes, explicitEnd, foldedEnd, emptyConfirmed, loading: footerTexts.some((value) => /加载中|正在加载/.test(value)) };
     }
 
     function filtersFor(list, tabs) {
@@ -495,7 +506,7 @@
         elapsedMs: Math.max(0, Math.floor(now() - run.startedAt)), scrollActions: run.scrollActions,
         visibleReviewCount: state?.surface?.visibleReviewCount ?? null,
         parsedReviewCount: state?.surface?.parsedReviewCount ?? state?.rows?.length ?? null,
-        unparsedReviewCount: state?.surface?.unparsedReviewCount ?? state?.unparsed ?? null
+        unparsedReviewCount: run.reviewIssues.size
       };
     }
 
@@ -509,14 +520,14 @@
       if (response?.ok === false || response?.ignored || response?.task?.id !== run.taskId || response?.task?.runId !== run.runId) {
         throw new Error(response?.error || "商品评价进度未被当前任务确认");
       }
-      if (response.task.state === "saved") { run.finishedRemote = true; run.result = { ok: true, task: response.task }; return false; }
+      if (["saved", "paused"].includes(response.task.state)) { run.finishedRemote = true; run.result = { ok: true, task: response.task }; return false; }
       return !validation(run).code;
     }
 
     async function waitForVisible(run) {
       const hiddenAt = now();
       while (activeRun === run && document.visibilityState === "hidden") {
-        if (run.pauseRequested) return "user_paused";
+        if (run.pauseRequested) return run.stopRequested ? "user_finished" : "user_paused";
         if (now() - run.startedAt >= bounds.maxMs) return "time_limit";
         if (now() - hiddenAt >= 300000) return "page_hidden";
         // Heartbeat only: do not read or scroll a background page. The frozen
@@ -527,14 +538,14 @@
         if (activeRun !== run) return "superseded";
         if (response?.ok === false || response?.ignored || response?.task?.id !== run.taskId
           || response?.task?.runId !== run.runId) throw new Error("评价等待状态未能保存");
-        if (response.task.state === "saved") { run.result = { ok: true, task: response.task }; return "already_saved"; }
+        if (["saved", "paused"].includes(response.task.state)) { run.result = { ok: true, task: response.task }; return "already_saved"; }
         let wake;
         const visible = new Promise(resolve => { wake = resolve; });
         document.addEventListener?.("visibilitychange", wake, { once: true });
         try { await Promise.race([wait(5000), visible, run.pauseSignal]); }
         finally { document.removeEventListener?.("visibilitychange", wake); }
       }
-      if (run.pauseRequested) return "user_paused";
+      if (run.pauseRequested) return run.stopRequested ? "user_finished" : "user_paused";
       return now() - run.startedAt >= bounds.maxMs ? "time_limit" : null;
     }
 
@@ -556,7 +567,6 @@
         if (!Number.isInteger(response.task.reviewCount) || response.task.reviewCount < 0) throw new Error("商品评价保存结果缺少有效数量");
         batch.forEach((row) => run.visited.add(rowKey(row)));
         run.savedCount = response.task.reviewCount;
-        run.hadUnparsedFollowup ||= batch.some((row) => row.hasUnparsedFollowup);
         if (validation(run).code) return;
       }
     }
@@ -597,6 +607,27 @@
       run.result = { ok: true, task: response?.task };
     }
 
+    function reviewIssues(run, state) {
+      // Only local node references/counts, never raw failed content or users.
+      for (const node of state.parsedNodes || []) run.reviewIssues.delete(node);
+      const unknown = state.unparsedNodes || Array.from({length: state.unparsed || 0}, (_, i) => `unknown:${i}`);
+      if (!state.unparsedNodes) for (const key of run.reviewIssues.keys()) {
+        if (typeof key === 'string' && key.startsWith('unknown:') && !unknown.includes(key)) run.reviewIssues.delete(key);
+      }
+      const issues = [...unknown];
+      for (const row of state.rows) {
+        const key = 'followup:' + (row.reviewId || hash(JSON.stringify([row.reviewerName,row.dateText,row.purchasedSku,row.content])));
+        if (row.hasUnparsedFollowup) issues.push(key); else run.reviewIssues.delete(key);
+      }
+      let retry = false;
+      for (const key of issues) {
+        const checks = (run.reviewIssues.get(key) || 0) + 1;
+        run.reviewIssues.set(key, checks);
+        if (checks <= 2) retry = true;
+      }
+      return retry;
+    }
+
     async function runLoop(run) {
       let noGrowth = 0;
       let stalledScroll = 0;
@@ -621,12 +652,13 @@
           if (afterCapture.code === "page_hidden") continue;
           if (afterCapture.code) return await finish(run, { status: "interrupted", doneReason: afterCapture.code, completeness: `partial_${afterCapture.code}`, exhausted: false }, afterCapture.state);
           const state = afterCapture.state;
+          const retryUnknown = reviewIssues(run, state);
           // The list may append while the storage acknowledgement is in
           // flight. Flush that same-lease data before pause/end, not only the
           // earlier DOM snapshot that happened to contain the footer.
-          if (run.pauseRequested) return await finish(run, { status: "paused", doneReason: "user_paused", completeness: "partial_user_paused", exhausted: false }, afterCapture.state);
+          if (run.pauseRequested) return await finish(run, { status: "paused", doneReason: run.stopRequested ? "user_finished" : "user_paused", exhausted: false }, afterCapture.state);
           if (run.savedCount >= bounds.maxRows) {
-            return await finish(run, { status: "interrupted", doneReason: "target_reached", exhausted: false }, state);
+            return await finish(run, { status: "interrupted", doneReason: run.automatic ? "resource_limit" : "target_reached", exhausted: false }, state);
           }
           if (now() - run.startedAt >= bounds.maxMs) {
             return await finish(run, { status: "interrupted", doneReason: "time_limit", exhausted: false }, state);
@@ -635,9 +667,18 @@
             return await finish(run, { status: "interrupted", doneReason: "scroll_limit", exhausted: false }, state);
           }
           if (state.rows.some((row) => !run.visited.has(rowKey(row)))) continue;
-          if (state.unparsed || run.hadUnparsedFollowup) return await finish(run, { status: "interrupted", doneReason: "selector_drift", completeness: "partial_selector_drift", exhausted: false }, state);
-          if ((state.explicitEnd || state.emptyConfirmed) && (run.savedCount > 0 || state.emptyConfirmed)) {
-            return await finish(run, { status: "finished", doneReason: "source_exhausted", completeness: "complete_visible_panel_exhausted", exhausted: true, emptyConfirmed: Boolean(state.emptyConfirmed) }, state);
+          if (retryUnknown) {
+            if (!await reportProgress(run, state, 'waiting')) continue;
+            await Promise.race([wait(bounds.delayMs), run.pauseSignal]);
+            continue;
+          }
+          // A few unsupported cards must not stop later readable reviews.
+          // Widespread drift still fails closed after the bounded retry.
+          if (state.unparsed && (!state.rows.length || state.unparsed > Math.max(10, state.rows.length / 2)))
+            return await finish(run, { status: 'interrupted', doneReason: 'selector_drift', exhausted: false }, state);
+          if (!state.loading && (state.explicitEnd || state.foldedEnd || state.emptyConfirmed) && (run.savedCount > 0 || state.emptyConfirmed || state.foldedEnd)) {
+            const gaps = run.reviewIssues.size > 0;
+            return await finish(run, { status: "finished", doneReason: gaps ? 'selector_drift' : state.foldedEnd ? 'source_folded' : "source_exhausted", exhausted: !gaps, emptyConfirmed: Boolean(state.emptyConfirmed || state.foldedEnd && !run.savedCount) && !gaps }, state);
           }
           const count = Number(state.surface.visibleReviewCount || 0);
           noGrowth = !lastScroll.moved && lastScroll.atBottom && run.savedCount === lastSaved && count <= lastVisible ? noGrowth + 1 : 0;
@@ -668,8 +709,8 @@
     }
 
     let previousRun = null;
-    function canResume(taskId, lease) {
-      return !activeRun && previousRun?.taskId === taskId && !previousRun.error
+    function canResume(taskId, lease, allowRecovery = false) {
+      return !activeRun && previousRun?.taskId === taskId && (!previousRun.error || allowRecovery)
         && leaseEquals(previousRun.lease, lease) && leaseEquals(lease, inspect().surface.lease);
     }
     function start(task, {resumeFrom = null} = {}) {
@@ -677,9 +718,9 @@
       if (!task?.id || !task.runId) throw new Error("商品评价任务缺少运行标识");
       const state = inspect();
       if (!state.surface.ready || !leaseEquals(task.lease, state.surface.lease)) throw new Error(state.surface.reason || "商品或评价面板已经变化，请重新识别");
-      if (resumeFrom && !canResume(resumeFrom, task.lease)) throw new Error("原评价页面或继续读取检查点已失效，请重新下载");
+      if (resumeFrom && !canResume(resumeFrom, task.lease, task.collection_mode==='automatic')) throw new Error("原评价页面或继续读取检查点已失效，请先下载已读取的评价");
       const run = { taskId: String(task.id), runId: String(task.runId), lease: cloneLease(task.lease), startedAt: now(), scrollActions: 0,
-        savedCount: Number(task.reviewCount || 0), visited: new Set(resumeFrom ? previousRun.visited : []), pauseRequested: false, finishing: false, hadUnparsedFollowup: false, result: null, error: "", progressSequence: 0 };
+        automatic: task.collection_mode==='automatic', savedCount: Number(task.reviewCount || 0), visited: new Set(resumeFrom ? previousRun.visited : []), reviewIssues: new Map(resumeFrom ? previousRun.reviewIssues : []), pauseRequested: false, finishing: false, result: null, error: "", progressSequence: 0 };
       run.pauseSignal = new Promise(resolve => { run.wakePause = resolve; });
       run.transaction = adapters.beginTransaction?.();
       activeRun = run;
@@ -692,6 +733,7 @@
       const run = activeRun;
       if (!run || String(request?.taskId) !== run.taskId || String(request?.runId) !== run.runId) return { ok: false, error: "当前商品评价运行已结束或已切换，请刷新状态" };
       run.pauseRequested = true;
+      run.stopRequested = run.stopRequested || request.finish === true;
       run.wakePause();
       return { ok: true, stopping: true };
     }
@@ -706,7 +748,7 @@
     async function waitForIdle() { if (activeRun) await activeRun.completion; }
     function configureLimits(limits) {
       if (activeRun) throw new Error("Cannot change an active review run's limits");
-      bounds.maxRows = Math.max(1, Math.min(2000, Number(limits?.maxRows) || 2000));
+      bounds.maxRows = Math.max(1, Math.min(10000, Number(limits?.maxRows) || 2000));
       bounds.maxScrolls = Math.max(1, Math.min(600, Number(limits?.maxScrolls) || 200));
       bounds.maxMs = Math.max(1000, Math.min(600000, Number(limits?.maxMs) || 600000));
     }

@@ -22,6 +22,54 @@ def catalog():
         product_url=None,explaining=None,observed_at_epoch_ms=1000)],complete=True,stop_reason=None)
 
 class MaterialContractTests(unittest.TestCase):
+    def parameter_request(self):
+        p=full_request()['snapshot']
+        p['sku_materials']=dict(mode='all_visible',status='not_observed',initial_selection=[],selection_restored=True,variants=[],stop_reason='sku_not_observed')
+        p['parameter_materials']=dict(source='product_parameter_tabs',status='complete_visible_options',option_count=2,
+            initial_selection='套餐一',selection_restored=True,stop_reason=None,variants=[dict(label=f'套餐{label}',state='observed',reason=None,
+                components=[dict(name='合成产品',quantity_text=f'x {i}',parameters=[dict(name='容量',value=f'{i*10}ml')])],observed_at_epoch_ms=1000) for i,label in enumerate(['一','二'],1)])
+        return p
+
+    def test_parameter_content_has_own_schema_without_transaction_claims(self):
+        p=self.parameter_request()
+        self.assertEqual(validate_snapshot(p,standalone=True),p)
+        for patch in [dict(price_texts=['¥99']),dict(sku_id='123456'),dict(image_urls=[]),dict(address='private')]:
+            bad=copy.deepcopy(p);bad['parameter_materials']['variants'][0].update(patch)
+            with self.subTest(patch=patch),self.assertRaises(ValueError):validate_snapshot(bad,standalone=True)
+        for patch in [dict(selection_restored=False),dict(option_count=3),dict(initial_selection=None),dict(stop_reason='options_changed')]:
+            bad=copy.deepcopy(p);bad['parameter_materials'].update(patch)
+            with self.subTest(patch=patch),self.assertRaises(ValueError):validate_snapshot(bad,standalone=True)
+        bad=copy.deepcopy(p);bad['parameter_materials']['variants'][0]['components'][0]['parameters'][0]['name']='收货地址'
+        with self.assertRaises(ValueError):validate_snapshot(bad,standalone=True)
+        with self.assertRaises(ValueError):validate_snapshot(p,detail=True)
+
+    def test_parameter_export_preserves_options_without_fake_sku_images_or_prices(self):
+        p=self.parameter_request();source=dict(event_type='product_material',payload=p,room_url='https://live.douyin.com/123456',observed_at='2026-01-01T00:00:00+08:00')
+        with scratch_dir() as root:
+            result=build_product_package(root,[source],stop=threading.Event(),fetcher=lambda *a,**k:PNG)
+            self.assertEqual(result['state'],'partial') # Purchasing SKU coverage is still unknown.
+            with zipfile.ZipFile(result['archive']) as z:
+                material=json.loads(z.read('商品资料.json'));manifest=json.loads(z.read('下载清单.json'));note=z.read('商品资料.md').decode()
+                self.assertEqual(material['parameter_materials'],p['parameter_materials'])
+                self.assertEqual(manifest['parameter_materials'],p['parameter_materials'])
+                self.assertEqual(material['sku_image_mapping'],[])
+                self.assertIn('套餐内容与参数',note);self.assertIn('10ml',note);self.assertIn('20ml',note)
+                self.assertIn('未取得可核验的购买规格',note)
+
+    def test_parameter_partial_cannot_promote_an_otherwise_complete_sku_package(self):
+        p=self.sku_request();p['parameter_materials']=self.parameter_request()['parameter_materials']
+        p['parameter_materials'].update(status='partial_visible_options',selection_restored=False,stop_reason='restore_unconfirmed')
+        source=dict(event_type='product_material',payload=p,room_url='https://live.douyin.com/123456',observed_at='2026-01-01T00:00:00+08:00')
+        with scratch_dir() as root:
+            result=build_product_package(root,[source],stop=threading.Event(),fetcher=lambda *a,**k:PNG)
+            self.assertEqual(result['state'],'partial')
+
+    def test_video_count_is_separate_and_does_not_claim_a_download(self):
+        snapshot=full_request()['snapshot'];snapshot['image_coverage'].update(main_media_expected=6,main_video_observed=1,main_video_downloaded=False)
+        self.assertEqual(validate_snapshot(snapshot,standalone=True),snapshot)
+        for patch in (dict(main_video_downloaded=True),dict(main_video_observed=-1),dict(main_video_observed=7),dict(main_media_expected=True)):
+            invalid=copy.deepcopy(snapshot);invalid['image_coverage'].update(patch)
+            with self.subTest(patch=patch),self.assertRaises(ValueError):validate_snapshot(invalid,standalone=True)
     def test_number_hints_are_not_identity_or_confirmed_numbers(self):
         from catalog_numbers import number_hints
         c=catalog();c['rows']=[dict(c['rows'][0],list_position=i+1 if i else None,

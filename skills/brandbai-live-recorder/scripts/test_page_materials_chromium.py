@@ -63,6 +63,36 @@ class MaterialChromiumTests(unittest.TestCase):
         self.assertEqual(len(result['result']['snapshot']['images']),8)
         self.assertEqual(self.page.evaluate('clicks'),['下一张']*4)
 
+    def test_video_poster_and_duplicate_slide_are_not_missing_still_images(self):
+        self.product()
+        self.page.evaluate('''()=>{const g=originalPanel.querySelector('[data-role="product-main-gallery"]');
+          g.dataset.total='7';g.innerHTML='<span>1/7</span>'+Array.from({length:7},(_,i)=>
+            `<div class="swiper-slide" data-swiper-slide-index="${i}"><img src="https://p3.ecombdimg.com/main-${Math.max(0,i-2)}.webp">${i===0?'<img class="CcoHiZjd" src="data:image/png;base64,icon">':''}</div>`).join('');start();}''')
+        result=self.finish();coverage=result['result']['snapshot']['image_coverage']
+        self.assertTrue(coverage['main_complete'],result)
+        self.assertEqual(coverage['main_expected'],5);self.assertEqual(coverage['main_observed'],5)
+        self.assertEqual(coverage['main_media_expected'],7);self.assertEqual(coverage['main_video_observed'],1)
+        self.assertFalse(coverage['main_video_downloaded']);self.assertEqual(self.page.evaluate('clicks'),[])
+        urls=[i['url'] for i in result['result']['snapshot']['images'] if i['kind']=='product_main']
+        self.assertEqual(urls,[f'https://p3.ecombdimg.com/main-{i}.webp' for i in range(5)])
+
+    def test_partial_video_slide_set_does_not_prove_all_still_images(self):
+        self.product()
+        self.page.evaluate('''()=>{const g=originalPanel.querySelector('[data-role="product-main-gallery"]');g.dataset.total='6';
+          g.innerHTML='<span>1/6</span><div class="swiper-slide" data-swiper-slide-index="0"><img class="CcoHiZjd" src="data:image/png;base64,icon"></div>'+
+            '<div class="swiper-slide" data-swiper-slide-index="1"><img src="https://p3.ecombdimg.com/main-0.webp"></div>';start();}''')
+        coverage=self.finish()['result']['snapshot']['image_coverage']
+        self.assertFalse(coverage['main_complete']);self.assertIsNone(coverage['main_expected'])
+
+    def test_unique_video_poster_is_not_saved_as_a_still_image(self):
+        self.product()
+        self.page.evaluate('''()=>{const g=originalPanel.querySelector('[data-role="product-main-gallery"]');g.dataset.total='2';
+          g.innerHTML='<span>1/2</span><div class="swiper-slide" data-swiper-slide-index="0"><img src="https://p3.ecombdimg.com/video-poster.webp"><video></video></div>'+
+            '<div class="swiper-slide" data-swiper-slide-index="1"><img src="https://p3.ecombdimg.com/main-0.webp"></div>';start();}''')
+        result=self.finish()['result']['snapshot'];self.assertTrue(result['image_coverage']['main_complete'])
+        self.assertEqual(result['image_coverage']['main_observed'],1)
+        self.assertFalse(any('video-poster' in i['url'] for i in result['images']))
+
     def test_gallery_counter_and_controls_outside_rehashed_gallery(self):
         self.product(True)
         self.page.evaluate('''()=>{
@@ -410,5 +440,112 @@ class MaterialChromiumTests(unittest.TestCase):
         self.page.locator('.ufz0AqTE').nth(3).click()
         result=self.finish();self.assertEqual(result['state'],'failed');self.assertEqual(result['reason'],'specification_changed')
         self.assertEqual(self.page.evaluate("sku.querySelector('.vZSOutR4 span').textContent"),'合成规格 4')
+
+    def parameter_product(self):
+        self.product()
+        self.page.evaluate('''()=>{
+          const block=document.createElement('section');block.className='rTo7umLC';
+          block.innerHTML='<div>产品参数</div><div class="D_7wQB6X">'+[1,2,3].map(i=>`<div class="__vtisZP ${i===1?'pC3RZNs3':''}"><span>合成套餐${i}</span></div>`).join('')+'</div><div class="uSceXBcd"></div>';
+          originalPanel.querySelector('[data-role="product-detail-content"]').before(block);window.param=block;
+          window.setParameter=i=>{block.querySelector('.uSceXBcd').innerHTML=`<div class="ftRMs5mA"><div class="Ri9v30c9"><span>合成组成商品</span><span>x ${i}</span></div><div class="PKh2krtF"><div><span>含量</span><div>${i*10}ml</div></div></div></div>`;};setParameter(1);
+          block.querySelectorAll('.__vtisZP').forEach((o,i)=>o.onclick=()=>{block.querySelectorAll('.__vtisZP').forEach(n=>n.classList.remove('pC3RZNs3'));o.classList.add('pC3RZNs3');setParameter(i+1)});
+          window.startAll=()=>materials.start({kind:'product',sku_mode:'all_visible',request_id:crypto.randomUUID(),expected:reader.previewCurrent()});
+        }''')
+
+    def test_parameter_tabs_save_composition_not_prices_or_sku_mapping(self):
+        self.parameter_product()
+        self.page.evaluate('''()=>{const clone=param.cloneNode(true);clone.querySelector('.D_7wQB6X').remove();document.body.append(clone);startAll()}''')
+        result=self.finish()['result']['snapshot'];p=result['parameter_materials']
+        self.assertEqual(p['status'],'complete_visible_options',p)
+        self.assertEqual([r['components'][0]['quantity_text'] for r in p['variants']],['x 1','x 2','x 3'])
+        self.assertTrue(p['selection_restored']);self.assertEqual(self.page.evaluate('param.querySelector(".pC3RZNs3").textContent'),'合成套餐1')
+        self.assertEqual(result['sku_materials']['variants'],[])
+        self.assertEqual(result['sku_materials']['status'],'not_observed')
+        self.assertEqual(self.page.evaluate('clicks'),['合成套餐2','合成套餐3','合成套餐1'])
+        self.assertEqual(self.page.evaluate('records'),[])
+        from product_evidence import validate_snapshot
+        self.assertEqual(validate_snapshot(result,standalone=True)['parameter_materials'],p)
+
+    def test_parameter_changed_selection_without_content_does_not_copy_old_bundle(self):
+        self.parameter_product();self.page.evaluate('window.setParameter=()=>{};startAll()')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['status'],'partial_visible_options')
+        self.assertEqual([r['state'] for r in p['variants']],['observed','failed','failed'])
+        self.assertEqual(p['variants'][1]['components'],[]);self.assertTrue(p['selection_restored'])
+
+    def test_parameter_unconfirmed_initial_selection_does_not_click(self):
+        self.parameter_product();self.page.evaluate('param.querySelector(".pC3RZNs3").classList.remove("pC3RZNs3");startAll()')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['stop_reason'],'selection_unconfirmed');self.assertEqual(self.page.evaluate('clicks'),[])
+
+    def test_parameter_duplicate_blocks_in_same_panel_are_not_guessed(self):
+        self.parameter_product();self.page.evaluate('param.after(param.cloneNode(true));startAll()')
+        result=self.finish()['result']['snapshot']
+        self.assertNotIn('parameter_materials',result);self.assertEqual(self.page.evaluate('clicks'),[])
+
+    def test_parameter_content_waits_for_delayed_render(self):
+        self.parameter_product()
+        self.page.evaluate('''()=>{const actual=setParameter;window.setParameter=i=>{let ticks=5;window.onWait=()=>{if(--ticks===0){actual(i);window.onWait=null}}};startAll()}''')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['status'],'complete_visible_options',p);self.assertTrue(p['selection_restored'])
+
+    def test_parameter_stop_keeps_confirmed_rows_and_restores(self):
+        self.parameter_product()
+        self.page.evaluate('''()=>{const actual=setParameter;window.setParameter=i=>{actual(i);if(i===2)materials.stop()};startAll()}''')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['status'],'partial_visible_options');self.assertEqual(p['stop_reason'],'user_stopped')
+        self.assertTrue(p['selection_restored']);self.assertEqual(p['variants'][0]['state'],'observed')
+
+    def test_parameter_new_options_prevent_complete_claim(self):
+        self.parameter_product()
+        self.page.evaluate('''()=>{const actual=setParameter;window.setParameter=i=>{actual(i);if(i===2)param.querySelector('.D_7wQB6X').insertAdjacentHTML('beforeend','<div class="__vtisZP">新增套餐</div>')};startAll()}''')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['status'],'partial_visible_options');self.assertEqual(p['stop_reason'],'options_changed')
+
+    def test_parameter_disabled_option_never_clicked(self):
+        self.parameter_product();self.page.evaluate('param.querySelectorAll(".__vtisZP")[1].setAttribute("aria-disabled","true");startAll()')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['status'],'complete_visible_options');self.assertEqual(p['variants'][1]['state'],'unavailable')
+        self.assertNotIn('合成套餐2',self.page.evaluate('clicks'))
+
+    def test_parameter_manual_click_aborts_without_overwriting_choice(self):
+        self.parameter_product();self.page.evaluate('startAll()')
+        self.page.wait_for_function("materials.status().phase==='parameter_options'")
+        self.page.locator('.__vtisZP').nth(2).click()
+        result=self.finish()
+        self.assertEqual(result['state'],'failed');self.assertEqual(result['reason'],'specification_changed')
+        self.assertEqual(self.page.evaluate('param.querySelector(".pC3RZNs3").textContent'),'合成套餐3')
+
+    def test_parameter_failed_restore_stays_partial(self):
+        self.parameter_product()
+        self.page.evaluate('param.querySelector(".__vtisZP").onclick=()=>{};startAll()')
+        p=self.finish()['result']['snapshot']['parameter_materials']
+        self.assertEqual(p['status'],'partial_visible_options')
+        self.assertFalse(p['selection_restored']);self.assertEqual(p['stop_reason'],'restore_unconfirmed')
+
+    def test_sku_loading_gallery_is_not_confirmed_just_because_urls_are_stable(self):
+        self.sku_product()
+        self.page.evaluate('''()=>{const g=originalPanel.querySelector('.swiper-container');
+          g.insertAdjacentHTML('beforeend','<span role="progressbar">等待图片</span>');startAll()}''')
+        p=self.finish()['result']['snapshot']['sku_materials']
+        self.assertEqual(p['status'],'partial_all_visible_skus')
+        self.assertTrue(all(r['reason']=='sku_media_unconfirmed' for r in p['variants']))
+
+    def test_sku_with_video_poster_does_not_make_every_variant_incomplete(self):
+        self.sku_product()
+        self.page.evaluate('''()=>{const g=originalPanel.querySelector('.swiper-container');
+          g.insertAdjacentHTML('afterbegin','<div class="swiper-slide"><img src="https://p3.ecombdimg.com/poster.webp"><video></video></div>');
+          g.querySelectorAll('.swiper-slide').forEach((s,i)=>s.dataset.swiperSlideIndex=String(i));startAll()}''')
+        p=self.finish()['result']['snapshot'];self.assertEqual(p['sku_materials']['status'],'complete_all_visible_skus',p)
+        for row in p['sku_materials']['variants']:
+            self.assertTrue(row['main_complete']);self.assertEqual(row['main_expected'],5)
+            self.assertFalse(any('poster' in u for u in row['image_urls']))
+
+    def test_sku_inventory_changes_prevent_complete_claim(self):
+        self.sku_product()
+        self.page.evaluate('''()=>{const o=sku.querySelectorAll('.ufz0AqTE')[1],click=o.onclick;o.onclick=()=>{click();
+          sku.querySelector('.options').insertAdjacentHTML('beforeend','<div class="ufz0AqTE wlXQKgvo">新增规格</div>')};startAll()}''')
+        p=self.finish()['result']['snapshot']['sku_materials']
+        self.assertEqual(p['status'],'partial_all_visible_skus');self.assertEqual(p['stop_reason'],'sku_inventory_changed')
 
 if __name__=='__main__': unittest.main()

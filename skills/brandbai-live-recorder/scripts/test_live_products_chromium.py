@@ -163,6 +163,26 @@ class LiveProductChromiumTests(unittest.TestCase):
         self.assertIn('券后¥49起',value['price_texts'])
         self.assertEqual(value['parameter_texts'],['产品参数','品牌','合成','是否进口','否'])
 
+    def test_split_campaign_price_keeps_qualifier_without_checkout_fallback(self):
+        self.page.evaluate('''() => {
+          document.querySelector('#panel').hidden=false;
+          document.querySelector('#panel>div>span').innerHTML='<span>大促价</span><i>￥</i><b>79</b>';
+          const checkout=document.createElement('aside');checkout.textContent='支付￥158.00';
+          document.body.append(checkout);
+        }''')
+        self.assertEqual(self.page.evaluate('collector.previewCurrent().snapshot.price_texts'),['大促价￥79'])
+        self.page.evaluate("document.querySelector('#panel>div>span').textContent='赠品价值￥79'")
+        self.assertEqual(self.page.evaluate('collector.previewCurrent().snapshot.price_texts'),[])
+
+    def test_catalog_split_campaign_price_preserves_qualifier(self):
+        self.page.evaluate(CATALOG)
+        self.page.evaluate('''() => {
+          document.querySelector('#catalog').hidden=false;
+          const price=[...document.querySelectorAll('#catalog .item span')].find(n=>n.textContent==='券后价¥29起');
+          price.innerHTML='<span>大促价</span><i>￥</i><b>79</b><em>起</em>';
+        }''')
+        self.assertEqual(self.page.evaluate('collector.catalogSurface().rows[0].data.display_price'),'大促价￥79起')
+
     def setup_product_workspace(self, *, recording=False):
         self.page.set_content((EXT/'popup.html').read_text(encoding='utf-8'))
         self.page.add_style_tag(content=(EXT/'design-tokens.css').read_text(encoding='utf-8'))
@@ -191,7 +211,7 @@ class LiveProductChromiumTests(unittest.TestCase):
           const readCurrentTab=async()=>{},beginAssistantLaunch=async()=>new Promise(resolve=>window.resolveLaunch=resolve),revealStorageSettings=()=>{window.storageShown=true};
           const cancelAssistantLaunch=async()=>resolveLaunch(false);
           const api=async(path,opts={})=>{
-            calls.push({path,...opts});if(path==='/v1/health')return window.testHealth||{independent_product_downloads:true,full_product_materials:true,independent_product_catalogs:true,all_visible_product_skus:true,shared_product_identity:true,catalog_number_verification:true,browser_zip_delivery:true};
+            calls.push({path,...opts});if(path==='/v1/health')return window.testHealth||{independent_product_downloads:true,full_product_materials:true,independent_product_catalogs:true,all_visible_product_skus:true,shared_product_identity:true,catalog_number_verification:true,browser_zip_delivery:true,product_media_classification:true,product_parameter_options:true};
             if(window.failStatus)throw new Error('synthetic connection failure');
             return {product_download:window.jobResponse||{state:'complete_observed',image_saved:0,output_dir:'synthetic-output'}};
           };
@@ -437,6 +457,13 @@ class LiveProductChromiumTests(unittest.TestCase):
         self.page.evaluate("capture.state='ready';productTick()")
         self.page.wait_for_function("calls.some(c=>c.method==='POST')")
 
+    def test_old_helper_does_not_receive_new_parameter_materials(self):
+        self.setup_product_workspace()
+        self.page.evaluate('window.testHealth={independent_product_downloads:true,full_product_materials:true,independent_product_catalogs:true,all_visible_product_skus:true,shared_product_identity:true,catalog_number_verification:true,browser_zip_delivery:true,product_media_classification:true}')
+        self.page.locator('#download-current-product').click()
+        self.page.wait_for_function("document.querySelector('#product-message').textContent.includes('更新本机助手')")
+        self.assertFalse(self.page.evaluate("calls.some(c=>c.method==='POST')"))
+
     def test_standalone_ui_revalidates_product_and_clears_switched_tab(self):
         self.setup_product_workspace()
         self.page.evaluate("sample.snapshot.product_title='已经换成另外一个合成商品'")
@@ -552,12 +579,88 @@ class LiveProductChromiumTests(unittest.TestCase):
         self.assertIn('已保存 1 / 3 张图片 · 1 张失败 · 1 张未下载',self.page.locator('.product-progress-counts').inner_text())
         self.assertEqual(self.page.evaluate("calls.filter(c=>c.method==='POST').length"),1)
 
-    def test_images_complete_sku_unknown_is_separate_from_confirmed_single_sku(self):
+    def test_preview_no_options_is_neutral_and_does_not_invent_single_sku(self):
+        self.setup_product_workspace()
+        preview=self.page.text_content('#product-preview')
+        self.assertIn('本页未展示可切换的规格',preview)
+        self.assertNotIn('暂未确认',preview)
+        self.assertNotIn('0 个规格',preview)
+        self.assertNotIn('单规格',preview)
+
+    def test_preview_single_option_does_not_invent_selected_state(self):
+        self.setup_product_workspace()
+        for selected,label in [(False,'页面显示规格：合成小盒'),(True,'当前规格：合成小盒')]:
+            with self.subTest(selected=selected):
+                self.page.evaluate('(selected)=>{sample.snapshot.sku_groups=[{name:"包装",options:[{value:"合成小盒",selected}]}]}',selected)
+                self.page.click('#refresh-product')
+                self.page.wait_for_function('(label)=>document.querySelector("#product-preview").textContent.includes(label)',arg=label)
+                self.assertNotIn('暂未确认',self.page.text_content('#product-preview'))
+                self.assertEqual(self.page.evaluate('BrandbaiCurrentProduct.get().snapshot.sku_groups[0].options[0].selected'),selected)
+
+    def test_images_complete_no_options_is_neutral_without_claiming_single_sku(self):
         self.start_progress_job()
-        self.page.evaluate("jobResponse={state:'partial',image_saved:45,image_total:45,image_coverage:{main_complete:true,detail_complete:true,main_observed:5,main_expected:5,detail_observed:40,stop_reason:null},sku_materials:{status:'not_observed',variants:[]},output_dir:'synthetic-output'};productTick()")
-        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='图片已保存 · 规格待确认'")
-        self.assertIn('规格数量未确认',self.page.text_content('#product-download-result'))
-        self.assertNotIn('商品资料未收齐',self.page.text_content('#product-download-result'))
+        self.page.evaluate("jobResponse={state:'partial',image_saved:45,image_total:45,image_coverage:{main_complete:true,detail_complete:true,main_observed:5,main_expected:5,detail_observed:40,stop_reason:null},sku_materials:{status:'not_observed',selection_restored:true,stop_reason:'sku_not_observed',variants:[]},output_dir:'synthetic-output'};productTick()")
+        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='图片已保存'")
+        result=self.page.text_content('#product-download-result')
+        self.assertIn('本页未展示可切换的规格',result)
+        self.assertNotIn('规格待确认',result)
+        self.assertNotIn('已确认 1 个',result)
+        stored=self.page.evaluate("async()=> (await chrome.storage.session.get('brandbaiIndependentProductDownload')).brandbaiIndependentProductDownload")
+        self.assertEqual(stored['state'],'partial')
+        self.assertEqual(stored['sku_materials']['status'],'not_observed')
+        self.assertFalse(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
+
+    def test_missing_sku_options_do_not_clear_other_material_limits(self):
+        self.start_progress_job()
+        self.page.evaluate("jobResponse={state:'partial',fields_limited:true,image_saved:45,image_total:45,image_coverage:{main_complete:true,detail_complete:true,main_observed:5,main_expected:5,detail_observed:40,stop_reason:null},sku_materials:{status:'not_observed',selection_restored:true,stop_reason:'sku_not_observed',variants:[]},output_dir:'synthetic-output'};productTick()")
+        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='图片已保存'")
+        self.assertTrue(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
+
+    def test_sku_failure_does_not_use_neutral_no_options_result(self):
+        self.start_progress_job()
+        self.page.evaluate("jobResponse={state:'partial',image_saved:45,image_total:45,image_coverage:{main_complete:true,detail_complete:true,main_observed:5,main_expected:5,detail_observed:40,stop_reason:null},sku_materials:{status:'partial_all_visible_skus',selection_restored:false,stop_reason:'selection_unconfirmed',variants:[]},output_dir:'synthetic-output'};productTick()")
+        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='图片已保存 · 规格未读完'")
+        self.assertNotIn('本页未展示可切换的规格',self.page.text_content('#product-download-result'))
+        self.assertIn('未确认恢复',self.page.text_content('#product-download-result'))
+        self.assertTrue(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
+
+    def test_interrupted_before_sku_phase_explains_real_stop_without_sku_failure(self):
+        for reason,label in [('page_hidden','页面转入后台'),('user_stopped','已按你的操作结束读取'),
+                             ('time_limit','读取时间已到'),('image_limit','图片数量已达上限')]:
+            with self.subTest(reason=reason):
+                self.page.close()
+                self.page=self.context.new_page()
+                self.start_progress_job()
+                self.page.evaluate('''(reason)=>{jobResponse={state:'partial',image_saved:8,image_total:8,
+                  image_coverage:{main_complete:true,detail_complete:false,main_observed:3,main_expected:3,
+                    detail_observed:5,detail_end_evidence:'not_reached',stop_reason:reason},
+                  sku_materials:{status:'not_observed',initial_selection:[],selection_restored:true,variants:[],stop_reason:null},
+                  output_dir:'synthetic-output',delivery:{id:'synthetic-delivery',state:'completed'}};productTick()}''',reason)
+                self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent.endsWith(' · 图片已整理')")
+                self.assertIn('已结束读取' if reason=='user_stopped' else label,self.page.locator('#product-download-result h3').inner_text())
+                result=self.page.text_content('#product-download-result')
+                self.assertIn(label,result)
+                self.assertNotIn('规格尚未读完',result)
+                self.assertNotIn('规格未读完',result)
+                self.assertNotIn('本页未展示可切换的规格',result)
+                self.assertNotIn('已确认 1 个',result)
+                self.assertTrue(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
+                stored=self.page.evaluate("async()=> (await chrome.storage.session.get('brandbaiIndependentProductDownload')).brandbaiIndependentProductDownload")
+                self.assertEqual(stored['state'],'partial')
+                self.assertEqual(stored['image_coverage']['stop_reason'],reason)
+                self.assertIsNone(stored['sku_materials']['stop_reason'])
+                self.assertEqual(self.page.evaluate("calls.filter(c=>c.method==='POST').length"),1)
+
+    def test_interruption_after_sku_started_still_reports_actual_sku_gap(self):
+        self.start_progress_job()
+        self.page.evaluate("jobResponse={state:'partial',image_saved:8,image_total:8,image_coverage:{main_complete:true,detail_complete:true,main_observed:3,main_expected:3,detail_observed:5,stop_reason:'page_hidden'},sku_materials:{status:'partial_all_visible_skus',selection_restored:false,variants:[{state:'observed'},{state:'failed',reason:'selection_unconfirmed'}],stop_reason:'restore_unconfirmed'},output_dir:'synthetic-output'};productTick()")
+        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='页面转入后台 · 图片已保存'")
+        result=self.page.text_content('#product-download-result')
+        self.assertIn('页面转入后台',result)
+        self.assertIn('规格已读取 1 / 2 项',result)
+        self.assertIn('原选择未确认恢复',result)
+        self.assertTrue(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
+
     def test_confirmed_single_sku_has_no_unknown_warning(self):
         # A separately confirmed visible single-option snapshot has no unknown warning.
         self.setup_product_workspace()
@@ -565,6 +668,21 @@ class LiveProductChromiumTests(unittest.TestCase):
         self.page.click('#download-current-product')
         self.page.wait_for_function("document.querySelector('#product-download-result').textContent.includes('已确认 1 个页面可选规格')")
         self.assertNotIn('规格数量未确认',self.page.text_content('#product-download-result'))
+
+    def test_parameter_complete_result_is_not_a_missing_image_warning(self):
+        self.start_progress_job()
+        self.page.evaluate("jobResponse={state:'partial',image_saved:27,image_total:27,image_coverage:{main_complete:true,detail_complete:true,main_observed:5,main_expected:5,detail_observed:22,stop_reason:null},sku_materials:{status:'not_observed',variants:[]},parameter_materials:{status:'complete_visible_options',option_count:3,selection_restored:true,variants:[{state:'observed'},{state:'observed'},{state:'observed'}]},output_dir:'synthetic-output'};productTick()")
+        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='图片与套餐内容已保存'")
+        self.assertIn('套餐 3 / 3 项',self.page.text_content('#product-download-result'))
+        self.assertIn('未取得各套餐的独立价格和规格图片',self.page.text_content('#product-download-result'))
+        self.assertFalse(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
+
+    def test_parameter_partial_result_still_warns_and_keeps_image_success(self):
+        self.start_progress_job()
+        self.page.evaluate("jobResponse={state:'partial',image_saved:27,image_total:27,image_coverage:{main_complete:true,detail_complete:true,main_observed:5,main_expected:5,detail_observed:22,stop_reason:null},sku_materials:{status:'not_observed',variants:[]},parameter_materials:{status:'partial_visible_options',option_count:3,selection_restored:false,variants:[{state:'observed'},{state:'failed'}]},output_dir:'synthetic-output'};productTick()")
+        self.page.wait_for_function("document.querySelector('#product-download-result h3').textContent==='图片已保存 · 部分套餐未读完'")
+        self.assertIn('原选择未确认恢复',self.page.text_content('#product-download-result'))
+        self.assertTrue(self.page.locator('#product-download-result').evaluate("n=>n.classList.contains('needs-attention')"))
 
     def test_preparation_is_visible_immediately_even_before_server_job_exists(self):
         self.setup_product_workspace()

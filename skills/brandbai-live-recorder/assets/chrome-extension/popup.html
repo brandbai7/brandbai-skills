@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BrandBAI 直播录屏</title>
+    <title>BrandBAI 直播采集助手</title>
     <link rel="stylesheet" href="design-tokens.css">
     <link rel="stylesheet" href="sidepanel.css">
   </head>
@@ -14,7 +14,7 @@
         <div class="brand-identity">
           <img class="brand-mark" src="assets/brandbai-logo.png" alt="BrandBAI" width="42" height="42">
           <div class="brand-copy">
-            <h1>直播录屏助手</h1>
+            <h1>直播采集助手</h1>
             <p class="brand-subtitle">BrandBAI · 直播与商品采集</p>
           </div>
         </div>
@@ -30,11 +30,11 @@
             target="_blank"
             rel="noopener"
             hidden
-          >启动录屏助手</a>
+          >启动采集助手</a>
           <button id="pair" class="text-button" type="button" hidden>重新检测</button>
         </div>
         <p id="install-hint" class="connection-hint" hidden>
-          点击下方“开始录制”会自动启动助手。首次使用时，Chrome 会询问是否打开 BrandBAI 直播录屏助手；可勾选“始终允许”。打开后会自动返回直播间并开始录制；取消时不会创建录制任务。
+          点击下方“开始录制”会自动启动助手。首次使用时，Chrome 会询问是否打开 BrandBAI 直播采集助手；可勾选“始终允许”。打开后会自动返回直播间并开始录制；取消时不会创建录制任务。
         </p>
       </div>
     </header>
@@ -80,16 +80,16 @@
         <section id="review-card" class="product-review-section">
           <h3>买家评价</h3>
           <div id="review-preview" class="product-action-help" aria-live="polite">请在上方商品中打开“商品评价”。</div>
-          <label id="review-limit-field" class="review-limit-field" for="review-limit"><span>目标评价数</span><select id="review-limit"><option value="50">50 条</option><option value="200" selected>200 条（推荐）</option><option value="500">500 条</option></select></label>
-          <button id="review-start" type="button" class="product-secondary">下载评价</button>
+          <button id="review-start" type="button" class="product-secondary">开始读取评价</button>
           <p id="review-message" class="product-message" role="status" aria-live="polite"></p>
           <section id="review-result" class="product-result" hidden aria-live="polite">
             <h3 id="review-result-title"></h3><p id="review-result-product"></p><strong id="review-count"></strong>
-            <progress id="review-progress" max="200" value="0" aria-label="已读取评价占目标条数"></progress>
+            <progress id="review-progress" aria-label="正在读取评价"></progress>
             <p id="review-result-note"></p>
             <div id="review-delivery" class="inline-delivery" hidden></div>
-            <button id="review-stop" type="button" class="product-secondary">停止读取并保存</button>
+            <button id="review-pause" type="button" class="product-primary" hidden>暂停读取</button>
             <button id="review-continue" type="button" class="product-primary" hidden>继续读取</button>
+            <button id="review-stop" type="button" class="product-secondary">结束并下载</button>
             <button id="review-copy" type="button" class="product-secondary" hidden>复制评价资料位置</button>
           </section>
         </section>
@@ -244,7 +244,7 @@
             <input id="collect-room-metrics" type="checkbox" checked>
             <span>在线人数、点赞和榜单</span>
           </label>
-          <p id="product-upgrade-note" class="muted collector-note" hidden>商品资料下载需更新并重新启动录屏助手；视频和原有互动记录仍可用。</p>
+          <p id="product-upgrade-note" class="muted collector-note" hidden>商品资料下载需更新并重新启动采集助手；视频和原有互动记录仍可用。</p>
         </div>
       </section>
 
@@ -273,7 +273,7 @@
             <p><strong>商品目录：</strong>自动展开“全部商品”，保存编号、名称、展示价格和 1 张缩略图，每次最多新增 100 条。若已打开单个商品，请先关闭详情。不会逐个打开商品；编号与讲解标注只代表读取时的页面。</p>
             <p><strong>图片与规格：</strong>在“商品详情”中下载主图、详情图、规格参数和公开价格。依次确认全部可选规格（最多 40 个组合）及对应图片，结束后恢复原选择，详情图只保存一份。读取期间请勿手动换规格；不会购买、抽奖或读取收货信息。无法确认的项目会单独标明；图片文字未转写，不含商品视频。</p>
             <p><strong>买家评价：</strong>打开同一商品的“商品评价”，按当前筛选与排序读取。保存正文、时间、所购规格、可见追评和商家回复，买家化名处理；所购规格可能是历史款。附图只计数，不下载图片或视频，不切换筛选。</p>
-            <p id="review-budget-note">请保持商品评价页打开。切走后会等待，返回后继续；本次最多 10 分钟。</p>
+            <p id="review-budget-note">自动向下读取，可暂停、继续或结束并下载。请保持原商品评价页打开；平台折叠的评价不在采集范围内。连续读取较久或页面不再加载时会保留进度并暂停。</p>
             <p>两个资料包都附商品身份文件；真实商品 ID 一致时可跨次关联，未取得 ID 时只绑定当前页面，不凭名称合并。</p>
           </details>
           <details class="help-topic">

@@ -21,8 +21,8 @@
     && window.BrandbaiProductIdentity.same(preview.snapshot?.product_identity, value.current_product.snapshot?.product_identity));
   const previousProductResult = () => job && (job.kind || 'product') === 'product' && terminal(job) && !belongsToCurrent(job);
   const recognitionHints = Object.freeze({
-    unsupported_page:'当前标签页未确认是抖音直播间。请在已打开直播间的标签页点击录屏助手图标后重试。',
-    unavailable:'无法连接当前商品页。请点击浏览器工具栏中的录屏助手图标后重试；重新加载过插件时，请刷新直播页。',
+    unsupported_page:'当前标签页未确认是抖音直播间。请在已打开直播间的标签页点击采集助手图标后重试。',
+    unavailable:'无法连接当前商品页。请点击浏览器工具栏中的采集助手图标后重试；重新加载过插件时，请刷新直播页。',
     read_timeout:'商品页读取暂未完成，本次尚未开始下载。请保持页面打开，稍后重试。',
     read_failed:'页面已连接，但商品信息读取失败，本次尚未开始下载。请重新识别；仍失败时请反馈当前页面。',
     incomplete:'已检测到商品面板，但标题、店铺或图片尚未确认。请保持商品页打开，稍后重新识别。',
@@ -74,10 +74,15 @@
     const shop = document.createElement('p'); shop.className = 'muted'; shop.textContent = p.shop_name || '店铺名称暂未取得';
     const price = document.createElement('p'); price.className = 'product-price'; price.textContent = p.price_texts.join(' · ') || '展示价格暂未取得';
     const stats = document.createElement('p'); stats.className = 'product-counts';
-    stats.textContent = `当前预览 ${new Set(p.images.map((i) => i.url)).size} 张图片 · ${p.sku_groups.reduce((n,g)=>n+g.options.length,0)} 个规格选项 · ${p.parameter_texts.length ? '有参数资料' : '参数暂缺'}`;
+    const groups=p.sku_groups.filter(g=>g.options.length);
+    const optionCount=groups.reduce((n,g)=>n+g.options.length,0);
+    stats.textContent = `当前预览 ${new Set(p.images.map((i) => i.url)).size} 张图片` + (optionCount ? ` · ${optionCount} 个页面规格选项` : '') + ` · ${p.parameter_texts.length ? '有参数资料' : '参数暂缺'}`;
     const selection=document.createElement('p');selection.className='muted';
     const selected=p.sku_groups.flatMap(g=>g.options.filter(o=>o.selected).map(o=>o.value));
-    selection.textContent=selected.length?'当前选中：'+selected.join(' / '):'当前选中规格暂未确认；不会把可见选项当作选中规格。';
+    const onlyVisibleCombination=groups.length>0&&groups.every(g=>g.options.length===1);
+    selection.textContent=!optionCount ? '本页未展示可切换的规格。'
+      : onlyVisibleCombination ? (selected.length===groups.length?'当前规格：':'页面显示规格：')+groups.map(g=>g.options[0].value).join(' / ')
+      : selected.length ? '当前选中：'+selected.join(' / ') : '页面展示了多个规格，尚未显示当前选择。';
     const extra=document.createElement('details');extra.className='product-help product-preview-details';
     const summary=document.createElement('summary');summary.textContent='查看识别到的图片与规格';
     extra.append(summary,stats,selection);
@@ -263,11 +268,12 @@
       progress.removeAttribute('value'); counts.hidden = true; detail.textContent = preparation.text; return;
     }
     if(job.state==='collecting') {
-      heading.textContent=job.kind==='catalog' ? job.phase==='opening_catalog' ? '正在展开全部商品' : job.phase==='verifying_numbers' ? '正在核验未显示的编号' : '正在读取商品编号目录' : job.phase==='sku_images' ? '正在逐个确认规格与图片' : job.phase==='detail_images' ? '正在补齐详情图' : '正在补齐主图';
+      heading.textContent=job.kind==='catalog' ? job.phase==='opening_catalog' ? '正在展开全部商品' : job.phase==='verifying_numbers' ? '正在核验未显示的编号' : '正在读取商品编号目录' : job.phase==='parameter_options' ? '正在读取套餐内容' : job.phase==='sku_images' ? '正在逐个确认规格与图片' : job.phase==='detail_images' ? '正在补齐详情图' : '正在补齐主图';
       resultTitle.textContent=job.title;
       counts.textContent=job.kind==='catalog' ? `已读取 ${job.item_count||0} 条商品记录` : `主图 ${job.main_observed||0} / ${job.main_expected||'总数待确认'} · 详情图 ${job.detail_observed||0} 张`;
       detail.textContent='正在当前页面读取，请勿切换商品。关闭侧栏后仍会读取，重新打开可继续保存；视频继续，商品弹窗观察暂时暂停。';
       if(job.phase==='sku_images') counts.textContent=`已处理 ${job.sku_done||0} / ${job.sku_total||0} 个规格 · `+counts.textContent;
+      if(job.phase==='parameter_options') counts.textContent=`已读取 ${job.parameter_done||0} / ${job.parameter_total||0} 个套餐 · `+counts.textContent;
       detail.textContent+=` 已用时 ${Math.max(0,Math.floor((Date.now()-(job.started_at_epoch_ms||job.submitted_at))/1000))} 秒。`;
       if(job.no_change_steps>2 && job.phase==='detail_images') detail.textContent+='正在核对详情末端；没有新增内容时将结束读取并说明缺失。';
       if(job.kind==='catalog') detail.textContent=job.phase==='opening_catalog'
@@ -317,21 +323,53 @@
         const imagesComplete=c.main_complete&&c.detail_complete&&!c.stop_reason&&total>0&&saved===total&&!failed&&!skipped;
         const missingImages=failed>0 || skipped>0 || saved<total || c.main_expected>c.main_observed
           || ['detail_stalled','image_limit'].includes(c.stop_reason);
-        heading.textContent=full ? '主图与详情图已收齐并保存' : imagesComplete ? '图片已保存 · 规格待确认'
+        // No visible switching controls is a page limitation, not a failed SKU
+        // download or proof of one SKU. Keep the original task/export status.
+        const noSkuOptions=job.sku_materials?.status==='not_observed'
+          && job.sku_materials.stop_reason==='sku_not_observed'
+          && job.sku_materials.selection_restored===true && !job.sku_materials.variants.length;
+        const interruptions={page_hidden:['页面转入后台','页面转入后台，已提前结束读取；需要补齐时，请保持商品页在前台重新读取。'],
+          user_stopped:['已结束读取','已按你的操作结束读取，保留本次已取得的图片。'],
+          time_limit:['读取时间已到','本轮读取时间已到，保留本次已取得的图片。'],
+          image_limit:['图片数量已达上限','本轮图片数量已达上限，保留本次已取得的图片。'],
+          bytes_limit:['资料大小已达上限','本轮资料大小已达上限，保留本次已取得的图片。']};
+        const interruption=job.state==='partial'&&interruptions[c.stop_reason];
+        heading.textContent=full ? '主图与详情图已收齐并保存' : imagesComplete ? (noSkuOptions?'图片已保存':'图片已保存 · 规格未读完')
           : missingImages ? '部分图片资料待补齐' : '已取得图片已保存 · 完整性待核验';
+        if(interruption) heading.textContent=interruption[0]+(saved?' · 图片已保存':' · 读取已结束');
+        if(imagesComplete&&noSkuOptions&&job.state==='partial'&&!job.observation_limited&&!job.fields_limited&&!job.parameter_materials) result.classList.remove('needs-attention');
         detail.textContent=`主图 ${c.main_observed} / ${c.main_expected||'总数未知'} · 详情图 ${c.detail_observed} 张。` + (full ? '图片和资料包已保存。' : '已保留取得的文件。');
+        if(interruption) detail.textContent+=' '+interruption[1];
         if(c.stop_reason==='detail_stalled') detail.textContent+='详情已无新增内容，但尚未确认收齐，已停止等待。';
         else if(!c.main_complete) detail.textContent+='主图数量尚未核对完整。';
         else if(!c.detail_complete) detail.textContent+='详情末端或图片加载尚未确认。';
+        if(c.main_video_observed) detail.textContent+=` 另有 ${c.main_video_observed} 个商品视频，未下载视频文件，不计入图片缺失。`;
         if(job.sku_materials) {
           const s=job.sku_materials;
-          if(!s.variants.length) detail.textContent+=' 规格数量未确认：页面未提供可核验的选项，不能判断是单规格还是未识别到。已保存的图片可正常使用。';
+          // An interrupted image phase may never have reached SKU inspection.
+          // A default empty record is not an attempted/failed SKU traversal.
+          const skuNotStarted=interruption&&s.status==='not_observed'&&!s.stop_reason&&!s.variants.length;
+          if(skuNotStarted) { /* Preserve the unknown export state; no SKU failure claim. */ }
+          else if(!s.variants.length && !job.parameter_materials) detail.textContent+=noSkuOptions
+            ? ' 本页未展示可切换的规格，资料包包含本次读到的图片与商品信息。'
+            : ' 规格尚未读完，已保存的图片可正常使用。';
+          else if(!s.variants.length) detail.textContent+=' 已读取套餐内容；未取得各套餐的独立价格和规格图片。';
           else {
             if(s.status==='complete_all_visible_skus'&&s.variants.length===1&&s.variants[0].state==='observed') detail.textContent+=' 已确认 1 个页面可选规格，价格和对应图片已核对，无需切换多个规格。';
             else
             detail.textContent+=` 规格已读取 ${s.variants.filter(v=>v.state==='observed'&&!v.reason).length} / ${s.variants.length} 项；`+(s.selection_restored?'原选择已核对。':'原选择未确认恢复，请检查页面。');
             if(s.status!=='complete_all_visible_skus') detail.textContent+='部分规格未确认，详见资料包中的逐项记录。';
           }
+          if(!s.variants.length&&s.selection_restored===false) detail.textContent+=' 原选择未确认恢复，请检查页面。';
+        }
+        if(job.parameter_materials){
+          const p=job.parameter_materials, done=p.variants.filter(v=>v.state==='observed').length;
+          counts.textContent+=` · 套餐 ${done} / ${p.option_count} 项`;
+          if(imagesComplete&&!job.sku_materials?.variants.length){
+            heading.textContent=p.status==='complete_visible_options'?'图片与套餐内容已保存':'图片已保存 · 部分套餐未读完';
+            result.classList.toggle('needs-attention',p.status!=='complete_visible_options');
+          }
+          detail.textContent+=` 已读取 ${done} 个套餐的组成与参数。`+(p.selection_restored?'':'原选择未确认恢复，请检查页面。');
         }
       }
     }
@@ -394,7 +432,7 @@
       await saveJob(); return;
     }
     if(capture.state!=='ready') { Object.assign(job,{phase:capture.phase,main_observed:capture.main_observed,main_expected:capture.main_expected,detail_observed:capture.detail_observed,item_count:capture.item_count,
-      sku_done:capture.sku_done,sku_total:capture.sku_total,no_change_steps:capture.no_change_steps,started_at_epoch_ms:capture.started_at_epoch_ms}); await saveJob(); return; }
+      sku_done:capture.sku_done,sku_total:capture.sku_total,parameter_done:capture.parameter_done,parameter_total:capture.parameter_total,no_change_steps:capture.no_change_steps,started_at_epoch_ms:capture.started_at_epoch_ms}); await saveJob(); return; }
     const data=capture.result;
     if(Date.now()-data.observed_at_epoch_ms>120000 || data.catalog && !data.catalog.rows.length) {
       job.state='failed'; syncWarning='资料已过期或未取得商品，请重新读取。'; await saveJob(); return;
@@ -408,7 +446,7 @@
       renderOverview(); $('catalog-overview').open=true;
     }
     job={...job,state:'submitting',expected_images:data.snapshot?.images.length||data.catalog?.rows.filter(r=>r.thumbnail).length||0,
-      image_coverage:data.snapshot?.image_coverage,sku_materials:data.snapshot?.sku_materials,can_continue:data.can_continue,item_count:data.catalog?.rows.length,submitted_at:Date.now()};
+      image_coverage:data.snapshot?.image_coverage,sku_materials:data.snapshot?.sku_materials,parameter_materials:data.snapshot?.parameter_materials,fields_limited:data.snapshot?.fields_limited===true,can_continue:data.can_continue,item_count:data.catalog?.rows.length,submitted_at:Date.now()};
     await saveJob(); renderJob(); controls();
     try {
       if(!sessionToken && !(await connectService())) throw new Error('not_connected');
@@ -431,8 +469,8 @@
     try {
       const [origin]=await chrome.tabs.query({active:true,currentWindow:true});
       const originRoom=canonicalRoomUrl(origin?.url||'');
-      if(!originRoom)throw new Error('尚未识别到当前直播间。请切回正在观看的抖音直播标签页，点一下浏览器工具栏中的录屏助手图标，再读取目录。');
-      if(!(await pageAccessible(originRoom,origin.id))) throw new Error('暂时无法读取当前直播页。请在这个直播标签页点一下浏览器工具栏中的录屏助手图标，再重试；仍无响应时请刷新直播页。');
+      if(!originRoom)throw new Error('尚未识别到当前直播间。请切回正在观看的抖音直播标签页，点一下浏览器工具栏中的采集助手图标，再读取目录。');
+      if(!(await pageAccessible(originRoom,origin.id))) throw new Error('暂时无法读取当前直播页。请在这个直播标签页点一下浏览器工具栏中的采集助手图标，再重试；仍无响应时请刷新直播页。');
       if (!(await connectService({retry:true}))) {
         if(getConnectionIssue())throw new Error(getConnectionIssue());
         preparation={title,text:'请在浏览器确认框中选择打开助手。准备好后自动返回；不会开始录制。',launching:true}; renderJob();
@@ -447,6 +485,8 @@
       if(health.browser_zip_delivery!==true)throw new Error('请空闲后更新本机助手，才能使用浏览器 ZIP 下载。');
       if (health.independent_product_downloads !== true) throw new Error('请更新并重新启动本机助手，再下载商品资料。');
       if(health.shared_product_identity!==true)throw new Error('请在任务结束后更新本机助手，才能保存统一商品身份。');
+      if(kind==='product' && !health.product_media_classification)throw new Error('请空闲后更新本机助手，再下载图片与规格。');
+      if(kind==='product' && !health.product_parameter_options)throw new Error('请空闲后更新本机助手，以便保存套餐内容。');
       if (health.full_product_materials !== true || health.independent_product_catalogs !== true) throw new Error('本机助手需要更新，才能补齐图片和保存商品目录。现有录制不受影响；请在任务结束后更新助手。');
       if (health.all_visible_product_skus !== true) throw new Error('本机助手需要更新到新版，才能保存全部规格和福袋目录。请在录制或下载结束后更新助手，再重试。');
       if(kind==='catalog' && health.catalog_number_verification!==true) throw new Error('商品编号核验需要新版助手。请在录制或下载结束后更新并重新启动助手，再读取目录。');
@@ -455,7 +495,7 @@
       const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
       const room=canonicalRoomUrl(tab?.url||'');
       if(room!==originRoom || tab?.id!==origin.id) throw new Error('直播间或标签页已变化，本次未读取。请返回原直播间重试。');
-      if(!(await pageAccessible(room,tab.id))) throw new Error('当前直播页暂时无法连接。请在原直播标签页点一下浏览器工具栏中的录屏助手图标，再重试。');
+      if(!(await pageAccessible(room,tab.id))) throw new Error('当前直播页暂时无法连接。请在原直播标签页点一下浏览器工具栏中的采集助手图标，再重试。');
       currentOverviewRoom=room;
       const fresh = kind==='product'?await currentCapture():{tab_id:tab.id,room_url:room};
       if (!fresh || kind==='product' && (fresh.tab_id !== selected.tab_id || signature(fresh) !== signature(selected))) {

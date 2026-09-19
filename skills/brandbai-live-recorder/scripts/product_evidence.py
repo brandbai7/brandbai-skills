@@ -56,7 +56,7 @@ def validate_snapshot(value, *, detail=False, listing=False, standalone=False):
     if standalone:
         detail = True
     shared = {"product_title", "product_url", "shop_name", "offer_texts", "images", "identity_status", "source", "fields_limited"}
-    allowed = shared | ({"price_texts", "sku_groups", "parameter_texts", "completeness", "image_coverage", "sku_materials", "product_identity"} if standalone else
+    allowed = shared | ({"price_texts", "sku_groups", "parameter_texts", "completeness", "image_coverage", "sku_materials", "parameter_materials", "product_identity"} if standalone else
                        {"card_observation_id", "list_observation_id", "price_texts", "sku_groups", "parameter_texts", "association", "clicked_at_epoch_ms", "completeness"} if detail else
                         {"list_observation_id", "list_position", "explaining", "display_price"} if listing else {"card_observation_id", "visible", "display_price", "change_kind"})
     if not isinstance(value, dict) or set(value) - allowed:
@@ -118,6 +118,10 @@ def validate_snapshot(value, *, detail=False, listing=False, standalone=False):
         if not full: raise ValueError('SKU materials require full capture')
         from material_contract import validate_sku_materials
         out['sku_materials']=validate_sku_materials(value['sku_materials'],out['images'])
+    if standalone and 'parameter_materials' in value:
+        if not full: raise ValueError('parameter materials require full capture')
+        from material_contract import validate_parameter_materials
+        out['parameter_materials']=validate_parameter_materials(value['parameter_materials'])
     if not detail:
         out["display_price"] = clean_text(value.get("display_price"), 80)
         return out

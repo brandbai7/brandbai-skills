@@ -151,12 +151,13 @@ function canonicalRoomUrl(rawUrl) {
       const match = parsed.pathname.match(/^\/(\d{1,30})\/?$/);
       return match ? `https://live.douyin.com/${match[1]}` : null;
     }
-    // A user-opened live room can remain inside the Douyin search route.
+    // A user-opened room can remain inside live or general search.
+    // Both require one explicit live room id; a search tab alone is not a room.
     // Keep only its explicit room id, never the search text or tracking query.
     if (!["www.douyin.com", "douyin.com"].includes(parsed.hostname) || !/^\/(?:jingxuan\/)?search\/[^/]+\/?$/.test(parsed.pathname)) return null;
     const ids = parsed.searchParams.getAll("live_web_rid");
     const types = parsed.searchParams.getAll("type");
-    return ids.length === 1 && /^\d{1,30}$/.test(ids[0]) && types.length === 1 && types[0] === "live"
+    return ids.length === 1 && /^\d{1,30}$/.test(ids[0]) && types.length === 1 && ["live", "general"].includes(types[0])
       ? `https://live.douyin.com/${ids[0]}` : null;
   } catch (_error) {
     return null;
@@ -887,13 +888,15 @@ window.addEventListener("pagehide", () => {
   stopCollector("page_closed_or_navigated");
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if(['brandbai-review-preview','brandbai-review-start','brandbai-review-status','brandbai-review-stop'].includes(message?.type)) {
+  if(['brandbai-review-preview','brandbai-review-start','brandbai-review-status','brandbai-review-stop','brandbai-review-pause','brandbai-review-resume'].includes(message?.type)) {
     if(runtimeContextInvalidated || canonicalRoomUrl(location.href)!==message.roomUrl) {sendResponse({error:'直播间已变化，请重新识别。'});return false;}
     Promise.resolve().then(()=>{
       const reviews=getPageReviews();
       if(!reviews) return {error:'评价读取模块尚未就绪，请重新加载扩展并刷新直播页。'};
       if(message.type==='brandbai-review-start'){materialSurface={kind:'product'};productCollector?.reset();return reviews.start(message);}
       if(message.type==='brandbai-review-stop')return reviews.stop(message);
+      if(message.type==='brandbai-review-pause')return reviews.pause(message);
+      if(message.type==='brandbai-review-resume')return reviews.resume(message);
       return message.type==='brandbai-review-preview'?reviews.preview():reviews.status();
     }).then(sendResponse).catch(error=>sendResponse({error:error.message}));
     return true;

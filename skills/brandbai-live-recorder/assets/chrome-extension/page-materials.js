@@ -94,6 +94,7 @@
       if (found.status !== 'recognized' || !panel) throw new Error('product_unavailable');
       const base = structuredClone(selected.snapshot), images = new Map();
       const coverage = {mode:'single_product_full', main_expected:null, main_observed:0, detail_observed:0,
+        main_media_expected:null, main_video_observed:0, main_video_downloaded:false,
         main_complete:false, detail_complete:false, detail_end_evidence:'not_reached', stop_reason:null,
         fields_observed_at_epoch_ms:selected.observed_at_epoch_ms};
       const title = base.product_title, shop = base.shop_name;
@@ -102,9 +103,18 @@
       let groups = JSON.stringify(selectedGroups());
       const initialGroups=selectedGroups();
       const skuScopes = readGroups().map(g=>g.scope).filter(Boolean);
+      const initialParameterGroup=inspector.parameterGroup?.(panel);
+      const parameterInventory=initialParameterGroup?.options.map(o=>o.value)||[];
+      const parameterSelection=g=>g?.options.filter(o=>inspector.parameterSelected(o.node)).map(o=>o.value)||[];
+      let parameterChoice=parameterSelection(initialParameterGroup);
+      const parameterMaterials=initialParameterGroup ? {source:'product_parameter_tabs',status:'partial_visible_options',
+        option_count:parameterInventory.length,initial_selection:parameterChoice.length===1?parameterChoice[0]:null,
+        selection_restored:true,variants:[],stop_reason:null}:null;
+      let switchedParameter=false;
       let manualSkuChanged=false;
       const onUserSku=event=>{
-        if(event.isTrusted && readGroups().some(g=>g.options.some(o=>o.node.contains(event.target)))) manualSkuChanged=true;
+        if(event.isTrusted && (readGroups().some(g=>g.options.some(o=>o.node.contains(event.target)))
+          || initialParameterGroup?.scope.contains(event.target))) manualSkuChanged=true;
       };
       document.addEventListener('click',onUserSku,true);
       function sameIdentity() {
@@ -119,6 +129,8 @@
         guard(); sameIdentity();
         const currentGroups=selectedGroups();
         if (JSON.stringify(currentGroups) !== groups) throw new Error('specification_changed');
+        if(initialParameterGroup && JSON.stringify(parameterSelection(inspector.parameterGroup(panel)))!==JSON.stringify(parameterChoice))
+          throw new Error('specification_changed');
       }
       const tabs=all(panel,'span,div,button').filter(n=>rendered(n) && text(n)==='商品详情'
         && !Array.from(n.children).some(c=>text(c)==='商品详情'));
@@ -157,14 +169,16 @@
         && !img.closest('[data-role="product-reviews"],[data-role="checkout"],.FDag2E0P,.PEzhiR4O,[role="radio"],[data-sku-id]')
         && (detailRoots.length===1 ? detailScope.contains(img) : tab && Boolean(tab.compareDocumentPosition(img)&4))
         && (!detailEnd || Boolean(img.compareDocumentPosition(detailEnd)&4));
-      const counter = () => {
+      const videoSlide = slide => Boolean(slide && all(slide,'video,.CcoHiZjd,[data-role="product-video"]').length);
+      const rawCounter = () => {
         if (!gallery) return null;
         const slides=all(gallery,'.swiper-slide:not(.swiper-slide-duplicate)');
         const indexes=slides.map(n=>n.getAttribute('data-swiper-slide-index'));
         // A mixed live carousel contains common gallery + SKU thumbnails.
         // DOM slide indices establish the full set, unlike the SKU-only 1/4 badge.
         if (skuImageKeys.size && slides.length && indexes.every((v,i)=>v===String(i))
-          && slides.every(n=>all(n,'img').length===1) && !all(gallery,'video').length) {
+          && slides.every(n=>safeImages(n).filter(i=>publicUrl(i.currentSrc||i.src,'image')).length===1)) {
+          if(slides.some(videoSlide))return slides.length;
           const main=slides.filter(n=>{const u=publicUrl(n.querySelector('img').currentSrc||n.querySelector('img').src,'image');return u&&!skuImageKeys.has(imageKey(u));});
           if (main.length) return main.length;
         }
@@ -174,12 +188,37 @@
         const unique=[...new Set(values.filter(n=>n>0 && n<=200))];
         return unique.length===1 ? unique[0] : null;
       };
+      function galleryLayout() {
+        const total=rawCounter(), slides=all(gallery,'.swiper-slide:not(.swiper-slide-duplicate)');
+        const indexes=slides.map(n=>n.getAttribute('data-swiper-slide-index'));
+        const indexed=slides.length>0 && indexes.every((v,i)=>v===String(i));
+        const videos=indexed ? slides.filter(videoSlide).length : all(gallery,'video').length;
+        const keys=[], order=new Map();
+        let loaded=indexed && total===slides.length;
+        for(const slide of slides) {
+          if(videoSlide(slide)) continue;
+          const observed=safeImages(slide).map(i=>publicUrl(i.currentSrc||i.src,'image')).filter(Boolean).map(imageKey);
+          const urls=observed.filter(k=>!skuImageKeys.has(k));
+          if(!observed.length) loaded=false;
+          for(const key of urls) {if(!order.has(key))order.set(key,order.size);keys.push(key);}
+        }
+        // Media slots, distinct still images and videos are separate units.
+        // Subtract video slots only when the complete public slide set agrees
+        // with its counter; an incomplete/lazy set cannot prove completeness.
+        return {total,videos,order,expected:loaded ? new Set(keys).size || null : videos ? null : total,
+          confirmed:loaded};
+      }
+      const cursor=()=>all(gallery,'.swiper-slide-active')[0]?.getAttribute('data-swiper-slide-index')
+        ?? counterLeaves(galleryControls).map(text).join('|');
+      const counter=()=>galleryLayout().expected;
+      let mainOrder=new Map();
       function gather() {
         sameProduct();
         detailEnd=endHeading();
         for (const img of safeImages(panel)) {
           const url=publicUrl(img.currentSrc || img.src,'image');
           if (!url) continue;
+          if(gallery?.contains(img) && videoSlide(img.closest('.swiper-slide'))) continue;
           const kind=gallery?.contains(img) ? skuImageKeys.has(imageKey(url)) ? 'product_sku' : 'product_main' : isDetail(img) ? 'product_detail' : null;
           if (!kind) continue;
           const key=kind+':'+imageKey(url), area=img.naturalWidth*img.naturalHeight;
@@ -187,11 +226,14 @@
           if (!previous || area>previous.area) images.set(key,{url,kind,area});
           if (images.size>200) { images.delete(key); throw new Error('image_limit'); }
         }
-        coverage.main_expected=counter();
+        const layout=galleryLayout();mainOrder=layout.order;
+        coverage.main_expected=layout.expected;
+        coverage.main_media_expected=layout.total;
+        coverage.main_video_observed=layout.videos;
         coverage.main_observed=[...images.values()].filter(i=>i.kind==='product_main').length;
         coverage.detail_observed=[...images.values()].filter(i=>i.kind==='product_detail').length;
         coverage.main_complete=coverage.main_expected !== null && coverage.main_observed===coverage.main_expected
-          && !all(gallery,'video').length;
+          && (!layout.videos || layout.confirmed);
         emit({main_observed:coverage.main_observed, main_expected:coverage.main_expected, detail_observed:coverage.detail_observed});
       }
       const box=scrollBox(detailScope, n=>!skuScopes.some(s=>s===n || s.contains(n))
@@ -199,6 +241,7 @@
       const skuMaterials={mode:'all_visible',status:'not_observed',initial_selection:initialGroups.filter(([,values])=>values.length===1).flatMap(([name,values])=>values.map(value=>({name,value}))),
         selection_restored:true,variants:[],stop_reason:null};
       let switchedSku=false, skuMainComplete=true;
+      const skuInventory=JSON.stringify(readGroups().map(g=>[g.name,g.options.map(o=>o.value)]));
       const choice=()=>selectedGroups().flatMap(([name,values])=>values.map(value=>({name,value})));
       const selectionKey=selection=>JSON.stringify(selection.map(x=>[x.name,x.value]));
       async function choose(selection, restoring=false) {
@@ -235,6 +278,9 @@
         emit({phase:'sku_images',sku_total:combinations.length,sku_done:0});
         for(const selection of combinations) {
           sameProduct();
+          if(JSON.stringify(readGroups().map(g=>[g.name,g.options.map(o=>o.value)]))!==skuInventory){
+            skuMaterials.stop_reason='sku_inventory_changed';break;
+          }
           const record={selection,state:'failed',reason:null,price_texts:[],image_urls:[],main_expected:null,main_complete:false,observed_at_epoch_ms:now(),sku_id:null,sku_id_source:'not_observed'};
           skuMaterials.variants.push(record);
           const disabled=selection.some(t=>{const o=readGroups().find(g=>g.name===t.name)?.options.find(o=>o.value===t.value);return !o||inspector.optionDisabled(o.node);});
@@ -248,16 +294,16 @@
               sameProduct();
               const optionKeys=new Set(readGroups().flatMap(g=>g.options.filter(o=>inspector.optionSelected(o.node))
                 .flatMap(o=>all(o.node,'img').map(i=>publicUrl(i.currentSrc||i.src,'image')).filter(Boolean).map(imageKey))));
-              urls=safeImages(gallery).map(i=>publicUrl(i.currentSrc||i.src,'image')).filter(Boolean)
+              urls=safeImages(gallery).filter(i=>!videoSlide(i.closest('.swiper-slide'))).map(i=>publicUrl(i.currentSrc||i.src,'image')).filter(Boolean)
                 .filter(u=>!skuImageKeys.has(imageKey(u))||optionKeys.has(imageKey(u)));
               urls=[...new Map(urls.map(u=>[imageKey(u),u])).values()];
               priceTexts=inspector.skuPrices(panel);
               const current=JSON.stringify([choice(),urls,priceTexts]);
               stable=current===previous?stable+1:0; previous=current;
-              if(stable>=2 && urls.length) break;
+              if(stable>=2 && urls.length && !loading(gallery)) break;
               await sleep(300);
             }
-            if(stable<2 || !urls.length) record.reason='sku_media_unconfirmed';
+            if(stable<2 || !urls.length || loading(gallery)) record.reason='sku_media_unconfirmed';
             else {
               gather();
               const observed=new Map(urls.map(u=>[imageKey(u),u]));
@@ -272,7 +318,7 @@
                 const before=observed.size;next[0].click();await sleep(600);gather();
                 const selectedKeys=new Set(readGroups().flatMap(g=>g.options.filter(o=>inspector.optionSelected(o.node)).flatMap(o=>all(o.node,'img')
                   .map(i=>publicUrl(i.currentSrc||i.src,'image')).filter(Boolean).map(imageKey))));
-                for(const i of safeImages(gallery)) {
+                for(const i of safeImages(gallery).filter(i=>!videoSlide(i.closest('.swiper-slide')))) {
                   const u=publicUrl(i.currentSrc||i.src,'image');
                   if(u&&(!skuImageKeys.has(imageKey(u))||selectedKeys.has(imageKey(u)))) observed.set(imageKey(u),u);
                 }
@@ -294,17 +340,81 @@
           }
           emit({phase:'sku_images',sku_done:skuMaterials.variants.length,sku_total:combinations.length});
         }
+        if(JSON.stringify(readGroups().map(g=>[g.name,g.options.map(o=>o.value)]))!==skuInventory)
+          skuMaterials.stop_reason='sku_inventory_changed';
+      }
+      function currentParameters() {
+        const current=inspector.parameterGroup?.(panel);
+        return current?.scope===initialParameterGroup?.scope ? current : null;
+      }
+      async function chooseParameter(label,restoring=false) {
+        sameIdentity();if(!restoring)guard();
+        if(document.visibilityState==='hidden'||roomUrl()!==job.room_url)return false;
+        const group=currentParameters(), option=group?.options.find(o=>o.value===label);
+        if(!option||inspector.optionDisabled(option.node))return false;
+        if(!inspector.parameterSelected(option.node)){option.node.click();switchedParameter=true;}
+        for(let attempt=0;attempt<10;attempt++){
+          await sleep(200);sameIdentity();if(!restoring)guard();
+          const chosen=parameterSelection(currentParameters());
+          if(chosen.length===1&&chosen[0]===label){parameterChoice=chosen;return true;}
+        }
+        parameterChoice=parameterSelection(currentParameters());return false;
+      }
+      async function collectParameters() {
+        if(!parameterMaterials)return;
+        emit({phase:'parameter_options',parameter_done:0,parameter_total:parameterInventory.length});
+        if(!parameterMaterials.initial_selection){parameterMaterials.stop_reason='selection_unconfirmed';return;}
+        if(parameterInventory.length>40){parameterMaterials.stop_reason='option_limit';return;}
+        const targets=[parameterMaterials.initial_selection,...parameterInventory.filter(v=>v!==parameterMaterials.initial_selection)];
+        for(const label of targets){
+          sameProduct();
+          if(JSON.stringify(currentParameters()?.options.map(o=>o.value))!==JSON.stringify(parameterInventory)){
+            parameterMaterials.stop_reason='options_changed';break;
+          }
+          const previousChoice=parameterSelection(currentParameters())[0];
+          const before=JSON.stringify(inspector.parameterContent(currentParameters()));
+          const record={label,state:'failed',reason:'selection_unconfirmed',components:[],observed_at_epoch_ms:now()};
+          parameterMaterials.variants.push(record);
+          const option=currentParameters().options.find(o=>o.value===label);
+          if(inspector.optionDisabled(option.node)){record.state='unavailable';record.reason='option_disabled';}
+          else if(await chooseParameter(label)){
+            let previous='',stable=0,content=null;
+            for(let attempt=0;attempt<16;attempt++){
+              sameProduct();content=inspector.parameterContent(currentParameters());
+              const signature=JSON.stringify(content);
+              stable=signature===previous?stable+1:0;previous=signature;
+              if(content&&stable>=2&&!loading(currentParameters()?.content)
+                && (previousChoice===label||signature!==before))break;
+              content=null;await sleep(250);
+            }
+            record.reason='content_unconfirmed';
+            if(content){record.state='observed';record.reason=null;record.components=content;record.observed_at_epoch_ms=now();}
+          }
+          if(JSON.stringify(parameterMaterials).length>80000){
+            record.state='failed';record.reason='content_limit';record.components=[];parameterMaterials.stop_reason='bytes_limit';break;
+          }
+          emit({phase:'parameter_options',parameter_done:parameterMaterials.variants.filter(v=>v.state==='observed').length,parameter_total:parameterInventory.length});
+        }
+        if(JSON.stringify(currentParameters()?.options.map(o=>o.value))!==JSON.stringify(parameterInventory))parameterMaterials.stop_reason='options_changed';
       }
       try {
         emit({phase:'main_images'}); gather();
+        const stalledPositions=new Set();
         for(let turn=0; gallery && !coverage.main_complete && turn<200; turn++) {
           sameProduct();
           const next=all(galleryControls,'.swiper-button-next,[aria-label="Next slide"],[aria-label="下一张"],[data-role="gallery-next"],.ceXWdiFN')
             .filter(n=>rendered(n) && !n.matches(':disabled,[aria-disabled="true"],.swiper-button-disabled'));
           if(next.length!==1) break;
           const before=coverage.main_observed;
+          const beforePosition=cursor();
           next[0].click(); await sleep(600); gather();
-          if (before===coverage.main_observed) { await sleep(800); gather(); if(before===coverage.main_observed) break; }
+          if (before===coverage.main_observed) { await sleep(800); gather();
+            if(before===coverage.main_observed) {
+              const afterPosition=cursor();
+              if(!beforePosition || afterPosition===beforePosition || stalledPositions.has(afterPosition)) break;
+              stalledPositions.add(beforePosition);
+            } else stalledPositions.clear();
+          } else stalledPositions.clear();
         }
         emit({phase:'detail_images'});
         if (box) { sameProduct(); box.scrollTop=0; await sleep(450); }
@@ -346,6 +456,7 @@
         }
         if(job.sku_mode==='all_visible' && !['time_limit','user_stopped','page_hidden'].includes(coverage.stop_reason)) {
           if(box) {box.scrollTop=0;await sleep(150);}
+          await collectParameters();
           await collectSkus();
         }
       } catch(error) {
@@ -355,6 +466,20 @@
           throw error;
         }
       } finally {
+        if(switchedParameter){
+          parameterMaterials.selection_restored=false;
+          if(panel.isConnected&&roomUrl()===job.room_url&&!['product_changed','specification_changed','access_confirmation'].includes(coverage.stop_reason)){
+            try{
+              const selected=await chooseParameter(parameterMaterials.initial_selection,true);
+              const original=parameterMaterials.variants.find(v=>v.label===parameterMaterials.initial_selection&&v.state==='observed');
+              if(selected)for(let i=0;i<16;i++){
+                sameIdentity();
+                if(!loading(currentParameters()?.content)&&(!original||JSON.stringify(inspector.parameterContent(currentParameters()))===JSON.stringify(original.components))){parameterMaterials.selection_restored=true;break;}
+                await sleep(250);
+              }
+            }catch(_){}
+          }
+        }
         if(job.sku_mode==='all_visible' && switchedSku) {
           skuMaterials.selection_restored=false;
           // Do not overwrite a manual product/room/specification change.
@@ -365,20 +490,34 @@
         if(box && panel.isConnected && roomUrl()===job.room_url && !['product_changed','specification_changed'].includes(coverage.stop_reason)) box.scrollTop=originalTop;
         document.removeEventListener('click',onUserSku,true);
       }
+      if(parameterMaterials){
+        if(!parameterMaterials.selection_restored)parameterMaterials.stop_reason='restore_unconfirmed';
+        const complete=parameterMaterials.variants.length===parameterMaterials.option_count
+          &&parameterMaterials.variants.some(v=>v.state==='observed')&&parameterMaterials.variants.every(v=>v.state!=='failed');
+        if(complete&&parameterMaterials.selection_restored&&!parameterMaterials.stop_reason&&!coverage.stop_reason)parameterMaterials.status='complete_visible_options';
+        else parameterMaterials.stop_reason ||= coverage.stop_reason||'content_unconfirmed';
+      }
       if(job.sku_mode==='all_visible') {
         if(skuMaterials.variants.length && skuMaterials.variants.every(v=>v.state==='unavailable'||v.state==='observed'&&!v.reason)
           && skuMaterials.variants.some(v=>v.state==='observed') && skuMaterials.selection_restored && !coverage.stop_reason && !skuMaterials.stop_reason) skuMaterials.status='complete_all_visible_skus';
         else if(skuMaterials.variants.length) {skuMaterials.status='partial_all_visible_skus';skuMaterials.stop_reason ||= !skuMaterials.selection_restored?'restore_unconfirmed':coverage.stop_reason||'sku_coverage_unconfirmed';}
         if(skuMainComplete && skuMaterials.variants.some(v=>v.state==='observed')) {
           coverage.main_expected=coverage.main_observed=[...images.values()].filter(i=>i.kind==='product_main').length;
+          // Aggregate SKU image coverage is not one carousel's slot count.
+          coverage.main_media_expected=null;
           coverage.main_complete=coverage.main_expected>0;
         }
       }
       if(!coverage.main_complete || !coverage.detail_complete) coverage.stop_reason ||= 'coverage_unconfirmed';
-      const snapshot={...base, images:[...images.values()].map(({url,kind})=>({url,kind})), image_coverage:coverage,
-        ...(job.sku_mode==='all_visible'?{sku_materials:skuMaterials}:{})};
+      const mainImages=[...images.values()].filter(i=>i.kind==='product_main').sort((a,b)=>
+        (mainOrder.get(imageKey(a.url))??200)-(mainOrder.get(imageKey(b.url))??200));
+      let mainIndex=0;
+      const ordered=[...images.values()].map(i=>i.kind==='product_main'?mainImages[mainIndex++]:i);
+      const snapshot={...base, images:ordered.map(({url,kind})=>({url,kind})), image_coverage:coverage,
+        ...(job.sku_mode==='all_visible'?{sku_materials:skuMaterials,...(parameterMaterials?{parameter_materials:parameterMaterials}:{})}:{})};
       return {snapshot, observed_at_epoch_ms:now(), complete:coverage.main_complete && coverage.detail_complete && !coverage.stop_reason
-        && (job.sku_mode!=='all_visible'||skuMaterials.status==='complete_all_visible_skus')};
+        && (job.sku_mode!=='all_visible'||skuMaterials.status==='complete_all_visible_skus')
+        && (!parameterMaterials||parameterMaterials.status==='complete_visible_options')};
     }
     async function catalog(resume) {
       if (inspector.inspect().status !== 'none') throw new Error('close_product_detail');

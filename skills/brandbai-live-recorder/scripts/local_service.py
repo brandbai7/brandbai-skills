@@ -181,7 +181,7 @@ def select_output_directory(initial_directory: Path) -> Path | None:
             parent=root,
             initialdir=str(initial_directory),
             mustexist=False,
-            title="选择 BrandBAI 直播录屏保存位置",
+            title="选择 BrandBAI 直播采集助手保存位置",
         )
     finally:
         root.destroy()
@@ -1378,6 +1378,14 @@ class TaskManager:
         except (ValueError, TypeError, KeyError) as exc:
             raise ServiceInputError('review stop source is no longer valid') from exc
 
+    def control_review(self, ident: str, action: str, body: Any) -> dict[str, Any]:
+        self.review_status(ident)
+        try:
+            operation = self.product_reviews.pause if action == 'pause' else self.product_reviews.resume
+            return dict(operation(ident, body), delivery=self.deliveries.find('reviews:' + ident))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ServiceInputError('review control source is no longer valid') from exc
+
     def _visible_event_path(self, task_id: str) -> Path:
         row = self.store.get(task_id)
         if row is None:
@@ -1858,6 +1866,9 @@ def create_http_server(
                             "product_downloads": True,
                             "independent_product_downloads": True,
                             "full_product_materials": True,
+                            "product_media_classification": True,
+                            "product_parameter_options": True,
+                            "review_structure_recovery": True,
                             "all_visible_product_skus": True,
                             "independent_product_catalogs": True,
                             "catalog_number_verification": True,
@@ -1866,6 +1877,7 @@ def create_http_server(
                             "independent_product_reviews": True,
                             "review_stop_save": True,
                             "review_target_continuation": True,
+                            "review_automatic_pause_resume": True,
                             "review_visibility_wait": True,
                             "shared_product_identity": True,
                             "browser_zip_delivery": True,
@@ -1948,6 +1960,10 @@ def create_http_server(
                 review_stop = re.fullmatch(r"/v1/product-reviews/([a-f0-9-]{36})/stop", path)
                 if review_stop:
                     self._json(200, {"task": manager.stop_review(review_stop.group(1), self._read_json(2_000))})
+                    return
+                review_control = re.fullmatch(r"/v1/product-reviews/([a-f0-9-]{36})/(pause|resume)", path)
+                if review_control:
+                    self._json(200, {"task": manager.control_review(review_control.group(1), review_control.group(2), self._read_json(10_000))})
                     return
                 review_match = re.fullmatch(r"/v1/product-reviews/([a-f0-9-]{36})/events", path)
                 if review_match:

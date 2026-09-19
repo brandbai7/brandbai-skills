@@ -75,7 +75,7 @@ class RoomAccessChromiumTests(unittest.TestCase):
                 self.assertFalse(page.evaluate('Boolean(pendingRecordingRequest)'))
                 page.locator('#recording-view').click()
                 page.screenshot(path=str(qa/'recognized.png'))
-                self.assertEqual(worker.evaluate('chrome.runtime.getManifest().name'), 'BrandBAI 直播录屏助手')
+                self.assertEqual(worker.evaluate('chrome.runtime.getManifest().name'), 'BrandBAI 直播采集助手')
                 for size in (16,32,48,128):
                     loaded = page.evaluate('''async size=>{const image=new Image();
                       image.src=chrome.runtime.getURL(chrome.runtime.getManifest().icons[size]);

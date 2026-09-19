@@ -288,7 +288,7 @@ class ChromeExtensionContractTests(unittest.TestCase):
         self.assertIn('id="launch-assistant"', self.html)
         self.assertIn('href="brandbai-recorder://start"', self.html)
         self.assertIn('id="connection-panel" class="connection-panel" hidden', self.html)
-        self.assertIn("打开 BrandBAI 直播录屏助手", self.html)
+        self.assertIn("打开 BrandBAI 直播采集助手", self.html)
         self.assertIn("始终允许", self.html)
         self.assertIn('ASSISTANT_LAUNCH_URL = "brandbai-recorder://start"', self.javascript)
         self.assertIn('elements.badge.textContent = "使用时启动"', self.javascript)
