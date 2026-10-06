@@ -46,6 +46,11 @@ jobs:
           test_run_foundation.py
           test_run_long_job.py
           test_build_foundation_workbooks.py
+      - name: Run optional Douyin subtitle wrapper tests
+        working-directory: skills/brandbai-douyin-download/scripts
+        run: python -B -m unittest test_video_subtitles.py test_subtitle_wrapper.py
+      - name: Run synthetic local subtitle engine contracts
+        run: node --test skills/brandbai-douyin-download/scripts/test_subtitle_engine.cjs
       - name: Run Douyin account analysis unit tests
         working-directory: skills/brandbai-douyin-account-analysis/scripts
         run: python -m unittest test_analysis_dataset.py test_analysis_delivery.py

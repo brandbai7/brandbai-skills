@@ -11,20 +11,20 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 
 ## Chrome 扩展：电商采集大师 · BrandBAI
 
-原“BrandBAI 采集大师／BrandBAI 下载助手”，现以“电商采集大师”为界面主标题，BrandBAI 以浅色副标题保留。最新扩展安装包为 **v0.11.160**；扩展版本与下方各个 Skill 的版本独立。
+原“BrandBAI 采集大师／BrandBAI 下载助手”，现以“电商采集大师”为界面主标题，BrandBAI 以浅色副标题保留。本次扩展安装包为 **v0.11.183**，新增短视频画面字幕稳定修复；扩展版本与下方各个 Skill 的版本独立。
 
-- [GitHub 发布与安装包](https://github.com/brandbai7/brandbai-skills/releases/tag/chrome-extension-v0.11.160)
+- [GitHub 发布与安装包](https://github.com/brandbai7/brandbai-skills/releases/tag/chrome-extension-v0.11.183)
 - [产品说明与使用边界](https://brandbai7.github.io/brandbai-skills/douyin-extension/)
 - [隐私政策](https://brandbai7.github.io/brandbai-skills/douyin-extension/privacy.html) · [支持与联系](https://brandbai7.github.io/brandbai-skills/douyin-extension/support.html)
 
-本次同步不修改其他 Skill 版本，也不代表 Chrome Web Store 已审核或发布更新。扩展只按需整理有权访问、页面实际提供的公开资料，不承诺全量获取；小红书采用手动浏览、按需保存。
+本次同步仅更新扩展说明和抖音下载 Skill，不修改其他 Skill 版本，也不代表 Chrome Web Store 已审核或发布更新。画面字幕在本机识别，不上传视频、不识别声音；采样时间不是精确字幕轴，可能漏字、错字或混入其他画面文字，原始读数可回查。本次不包含逐句配图或多区域字幕检测。扩展只按需整理有权访问、页面实际提供的公开资料，不承诺全量获取；小红书采用手动浏览、按需保存。
 
 ## Skill catalog
 
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
 | [`brandbai-live-recorder`](skills/brandbai-live-recorder/) | 0.22.16 | 直播采集助手：公开直播录制与人数快照；按需记录互动、下载商品目录、图片规格与套餐组成；评价自动读取、暂停／继续、结束下载，完整性如实说明 | Prototype · Noncommercial |
-| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.6.0 | 单篇、主页、搜索或插件自选作品的媒体、文案、数据和一级评论；单条挂车作品可按需采集关联商品公开资料与商品评价，独立导出、进度与暂停、身份核验续跑；不承诺全 SKU 或平台全量 | Community beta · Noncommercial |
+| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.6.3 | 作品素材、发布文案、数据和一级评论；单条挂车作品可按需采集商品资料与评价；另可对已下载短视频做本机画面字幕识别，保留时间与原始候选，不做音频转写或逐句配图 | Community beta · Noncommercial |
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.3.2 | 天猫／淘宝参数、主图、图文详情和视频按模块读取，分开当前规格与页面参数，并输出结构化价格、素材双序号及内容／经营两层状态；评价和问大家保持独立下载 | Prototype · Noncommercial |
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.3 | 单篇完整笔记、当前页达人快照与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.3 | TikTok 单作品当前页达人快照、视频、图集、主页、搜索、插件作品清单续跑与可见一级评论；支持独立原声缺口、海外市场预设和本机中英双语证据 | Prototype · Noncommercial |
@@ -134,7 +134,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 腾讯 WorkBuddy 用户可点击下面的链接唤起自定义 Skill 安装：
 
-[在 WorkBuddy 安装 brandbai-douyin-download v0.6.0](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-douyin-download-v0.6.0%2Fbrandbai-douyin-download.zip&channelType=github)
+[在 WorkBuddy 安装 brandbai-douyin-download v0.6.3](https://www.codebuddy.cn/work/launch?skillname=brandbai-douyin-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-douyin-download-v0.6.3%2Fbrandbai-douyin-download.zip&channelType=github)
 
 [在 WorkBuddy 安装 brandbai-xiaohongshu-download v0.4.3](https://www.codebuddy.cn/work/launch?skillname=brandbai-xiaohongshu-download&downloadurl=https%3A%2F%2Fgithub.com%2Fbrandbai7%2Fbrandbai-skills%2Freleases%2Fdownload%2Fbrandbai-xiaohongshu-download-v0.4.3%2Fbrandbai-xiaohongshu-download.zip&channelType=github)
 
@@ -150,7 +150,7 @@ git clone https://github.com/brandbai7/brandbai-skills.git
 
 同一仓库会分别发布多个 Skill，因此安装链接固定到各自版本，不使用仓库级 `latest`。如果宿主不支持网页唤起，可从对应版本的 GitHub Release 手动下载 ZIP：
 
-- [Douyin Download v0.6.0](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-douyin-download-v0.6.0)
+- [Douyin Download v0.6.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-douyin-download-v0.6.3)
 - [Xiaohongshu Download v0.4.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-xiaohongshu-download-v0.4.3)
 - [Tmall Download v0.3.2](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tmall-download-v0.3.2)
 - [TikTok Download v0.2.3](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-tiktok-download-v0.2.3)

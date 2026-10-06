@@ -1,10 +1,10 @@
 ---
 name: brandbai-douyin-download
-description: Download public Douyin works, media, captions, metadata and work comments through visible signed-in Chrome. For one explicitly selected shoppable work, optionally collect its current product details, images and product reviews with bounded scrolling, progress and checkpoints. Use for 抖音单作品、主页或搜索选择下载、插件作品清单接力、挂车视频与关联商品资料、独立商品评价表。Only collect and verify source material; no account analysis, product matching, hidden data or platform restriction bypass.
+description: Download public Douyin works, media, published captions, metadata and comments through visible signed-in Chrome. For one explicit shoppable work, optionally collect its current product details and reviews. Optional local screen-subtitle OCR of one downloaded short video, separate from published captions and audio transcription. Use for 抖音单作品、主页或搜索选择下载、插件作品清单接力、挂车商品资料与评价、视频画面字幕提取。No account analysis, product matching, hidden data or platform restriction bypass.
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.6.0"
+  version: "0.6.3"
   category: content-commerce
 ---
 
@@ -53,6 +53,8 @@ metadata:
 4. 是否只采一级评论。除非用户明确要求实验能力，否则不要开启二级回复。
 5. 隐私模式。默认使用稳定化名；只有得到明确授权和合法业务需要时才保留原始评论者名称。
 6. 素材范围：`primary`、`cover`、`audio`、`caption` 的任意组合；`caption` 是发布文案，不是口播转写。
+
+用户明确要求提取视频画面字幕时，先阅读 [本地字幕提取](references/video-subtitles.md)。这是额外的可选步骤，默认关闭；支持 3 分钟、150 MB 以内单视频的固定位置单行中英字幕。Skill 命令仍须核对区域后运行，不能用默认坐标假定位置。给单作品 `all` 任务增加 `--subtitles --subtitle-region` 后，下载完成会直接接力同一作品记录中的本地视频，无需用户再次选文件；不再访问平台，不上传媒体、不识别音频。自动保守整理连续重复，不要求对明显重复逐组确认。输出含采样观察时间段的 `视频字幕.txt` 与原始识别记录，记录实际随包模型名称、版本依据与文件哈希；时间不是精确字幕轴，不能替换发布文案、推断商品或宣称完整准确。当前首包不包含逐句配图，插件的当前页面逐帧读取及自动定位也不得宣称命令行已具备。
 
 ## 遵守采集边界
 
@@ -316,9 +318,11 @@ python scripts/run_long_job.py status `
 在 `scripts/` 目录运行：
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 python -m unittest test_download_creator_works.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
 python -m unittest test_selection_contract.py test_package_delivery.py
 python -m unittest test_product_detail_safety.py test_browser_collect_product_reviews.py test_product_review_integration.py
+python -X utf8 -B -m unittest test_video_subtitles.py test_subtitle_wrapper.py
 ```
 
 默认测试只使用本地模拟数据，不打开抖音，也不产生付费请求。商品详情／评价新增链路属于测试版：本地模拟验证与插件既往页面截图不替代当前 Skill 的独立登录态端到端验收。

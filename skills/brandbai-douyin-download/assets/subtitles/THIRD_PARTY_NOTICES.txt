@@ -1,0 +1,21 @@
+Local subtitle OCR components
+
+ONNX Runtime Web 1.22.0 — Copyright Microsoft Corporation. MIT license.
+https://github.com/microsoft/onnxruntime/tree/v1.22.0
+License and dependent notices are included in vendor/.
+
+PP-OCRv5 mobile recognition model and character dictionary:
+PaddleOCR / PaddlePaddle, converted and distributed through RapidAI / RapidOCR.
+Apache License 2.0. Both project license files are included in vendor/.
+https://github.com/PaddlePaddle/PaddleOCR
+https://github.com/RapidAI/RapidOCR
+Pinned model registry: RapidAI/RapidOCR, revision v3.9.2 on ModelScope.
+Model: onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx
+Dictionary: paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt
+
+The original runtime, model and dictionary are distributed unmodified.
+BrandBAI's separate worker implements crop resizing, BGR normalization and CTC
+decoding following the documented PP-OCR recognition input/output contract.
+Only local packaged code, WASM and model files execute at runtime. There is no
+remote code/model fallback, audio transcription or cloud OCR service.
+vendor/manifest.json records the bundled bytes for release verification.
