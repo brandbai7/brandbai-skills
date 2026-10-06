@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
 import sys
 import zipfile
 from pathlib import Path
@@ -26,6 +28,11 @@ REQUIRED_ROOT_FILES = {
     "TRADEMARKS.md",
 }
 EXPECTED_LICENSE = "PolyForm-Noncommercial-1.0.0"
+PINNED_LOCAL_OCR_ASSETS = {
+    "skills/brandbai-douyin-download/assets/subtitles/vendor/rec.onnx": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+    "skills/brandbai-douyin-download/assets/subtitles/vendor/keys.txt": "d1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b",
+    "skills/brandbai-douyin-download/assets/subtitles/vendor/ort/ort-wasm-simd-threaded.wasm": "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4",
+}
 FORBIDDEN_PATH_PATTERNS = (
     re.compile(r"[A-Za-z]:\\Users\\", re.IGNORECASE),
     re.compile(r"[A-Za-z]:\\得宝", re.IGNORECASE),
@@ -97,6 +104,25 @@ def validate_xlsx_asset(path: Path) -> list[str]:
 
 def main() -> int:
     failures: list[str] = []
+    # Only these exact vendored assets may exceed the public-tree size limit.
+    # A different model/runtime requires an explicit reviewed hash update.
+    for relative, expected in PINNED_LOCAL_OCR_ASSETS.items():
+        asset = ROOT / relative
+        if not asset.is_file() or hashlib.sha256(asset.read_bytes()).hexdigest() != expected:
+            failures.append(f"Missing or changed pinned local OCR asset: {relative}")
+    vendor = SKILLS_ROOT / "brandbai-douyin-download" / "assets" / "subtitles" / "vendor"
+    try:
+        manifest = json.loads((vendor / "manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("engine") != "PP-OCRv5-mobile":
+            failures.append("Local subtitle engine identity must match the shipped V5 model")
+        for relative, expected in manifest["sha256"].items():
+            asset = (vendor / relative).resolve()
+            if not asset.is_relative_to(vendor.resolve()) or not asset.is_file():
+                failures.append(f"Invalid local OCR manifest asset: {relative}")
+            elif hashlib.sha256(asset.read_bytes()).hexdigest() != expected:
+                failures.append(f"Local OCR manifest hash mismatch: {relative}")
+    except (OSError, ValueError, KeyError, TypeError):
+        failures.append("Local OCR resource manifest is missing or invalid")
     for filename in sorted(REQUIRED_ROOT_FILES):
         if not (ROOT / filename).is_file():
             failures.append(f"Required root file is missing: {filename}")
@@ -156,7 +182,8 @@ def main() -> int:
             failures.append(f"Forbidden generated file: {path.relative_to(ROOT)}")
             continue
         if path.stat().st_size > 2_000_000:
-            failures.append(f"Unexpected large file: {path.relative_to(ROOT)}")
+            if path.relative_to(ROOT).as_posix() not in PINNED_LOCAL_OCR_ASSETS:
+                failures.append(f"Unexpected large file: {path.relative_to(ROOT)}")
             continue
         try:
             text = path.read_text(encoding="utf-8-sig")

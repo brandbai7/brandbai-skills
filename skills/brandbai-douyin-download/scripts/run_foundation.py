@@ -182,6 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Collect works and top-level comments, then build the ordinary Excel delivery",
     )
     add_work_source_args(all_in_one)
+    all_in_one.add_argument("--subtitles", action="store_true", help="Opt-in local screen OCR of exactly one explicit downloaded video; no audio transcription")
+    all_in_one.add_argument("--subtitle-region", default="", help="Confirmed single-line crop: left,top,right,bottom (0—1)")
     all_in_one.add_argument("--scrolls", type=int, default=5)
     all_in_one.add_argument("--download-timeout", type=float, default=180.0)
     all_in_one.add_argument("--include-replies", action="store_true")
@@ -361,6 +363,7 @@ def delivery_zip_path(args: argparse.Namespace) -> Path:
 
 
 def all_plan(args: argparse.Namespace) -> dict[str, Any]:
+    subtitle_region = validate_subtitle_args(args)
     try:
         validate_product_review_args(args)
     except WorkDownloadError as exc:
@@ -378,6 +381,8 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
         "recent_non_pinned": args.recent,
         "selection": work_selection_description(args),
         "assets": args.assets,
+        "subtitles": {"requested": True, "region": subtitle_region, "upload": False, "audio_transcription": False,
+                      "accuracy": "machine_unverified", "seconds_limit": 180} if subtitle_region else {"requested": False},
         "commerce_detail": bool(getattr(args, "commerce_detail", False)),
         "product_reviews": ({**product_review_identity(args), "max_reviews": args.max_product_reviews,
             "max_scrolls": args.product_review_max_scrolls, "max_seconds": args.product_review_max_seconds,
@@ -610,6 +615,66 @@ def run_shared_browser_stages(
     return works_code, comments_code
 
 
+def validate_subtitle_args(args: argparse.Namespace) -> dict | None:
+    from extract_video_subtitles import parse_region
+    enabled = bool(getattr(args, "subtitles", False))
+    crop = getattr(args, "subtitle_region", "")
+    if crop and not enabled:
+        raise FoundationError("--subtitle-region requires --subtitles")
+    if not enabled:
+        return None
+    if args.creator or args.source_page or args.selection_file or len(unique_work_urls(args.video or [])) != 1:
+        raise FoundationError("--subtitles requires exactly one explicit --video; no batch or profile OCR")
+    if "primary" not in args.assets.split(","):
+        raise FoundationError("--subtitles requires primary video download")
+    if args.resume:
+        raise FoundationError("Subtitle OCR has no cross-session resume; finish the original download, then use extract_video_subtitles.py with a new subtitle output directory")
+    try:
+        return parse_region(crop)
+    except ValueError as exc:
+        raise FoundationError("--subtitles requires a visually confirmed --subtitle-region") from exc
+
+
+def subtitle_video_input(works_json: Path, delivery: Path, expected_id: str) -> Path:
+    payload = json.loads(works_json.read_text(encoding="utf-8-sig"))
+    rows = payload.get("works") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError("Subtitle input is not one confirmed work")
+    row = rows[0]
+    asset = (row.get("downloads") or {}).get("video") or {}
+    if str(row.get("aweme_id")) != expected_id or row.get("type") not in ["视频", "video"] or asset.get("status") not in ["downloaded", "skipped_existing"]:
+        raise ValueError("Subtitle input does not match the requested downloaded video")
+    root = (delivery / "03_作品素材").resolve()
+    folder = (delivery / str(row.get("local_folder") or "")).resolve()
+    file_name = str(asset.get("file") or "")
+    video = (folder / file_name).resolve()
+    if root not in folder.parents or video.parent != folder or Path(file_name).name != file_name or not video.is_file():
+        raise ValueError("Subtitle video must be the verified file inside this delivery")
+    return video
+
+
+def run_subtitle_stage(args: argparse.Namespace, works_json: Path, delivery: Path) -> dict:
+    import asyncio
+    from extract_video_subtitles import extract
+    selected = validate_subtitle_args(args)
+    if selected is None:
+        return {"requested": False}
+    source = unique_work_urls(args.video)[0]
+    match = AWEME_ID_RE.search(source)
+    work_id = match.group(1) if match else str((urllib.parse.parse_qs(urllib.parse.urlparse(source).query).get("modal_id") or [""])[0])
+    try:
+        if not re.fullmatch(r"\d{10,25}", work_id):
+            raise ValueError("Work ID unavailable")
+        video = subtitle_video_input(works_json, delivery, work_id)
+        summary = asyncio.run(extract(video, video.parent / "字幕", selected, executable=args.chrome_path, work_id=work_id))
+        summary["folder"] = (video.parent / "字幕").relative_to(delivery).as_posix()
+        return summary
+    except Exception:
+        # OCR cannot invalidate or remove an already downloaded work/product/comment.
+        return {"requested": True, "state": "failed", "exit_code": 3, "accuracy": "machine_unverified",
+                "reason": "local_subtitle_stage_failed_or_existing_result_preserved"}
+
+
 def run_all(
     args: argparse.Namespace,
     scripts_dir: Path | None = None,
@@ -617,6 +682,7 @@ def run_all(
     browser_stage_runner: Any = run_shared_browser_stages,
 ) -> int:
     configure_output()
+    validate_subtitle_args(args)
     try:
         validate_product_review_args(args)
     except WorkDownloadError as exc:
@@ -816,12 +882,18 @@ def run_all(
         )
     product_summary = getattr(works_args, "_product_review_summary", {"requested": True, "status": "partial", "exit_code": 3, "done_reason": "stage_not_confirmed"}) if getattr(args, "product_reviews", False) else {}
     review_builder_code = workbook_result.returncode if getattr(args, "product_reviews", False) else 0
-    result_code = 3 if any(code != 0 for code in (works_code, comments_code, int(product_summary.get("exit_code", 0)), review_builder_code)) or comments_blocked else 0
+    subtitle_summary = run_subtitle_stage(args, works_json, delivery_dir)
+    if subtitle_summary.get("requested"):
+        with (delivery_dir / "04_采集说明.md").open("a", encoding="utf-8") as handle:
+            handle.write("\n## 视频字幕（测试版）\n\n本次另外执行本地画面识别，不是发布文案或音频转写。")
+            handle.write(f"处理状态：{subtitle_summary.get('state')}；机器识别仍需核对，不代表字幕完整无误。")
+            handle.write("如已生成结果，见对应作品素材目录的“字幕/”；失败或中断不影响已经下载的素材。\n")
+    result_code = 3 if any(code != 0 for code in (works_code, comments_code, int(product_summary.get("exit_code", 0)), review_builder_code, int(subtitle_summary.get("exit_code", 0)))) or comments_blocked else 0
     (delivery_dir / "data" / "foundation_manifest.json").write_text(json.dumps({
         "status": "partial" if result_code else "complete", "works_exit_code": works_code,
         "comments_exit_code": comments_code, "comments_stage": "blocked" if comments_blocked else "not_requested" if args.skip_comments else "finished",
         "product_reviews": product_summary or {"requested": False}, "input_identity": work_input_identity(args),
-        "privacy_mode": args.privacy_mode, "finished_at": utc_now(),
+        "subtitles": subtitle_summary, "privacy_mode": args.privacy_mode, "finished_at": utc_now(),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     if args.zip:
         package_result = package_directory(delivery_dir, delivery_zip_path(args))
