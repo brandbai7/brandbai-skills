@@ -488,4 +488,3 @@ async def extract_detected(video: Path, out: Path, executable: str = "", work_id
             "segments": len(state.get("segments", [])), "images": len(images), "runtime": runtime,
             "runtimeVerification": verification, "accuracy": "machine_unverified", "exit_code": 0 if complete else 3,
             "releaseStatus": "candidate_not_accepted"}
-

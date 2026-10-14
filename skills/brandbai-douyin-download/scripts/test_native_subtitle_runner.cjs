@@ -51,4 +51,3 @@ test("canonical working body is once across outputs and all critical notices sta
   assert.equal(out.documents.manifest.rows.length, 1);
   assert.equal(JSON.stringify(result), before);
 });
-
