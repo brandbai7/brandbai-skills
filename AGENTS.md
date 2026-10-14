@@ -41,6 +41,8 @@ python -m unittest scripts/test_build_skill_release.py scripts/test_publish_skil
 cd skills/brandbai-douyin-download/scripts
 python -m unittest test_download_creator_works.py test_product_detail_safety.py test_browser_collect_product_reviews.py test_product_review_integration.py test_selection_contract.py test_package_delivery.py test_browser_collect_comments.py test_run_foundation.py test_run_long_job.py test_build_foundation_workbooks.py
 python -B -m unittest test_video_subtitles.py test_subtitle_wrapper.py
+python -B -m unittest test_detected_subtitles.py
+node test_native_subtitle_runner.cjs
 node --test test_subtitle_engine.cjs
 cd ../../brandbai-douyin-account-analysis/scripts
 python -m unittest test_analysis_dataset.py test_analysis_delivery.py

@@ -29,6 +29,10 @@ REQUIRED_ROOT_FILES = {
 }
 EXPECTED_LICENSE = "PolyForm-Noncommercial-1.0.0"
 PINNED_LOCAL_OCR_ASSETS = {
+    "skills/brandbai-douyin-download/assets/subtitles-native/subtitles/vendor/det.onnx": "d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9",
+    "skills/brandbai-douyin-download/assets/subtitles-native/subtitles/vendor/precision-rec.onnx": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba",
+    "skills/brandbai-douyin-download/assets/subtitles-native/subtitles/vendor/rec.onnx": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+    "skills/brandbai-douyin-download/assets/subtitles-native/subtitles/vendor/ort/ort-wasm-simd-threaded.wasm": "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4",
     "skills/brandbai-douyin-download/assets/subtitles/vendor/rec.onnx": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
     "skills/brandbai-douyin-download/assets/subtitles/vendor/keys.txt": "d1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b",
     "skills/brandbai-douyin-download/assets/subtitles/vendor/ort/ort-wasm-simd-threaded.wasm": "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4",
@@ -123,6 +127,19 @@ def main() -> int:
                 failures.append(f"Local OCR manifest hash mismatch: {relative}")
     except (OSError, ValueError, KeyError, TypeError):
         failures.append("Local OCR resource manifest is missing or invalid")
+    native = SKILLS_ROOT / "brandbai-douyin-download" / "assets" / "subtitles-native"
+    try:
+        native_manifest = json.loads((native / "runtime-manifest.json").read_text(encoding="utf-8"))
+        if native_manifest.get("source") != "workflow-v0.11.201 independently frozen local test runtime":
+            failures.append("Native subtitle runtime is not the frozen v201 source")
+        for relative, expected in native_manifest["sha256"].items():
+            asset = (native / relative).resolve()
+            if not asset.is_relative_to(native.resolve()) or not asset.is_file():
+                failures.append(f"Invalid native OCR manifest asset: {relative}")
+            elif hashlib.sha256(asset.read_bytes()).hexdigest() != expected:
+                failures.append(f"Native OCR manifest hash mismatch: {relative}")
+    except (OSError, ValueError, KeyError, TypeError):
+        failures.append("Native OCR resource manifest is missing or invalid")
     for filename in sorted(REQUIRED_ROOT_FILES):
         if not (ROOT / filename).is_file():
             failures.append(f"Required root file is missing: {filename}")
