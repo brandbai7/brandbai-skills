@@ -43,7 +43,7 @@ class RuntimeReceiptTests(unittest.TestCase):
                 receipt = subtitles.runtime_receipt()
             self.assertEqual(receipt["engineName"], manifest["engine"])
             self.assertEqual(receipt["engineVersion"], "test-2")
-            self.assertEqual(receipt["wrapperVersion"], "0.6.3")
+            self.assertEqual(receipt["wrapperVersion"], "0.6.6-candidate")
             self.assertEqual(receipt["modelSha256"], manifest["sha256"]["rec.onnx"])
             self.assertEqual(set(receipt["codeSha256"]), {"engine.js", "recognizer.js", "recognizer-worker.js"})
 

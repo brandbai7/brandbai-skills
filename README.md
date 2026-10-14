@@ -11,20 +11,29 @@ BrandBAI Skills 是一个遵循 [Agent Skills 开放标准](https://agentskills.
 
 ## Chrome 扩展：电商采集大师 · BrandBAI
 
-原“BrandBAI 采集大师／BrandBAI 下载助手”，现以“电商采集大师”为界面主标题，BrandBAI 以浅色副标题保留。本次扩展安装包为 **v0.11.183**，新增短视频画面字幕稳定修复；扩展版本与下方各个 Skill 的版本独立。
+原“BrandBAI 采集大师／BrandBAI 下载助手”，现以“电商采集大师”为界面主标题，BrandBAI 以浅色副标题保留。本次扩展试用安装包为 **v0.11.217**，提供字幕双模式与脚本工作包，并修复读取画面的恢复链路；扩展版本与下方各个 Skill 的版本独立。
 
-- [GitHub 发布与安装包](https://github.com/brandbai7/brandbai-skills/releases/tag/chrome-extension-v0.11.183)
+- [GitHub 发布与安装包](https://github.com/brandbai7/brandbai-skills/releases/tag/chrome-extension-v0.11.217)
+- [本版能力与验收边界](docs/douyin-extension/releases/v0.11.217.md)
 - [产品说明与使用边界](https://brandbai7.github.io/brandbai-skills/douyin-extension/)
 - [隐私政策](https://brandbai7.github.io/brandbai-skills/douyin-extension/privacy.html) · [支持与联系](https://brandbai7.github.io/brandbai-skills/douyin-extension/support.html)
 
-本次同步仅更新扩展说明和抖音下载 Skill，不修改其他 Skill 版本，也不代表 Chrome Web Store 已审核或发布更新。画面字幕在本机识别，不上传视频、不识别声音；采样时间不是精确字幕轴，可能漏字、错字或混入其他画面文字，原始读数可回查。本次不包含逐句配图或多区域字幕检测。扩展只按需整理有权访问、页面实际提供的公开资料，不承诺全量获取；小红书采用手动浏览、按需保存。
+插件提供“只提字幕／字幕＋关键画面”两种选择，默认不额外保存配图。脚本工作包包含 HTML 图文浏览页、可编辑 Excel 和文字；配图按实际保存结果附带，原视频与商品资料不会自动合并进脚本包。当前安装包、附件哈希与测试范围以对应 GitHub Release 为准，不代表 Chrome Web Store 已审核或自动升级。
+
+画面字幕在本机识别，不上传视频、不识别声音；采样时间不是精确字幕轴，可能漏字、错字、重复或混入其他画面文字，原始读数与待确认文字可回查。局部补查失败会保留缺口，不因此宣称整片已完整核验。扩展只按需整理有权访问、页面实际提供的公开资料，不承诺全量获取；小红书采用手动浏览、按需保存。
+
+### 已有视频和脚本工作包，怎样接着用
+
+抖音下载 Skill **0.6.6 试用版**增加本地原片自动逐行检测，默认只生成简体字幕工作稿，明确选择后再保存对应画面；命令行采用独立冻结的 v201 运行时，并不自动获得新版插件的网页控制、恢复流程或脚本 Excel 导出。已有插件工作包可先直接读取，不必再次下载或识别。详情见 [字幕命令行说明](skills/brandbai-douyin-download/references/video-subtitles.md) 与 [脚本工作包接力](skills/brandbai-douyin-download/references/script-work-package.md)。
+
+正文、待确认文字、未完成范围和原始记录分开保留；整理资料不自动生成商业结论。商品资料、商品评价和作品评论需另行明确请求，不随字幕自动采集。[下载抖音 Skill 0.6.6 试用包](https://github.com/brandbai7/brandbai-skills/releases/tag/brandbai-douyin-download-v0.6.6)，安装前核对附件与哈希。
 
 ## Skill catalog
 
 | Skill | Version | What it does | Status |
 | --- | --- | --- | --- |
 | [`brandbai-live-recorder`](skills/brandbai-live-recorder/) | 0.22.16 | 直播采集助手：公开直播录制与人数快照；按需记录互动、下载商品目录、图片规格与套餐组成；评价自动读取、暂停／继续、结束下载，完整性如实说明 | Prototype · Noncommercial |
-| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.6.3 | 作品素材、发布文案、数据和一级评论；单条挂车作品可按需采集商品资料与评价；另可对已下载短视频做本机画面字幕识别，保留时间与原始候选，不做音频转写或逐句配图 | Community beta · Noncommercial |
+| [`brandbai-douyin-download`](skills/brandbai-douyin-download/) | 0.6.6 | 作品与按需商品／评价采集；已下载短视频自动检测画面字幕、简体工作稿与显式可选逐句配图；可接力插件脚本工作包，不做音频转写或自动商业分析 | Community beta · Noncommercial |
 | [`brandbai-tmall-download`](skills/brandbai-tmall-download/) | 0.3.2 | 天猫／淘宝参数、主图、图文详情和视频按模块读取，分开当前规格与页面参数，并输出结构化价格、素材双序号及内容／经营两层状态；评价和问大家保持独立下载 | Prototype · Noncommercial |
 | [`brandbai-xiaohongshu-download`](skills/brandbai-xiaohongshu-download/) | 0.4.3 | 单篇完整笔记、当前页达人快照与可见评论；账号主页和搜索批量仅整理列表卡片、封面、基础互动与选择快照，支持 ZIP | Alpha · Noncommercial |
 | [`brandbai-tiktok-download`](skills/brandbai-tiktok-download/) | 0.2.3 | TikTok 单作品当前页达人快照、视频、图集、主页、搜索、插件作品清单续跑与可见一级评论；支持独立原声缺口、海外市场预设和本机中英双语证据 | Prototype · Noncommercial |

@@ -16,7 +16,7 @@ from urllib.parse import unquote, urlparse
 ASSETS = Path(__file__).resolve().parents[1] / "assets" / "subtitles"
 ORIGIN = "https://brandbai-subtitles.invalid"
 MAX_BYTES = 150 * 1024 * 1024
-WRAPPER_VERSION = "0.6.3"
+WRAPPER_VERSION = "0.6.6-candidate"
 
 
 def validate_video(video: Path, interval: float) -> None:
@@ -227,7 +227,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video-file", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--region", required=True, help="Confirmed subtitle crop: left,top,right,bottom (0—1)")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--region", help="Confirmed subtitle crop: left,top,right,bottom (0—1); legacy fixed-region mode")
+    mode.add_argument("--detected-lines", action="store_true", help="Opt-in candidate automatic native line detection; never a confirmed manual region")
+    parser.add_argument("--with-frames", action="store_true", help="With --detected-lines only: explicitly save corresponding video frames; default is text only, including resume")
+    parser.add_argument("--deadline-seconds", type=int, default=1200, help="Detected-lines processing bound only: 60—1800 seconds")
+    parser.add_argument("--resume-record", default="", help="Detected-lines only: frozen complete-sampling pending precision/extent checkpoint; always use a new empty output")
+    parser.add_argument("--resume-record-sha256", default="", help="Required SHA-256 for --resume-record; never inferred")
     parser.add_argument("--chrome-path", default="")
     parser.add_argument("--language", choices=["chi_sim", "eng", "chi_sim+eng"], default="chi_sim+eng")
     parser.add_argument("--line-mode", choices=["7"], default="7")
@@ -236,9 +242,40 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     executing = False
     try:
-        selected = parse_region(args.region)
+        selected = parse_region(args.region) if args.region else None
         video = Path(args.video_file)
         validate_video(video, .5)
+        if args.with_frames and not args.detected_lines:
+            raise ValueError("--with-frames requires --detected-lines; legacy fixed-region mode does not export frames")
+        if (args.resume_record or args.resume_record_sha256) and (not args.detected_lines or not args.resume_record or not args.resume_record_sha256):
+            raise ValueError("续跑只用于自动检测，且必须同时提供 --resume-record 和 --resume-record-sha256；旧区域模式不支持")
+        if args.detected_lines:
+            from extract_detected_subtitles import extract_detected, runtime_receipt as native_runtime, load_resume_record, digest as native_digest, resume_plan as build_resume_plan
+            if args.language != "chi_sim+eng":
+                raise ValueError("自动检测模式使用随包中英模型，不支持覆盖语言配置")
+            if not 60 <= args.deadline_seconds <= 1800:
+                raise ValueError("本地检测处理时限应为 60—1800 秒")
+            if args.dry_run:
+                resume_plan = None
+                runtime = native_runtime()
+                if args.resume_record:
+                    checkpoint = load_resume_record(Path(args.resume_record), args.resume_record_sha256, video, runtime, args.work_id)
+                    resume_plan = build_resume_plan(checkpoint, args.resume_record_sha256,
+                                                   native_digest(Path(__file__).resolve().parents[1] / "assets/subtitles-native/resume-runner.js"))
+                print(json.dumps({"mode": "native_detected_lines", "region": None, "automatic_detection": True,
+                                  "captureMode": "with_frames" if args.with_frames else "text_only",
+                                  "video_sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                                  "video_bytes": video.stat().st_size, "upload": False, "audio_transcription": False,
+                                  "runtime": runtime, "resume": resume_plan, "release_status": "candidate_not_accepted"}, ensure_ascii=False))
+                return 0
+            executing = True
+            options = {"executable": args.chrome_path, "work_id": args.work_id, "deadline": args.deadline_seconds,
+                       "include_frames": args.with_frames}
+            if args.resume_record:
+                options.update(resume_record=Path(args.resume_record), resume_sha256=args.resume_record_sha256)
+            summary = asyncio.run(extract_detected(video, Path(args.out), **options))
+            print(json.dumps(summary, ensure_ascii=False))
+            return summary["exit_code"]
         if args.dry_run:
             print(json.dumps({"mode":"local_screen_subtitles", "region":selected, "upload":False, "audio_transcription":False,
                               "video_bytes":video.stat().st_size, "runtime":runtime_receipt()}, ensure_ascii=False))
@@ -247,6 +284,12 @@ def main(argv=None) -> int:
         summary = asyncio.run(extract(video, Path(args.out), selected, args.chrome_path, args.language, args.line_mode, args.work_id))
         print(json.dumps(summary, ensure_ascii=False))
         return summary["exit_code"]
+    except ModuleNotFoundError as exc:
+        if str(getattr(exc, "name", "")).startswith("playwright"):
+            print("当前Python缺少Playwright；请在已授权的本地环境按 requirements-browser.txt 准备依赖。未启动识别，无自动安装或云端回退。", file=sys.stderr)
+        else:
+            print("当前Python缺少所需本地依赖；请按 requirements-browser.txt 核对环境。", file=sys.stderr)
+        return 3
     except (ValueError, OSError) as exc:
         if executing:
             print("本地字幕处理未完成；已保存的结果不会删除。请检查完整组件、Chrome 与输出目录后重试。", file=sys.stderr)

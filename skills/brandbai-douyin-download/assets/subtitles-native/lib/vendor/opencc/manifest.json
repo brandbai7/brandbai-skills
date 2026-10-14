@@ -1,0 +1,15 @@
+{
+  "package": "opencc-js",
+  "version": "1.4.1",
+  "configuration": { "from": "t", "to": "cn", "semantics": "display-only traditional to simplified; no OCR spelling correction" },
+  "source": "https://registry.npmjs.org/opencc-js/-/opencc-js-1.4.1.tgz",
+  "registryIntegrity": "sha512-2lPLcrg7cnh1ATSduOxhnk/jq6KlR6w+5Ihl4wF7Z5e5Rva4vxTyugV5rZ7EiUCOZl+EDOLetIix+BhgYDCC+A==",
+  "license": "MIT AND Apache-2.0",
+  "runtimeNetworkRequired": false,
+  "sha256": {
+    "t2cn.js": "7278fa6398f59a79075e7768db4f2a78cab228541703a1d590022c19e233419f",
+    "LICENSE-MIT.txt": "960f7fc16d8baa126802316a7df9078a383af4fb6bc60033adb28e85c08d5e5e",
+    "LICENSE-Apache-2.0.txt": "b534e465949558eec2597b04f5092b5e161236a68dfbfd04d547592ac3964308",
+    "THIRD_PARTY_LICENSES.md": "42c7dbe71c178fcca97ba945e9ac9ff360fb69bbfea4cb50556f6c65bfa59806"
+  }
+}

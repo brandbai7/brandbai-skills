@@ -184,6 +184,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_work_source_args(all_in_one)
     all_in_one.add_argument("--subtitles", action="store_true", help="Opt-in local screen OCR of exactly one explicit downloaded video; no audio transcription")
     all_in_one.add_argument("--subtitle-region", default="", help="Confirmed single-line crop: left,top,right,bottom (0—1)")
+    all_in_one.add_argument("--subtitle-detected-lines", action="store_true", help="With --subtitles only: opt-in candidate native line detection; mutually exclusive with --subtitle-region")
+    all_in_one.add_argument("--subtitle-with-frames", action="store_true", help="Requires --subtitles and --subtitle-detected-lines: explicitly save corresponding video frames; default text only")
     all_in_one.add_argument("--scrolls", type=int, default=5)
     all_in_one.add_argument("--download-timeout", type=float, default=180.0)
     all_in_one.add_argument("--include-replies", action="store_true")
@@ -381,7 +383,10 @@ def all_plan(args: argparse.Namespace) -> dict[str, Any]:
         "recent_non_pinned": args.recent,
         "selection": work_selection_description(args),
         "assets": args.assets,
-        "subtitles": {"requested": True, "region": subtitle_region, "upload": False, "audio_transcription": False,
+        "subtitles": {"requested": True, "mode": "native_detected_lines" if subtitle_region.get("mode") == "native_detected_lines" else "fixed_region",
+                      "region": None if subtitle_region.get("mode") == "native_detected_lines" else subtitle_region,
+                      "automatic_detection": subtitle_region.get("mode") == "native_detected_lines", "upload": False, "audio_transcription": False,
+                      **({"captureMode": "with_frames" if subtitle_region.get("include_frames") else "text_only"} if subtitle_region.get("mode") == "native_detected_lines" else {}),
                       "accuracy": "machine_unverified", "seconds_limit": 180} if subtitle_region else {"requested": False},
         "commerce_detail": bool(getattr(args, "commerce_detail", False)),
         "product_reviews": ({**product_review_identity(args), "max_reviews": args.max_product_reviews,
@@ -619,8 +624,14 @@ def validate_subtitle_args(args: argparse.Namespace) -> dict | None:
     from extract_video_subtitles import parse_region
     enabled = bool(getattr(args, "subtitles", False))
     crop = getattr(args, "subtitle_region", "")
-    if crop and not enabled:
-        raise FoundationError("--subtitle-region requires --subtitles")
+    detected = bool(getattr(args, "subtitle_detected_lines", False))
+    with_frames = bool(getattr(args, "subtitle_with_frames", False))
+    if with_frames and not (enabled and detected):
+        raise FoundationError("--subtitle-with-frames requires --subtitles and --subtitle-detected-lines")
+    if (crop or detected) and not enabled:
+        raise FoundationError("--subtitle-region and --subtitle-detected-lines require --subtitles")
+    if crop and detected:
+        raise FoundationError("--subtitle-region and --subtitle-detected-lines are mutually exclusive; manual region is never ignored")
     if not enabled:
         return None
     if args.creator or args.source_page or args.selection_file or len(unique_work_urls(args.video or [])) != 1:
@@ -629,6 +640,8 @@ def validate_subtitle_args(args: argparse.Namespace) -> dict | None:
         raise FoundationError("--subtitles requires primary video download")
     if args.resume:
         raise FoundationError("Subtitle OCR has no cross-session resume; finish the original download, then use extract_video_subtitles.py with a new subtitle output directory")
+    if detected:
+        return {"mode": "native_detected_lines", "include_frames": with_frames}
     try:
         return parse_region(crop)
     except ValueError as exc:
@@ -666,7 +679,12 @@ def run_subtitle_stage(args: argparse.Namespace, works_json: Path, delivery: Pat
         if not re.fullmatch(r"\d{10,25}", work_id):
             raise ValueError("Work ID unavailable")
         video = subtitle_video_input(works_json, delivery, work_id)
-        summary = asyncio.run(extract(video, video.parent / "字幕", selected, executable=args.chrome_path, work_id=work_id))
+        if selected.get("mode") == "native_detected_lines":
+            from extract_detected_subtitles import extract_detected
+            summary = asyncio.run(extract_detected(video, video.parent / "字幕", executable=args.chrome_path, work_id=work_id,
+                                                  include_frames=selected["include_frames"]))
+        else:
+            summary = asyncio.run(extract(video, video.parent / "字幕", selected, executable=args.chrome_path, work_id=work_id))
         summary["folder"] = (video.parent / "字幕").relative_to(delivery).as_posix()
         return summary
     except Exception:

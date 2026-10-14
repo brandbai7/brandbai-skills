@@ -1,0 +1,44 @@
+Local subtitle OCR components
+
+ONNX Runtime Web 1.22.0 — Copyright Microsoft Corporation. MIT license.
+https://github.com/microsoft/onnxruntime/tree/v1.22.0
+License and dependent notices are included in vendor/.
+
+PP-OCRv5 mobile recognition model and character dictionary:
+PaddleOCR / PaddlePaddle, converted and distributed through RapidAI / RapidOCR.
+Apache License 2.0. Both project license files are included in vendor/.
+https://github.com/PaddlePaddle/PaddleOCR
+https://github.com/RapidAI/RapidOCR
+Pinned model registry: RapidAI/RapidOCR, revision v3.9.2 on ModelScope.
+Model: onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx
+Dictionary: paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt
+
+PP-OCRv4 mobile text detector, distributed unmodified through the same registry:
+onnx/PP-OCRv4/det/ch_PP-OCRv4_det_mobile.onnx
+det.onnx SHA256 d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9.
+Apache License 2.0, PaddleOCR/RapidOCR licenses included in vendor/.
+
+PP-OCRv6_medium_rec precision recognition model:
+PaddlePaddle / PaddleOCR. Apache License 2.0; included as LICENSE-PaddleOCR.txt.
+Official ONNX asset distributed unmodified:
+https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/tree/50c7eacafc52fa7bcf4194e8cd08e46f8558504b
+precision-rec.onnx is the official inference.onnx, SHA256
+9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba.
+precision-keys.txt mechanically extracts inference.yml's character_dict in its
+unchanged Unicode order. The decoder adds CTC blank and space independently.
+This extraction changes packaging format only, not the trained dictionary.
+
+The original runtime, model and dictionary are distributed unmodified.
+BrandBAI's separate worker implements crop resizing, BGR normalization and CTC
+decoding following the documented PP-OCR recognition input/output contract.
+Only local packaged code, WASM and model files execute at runtime. There is no
+remote code/model fallback, audio transcription or cloud OCR service.
+vendor/manifest.json records the bundled bytes for release verification.
+
+Simplified Chinese output normalization:
+opencc-js 1.4.1 (nk2028), MIT AND Apache-2.0.
+Pinned package https://registry.npmjs.org/opencc-js/-/opencc-js-1.4.1.tgz
+The unchanged t2cn UMD bundle includes OpenCC-data derivatives; both licenses
+and third-party notices are in ../lib/vendor/opencc/. That manifest pins hashes.
+Traditional-to-Simplified conversion applies to a separately labelled working
+view only, with original OCR strings retained. It is not spelling correction.

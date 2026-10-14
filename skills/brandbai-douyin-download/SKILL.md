@@ -4,13 +4,17 @@ description: Download public Douyin works, media, published captions, metadata a
 license: PolyForm-Noncommercial-1.0.0
 metadata:
   author: 布兰德老白 BrandBAI
-  version: "0.6.3"
+  version: "0.6.6"
   category: content-commerce
 ---
 
 # BrandBAI 抖音作品与商品资料采集
 
 把公开抖音账号或明确作品整理为可回溯的素材、数据和作品评论；单条挂车作品可按要求连同关联商品资料与商品评价一并整理。商品评价与作品评论分开保存。这里只完成采集和质量核验，语义分析、商品匹配与商业结论属于后续任务。
+
+v0.6.6 是试用版，命令行自动字幕采用已冻结的 v201 运行时；默认保守单帧、一个独立单线程识别进程，硬件信息只作诊断，不承诺稳定提速。明确请求后，可直接接力该作品已经下载的视频，默认输出自动逐行检测的简体工作稿、独立疑点与原始记录；配图须显式选择。精读恢复只补合法待办，不重复检测或移动识字。插件与 Skill 的版本、功能和验收状态独立；处理结束不等于文字准确，源码更新不等于商店发布。
+
+用户已经提供插件的脚本工作包时，先阅读 [脚本工作包接力](references/script-work-package.md)，优先使用已提供资料，不重复下载或识别。不把插件的 HTML／Excel 脚本工作包、当前网页读取或切页恢复能力宣称为本 Skill 命令行已有功能。
 
 ## 先确认授权范围
 
@@ -54,7 +58,7 @@ metadata:
 5. 隐私模式。默认使用稳定化名；只有得到明确授权和合法业务需要时才保留原始评论者名称。
 6. 素材范围：`primary`、`cover`、`audio`、`caption` 的任意组合；`caption` 是发布文案，不是口播转写。
 
-用户明确要求提取视频画面字幕时，先阅读 [本地字幕提取](references/video-subtitles.md)。这是额外的可选步骤，默认关闭；支持 3 分钟、150 MB 以内单视频的固定位置单行中英字幕。Skill 命令仍须核对区域后运行，不能用默认坐标假定位置。给单作品 `all` 任务增加 `--subtitles --subtitle-region` 后，下载完成会直接接力同一作品记录中的本地视频，无需用户再次选文件；不再访问平台，不上传媒体、不识别音频。自动保守整理连续重复，不要求对明显重复逐组确认。输出含采样观察时间段的 `视频字幕.txt` 与原始识别记录，记录实际随包模型名称、版本依据与文件哈希；时间不是精确字幕轴，不能替换发布文案、推断商品或宣称完整准确。当前首包不包含逐句配图，插件的当前页面逐帧读取及自动定位也不得宣称命令行已具备。
+用户明确要求提取视频画面字幕时，先阅读 [本地字幕提取](references/video-subtitles.md)。这是额外可选步骤，默认关闭；单视频限 3 分钟、150 MB。两个互斥入口：旧 `--region` 处理已核对的固定单行区域；新 `--detected-lines` 检测本地原片文字行、区分字幕轨道与其他画面文字，默认只输出简体工作稿、疑点与原始记录。明确需要逐句配图时增加 `--with-frames`；纯文本模式不收集 JPEG 或生成图文画廊，识别、采样与原生证据规则不变。正文保留当前选定实际原读；真实不同读数与技术校验未完成分别记入独立 `字幕疑点.txt`，不将技术状态伪装成识别分歧，不猜改数字、单位、否定、姓名等。单作品 `all` 显式使用 `--subtitles --subtitle-detected-lines`，需要配图时再加 `--subtitle-with-frames`；旧模式使用 `--subtitles --subtitle-region`，两种模式不能同时使用。下载后直接接力同一作品记录中的本地视频，无需用户再选文件。不再访问平台、不上传媒体、不识别音频。实际模型名称、代码版本与哈希写入结果；时间是采样观察范围，不是精确字幕轴。新增命令行能力不包括插件的当前网页逐帧读取、播放器锁定或 OPFS 接力。
 
 ## 遵守采集边界
 
@@ -315,7 +319,7 @@ python scripts/run_long_job.py status `
 
 ## 验证修改
 
-在 `scripts/` 目录运行：
+以下是开发源码目录的检查方法。普通运行无需执行开发测试；测试只使用合成数据，不包含客户案例。仅在带测试文件的源码目录执行：
 
 ```powershell
 $env:PYTHONUTF8 = "1"
@@ -323,6 +327,8 @@ python -m unittest test_download_creator_works.py test_browser_collect_comments.
 python -m unittest test_selection_contract.py test_package_delivery.py
 python -m unittest test_product_detail_safety.py test_browser_collect_product_reviews.py test_product_review_integration.py
 python -X utf8 -B -m unittest test_video_subtitles.py test_subtitle_wrapper.py
+python -X utf8 -B -m unittest test_detected_subtitles.py
+node test_native_subtitle_runner.cjs
 ```
 
 默认测试只使用本地模拟数据，不打开抖音，也不产生付费请求。商品详情／评价新增链路属于测试版：本地模拟验证与插件既往页面截图不替代当前 Skill 的独立登录态端到端验收。
